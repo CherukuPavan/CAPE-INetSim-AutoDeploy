@@ -1,0 +1,9 @@
+*.qcow2
+*.qcow2.xz
+*.iso
+*.tar.gz
+*.zip
+*.log
+.env
+state/
+artifacts/
