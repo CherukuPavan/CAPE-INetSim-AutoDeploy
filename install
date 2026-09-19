@@ -1,56 +1,46 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
 AUTODEPLOY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export AUTODEPLOY_ROOT
 
 source "$AUTODEPLOY_ROOT/lib/common.sh"
-source "$AUTODEPLOY_ROOT/lib/cape-discovery.sh"
-source "$AUTODEPLOY_ROOT/lib/libvirt-discovery.sh"
-source "$AUTODEPLOY_ROOT/lib/windows-discovery.sh"
-source "$AUTODEPLOY_ROOT/lib/busy-check.sh"
-source "$AUTODEPLOY_ROOT/lib/subnet-planner.sh"
-source "$AUTODEPLOY_ROOT/lib/compatibility.sh"
-source "$AUTODEPLOY_ROOT/lib/discover.sh"
+source "$AUTODEPLOY_ROOT/lib/cape.sh"
+source "$AUTODEPLOY_ROOT/lib/libvirt.sh"
+source "$AUTODEPLOY_ROOT/lib/windows.sh"
+source "$AUTODEPLOY_ROOT/lib/network.sh"
+source "$AUTODEPLOY_ROOT/lib/compat.sh"
 source "$AUTODEPLOY_ROOT/lib/plan.sh"
 
-MODE=''
-REQUESTED_MACHINE=''
+MODE=""
+REQUESTED_MACHINE=""
 
-usage() {
-    cat <<USAGE
-${AUTODEPLOY_NAME} ${AUTODEPLOY_VERSION}
+usage(){
+  cat <<EOF
+${AD_NAME} ${AD_VERSION}
 
 Usage:
   sudo ./install --plan [--machine CAPE_MACHINE]
 
-Current development milestone:
-  --plan      Read-only environment discovery and deployment planning.
-              It does not create, modify, restart, stop, snapshot, or delete anything.
+Current milestone:
+  --plan  Read-only universal discovery and planning. It does not create,
+          modify, restart, stop, snapshot, or delete system resources.
 
-Options:
-  --machine   Select a CAPE machine when more than one enabled analysis machine exists.
-  -h, --help  Show this help.
-
-Deployment mode is intentionally not enabled yet.
-USAGE
+Use --machine only when AutoDeploy cannot uniquely select an analysis VM.
+EOF
 }
 
 while (($#)); do
-    case "$1" in
-        --plan) MODE='plan'; shift ;;
-        --machine)
-            [[ $# -ge 2 ]] || { echo "--machine requires a value" >&2; exit 2; }
-            REQUESTED_MACHINE="$2"; shift 2 ;;
-        -h|--help) usage; exit 0 ;;
-        *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
-    esac
+  case "$1" in
+    --plan) MODE="plan"; shift ;;
+    --machine)
+      [[ $# -ge 2 ]] || { echo "--machine requires a value" >&2; exit 2; }
+      REQUESTED_MACHINE="$2"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
+  esac
 done
 
-if [[ "$MODE" != plan ]]; then
-    usage
-    exit 2
-fi
+[[ "$MODE" == "plan" ]] || { usage; exit 2; }
 
 require_root_for_plan
 run_discovery
