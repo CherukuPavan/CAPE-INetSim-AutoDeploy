@@ -121,6 +121,13 @@ discover_windows_snapshot_capability
 [[ "$WINDOWS_INTERNAL_SNAPSHOT_CAPABLE" == no ]]
 [[ "${#DISCOVERY_ERRORS[@]}" -eq 1 ]]
 grep -Fq 'Windows disk is not qcow2' <<<"${DISCOVERY_ERRORS[0]}"
+
+DOMAIN_XML="<domain><devices><disk type='file' device='disk' snapshot='no'><driver name='qemu' type='qcow2'/><source file='$TMP_SNAP/windows.qcow2'/></disk></devices></domain>"
+DISCOVERY_ERRORS=()
+discover_windows_snapshot_capability
+[[ "$WINDOWS_INTERNAL_SNAPSHOT_CAPABLE" == no ]]
+[[ "${#DISCOVERY_ERRORS[@]}" -eq 1 ]]
+grep -Fq 'excluded from snapshots' <<<"${DISCOVERY_ERRORS[0]}"
 PATH="$OLD_PATH"
 
 grep -Fq 'discover_windows_snapshot_capability' "$ROOT/lib/plan.sh"
