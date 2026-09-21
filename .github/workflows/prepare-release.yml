@@ -46,12 +46,12 @@ jobs:
       RELEASE_TAG: ${{ inputs.release_tag }}
     steps:
       - name: Checkout release tooling
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           path: tooling
 
       - name: Checkout exact candidate source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ inputs.source_sha }}
           path: source
@@ -235,7 +235,7 @@ jobs:
           python3 -m json.tool "$RUNNER_TEMP/release/appliance-manifest.json" >/dev/null
 
       - name: Upload release package preview
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: cape-inetsim-autodeploy-${{ inputs.release_tag }}-release-package
           path: ${{ runner.temp }}/release
