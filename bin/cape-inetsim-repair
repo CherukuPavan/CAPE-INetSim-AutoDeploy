@@ -78,6 +78,12 @@ if ! virsh net-info "$ISOLATED_NETWORK_NAME" >/dev/null 2>&1; then
   isolated_network_apply
 fi
 
+windows_management_guard_verify || {
+  fail "Windows management anti-spoof guard is missing or changed; repair will not mutate the analysis VM security baseline."
+  exit 24
+}
+firewall_apply
+
 if ! virsh dominfo "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1; then
   state_resource_owned domain "$INETSIM_DOMAIN_NAME" || { fail "Missing INetSim domain is not recorded as AutoDeploy-owned"; exit 22; }
   artifact="$(appliance_fetch "$APPLIANCE_MANIFEST")"
