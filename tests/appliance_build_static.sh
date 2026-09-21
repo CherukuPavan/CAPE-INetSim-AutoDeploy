@@ -8,6 +8,8 @@ grep -q '0533b0655c32e68b31d792ecd6ccfca95abdbc536c4446874fe0513bd4140ffe' "$ROO
 grep -q 'virt-sysprep' "$ROOT/appliance/build/build.sh"
 grep -q 'virt-resize --expand /dev/sda1' "$ROOT/appliance/build/build.sh"
 grep -q 'virt-df' "$ROOT/appliance/build/build.sh"
+grep -q 'APPLIANCE_BASE_CACHE' "$ROOT/appliance/build/build.sh"
+grep -q 'using verified cached Ubuntu base release' "$ROOT/appliance/build/build.sh"
 grep -q -- '--management-mac' "$ROOT/appliance/guest-configure.sh"
 ! grep -q '192\.168\.200\.' "$ROOT/appliance/guest-configure.sh"
 echo '[PASS] pinned/generalized appliance build pipeline'
