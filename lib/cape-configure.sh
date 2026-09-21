@@ -56,6 +56,7 @@ cape_configure_inetsim() {
   python3 "$edit" "$CAPE_ROOT/conf/processing.conf" network dnswhitelist no
   python3 "$edit" "$CAPE_ROOT/conf/processing.conf" network ipwhitelist no
   python3 "$edit" "$CAPE_ROOT/conf/routing.conf" routing route none
+  python3 "$edit" "$CAPE_ROOT/conf/routing.conf" routing enable_pcap yes
 
   local py
   py="$(cape_runtime_python)"
@@ -69,7 +70,7 @@ cape_configure_inetsim() {
   state_record_resource cape-file "$CAPE_ROOT/conf/auxiliary.conf" modified yes "capture_host_${CAPE_MACHINE_LABEL}=$WINDOWS_FAKE_IP"
   state_record_resource cape-file "$CAPE_ROOT/conf/kvm.conf" modified yes "snapshot=$FINAL_SNAPSHOT interface=$ISOLATED_BRIDGE_NAME"
   state_record_resource cape-file "$CAPE_ROOT/conf/processing.conf" modified yes "dnswhitelist=no ipwhitelist=no"
-  state_record_resource cape-file "$CAPE_ROOT/conf/routing.conf" modified yes "route=none"
+  state_record_resource cape-file "$CAPE_ROOT/conf/routing.conf" modified yes "route=none enable_pcap=yes"
   state_set_phase cape-configured
 }
 
