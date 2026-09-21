@@ -30,13 +30,13 @@ windows_select_live_backend() {
     pass "Windows control backend: QEMU Guest Agent"
     return 0
   fi
-  if cape_agent_probe "$CAPE_MACHINE_IP" >/dev/null 2>&1; then
-    WINDOWS_BACKEND_USED=cape-agent
-    pass "Windows control backend: CAPE Agent"
+  if windows_winrm_ready "$CAPE_MACHINE_IP" >/dev/null 2>&1; then
+    WINDOWS_BACKEND_USED=winrm
+    pass "Windows control backend: approved WinRM"
     return 0
   fi
   WINDOWS_BACKEND_USED=manual-powershell
-  warn "No supported zero-touch Windows execution channel is available; one Administrator PowerShell command will be requested."
+  warn "No supported zero-touch Windows management channel is available; one Administrator PowerShell command will be requested."
   return 0
 }
 
@@ -45,10 +45,8 @@ windows_configure_selected_backend() {
     qemu-guest-agent)
       windows_configure_via_qga "$CAPE_MACHINE_IP" "$WINDOWS_ISOLATED_MAC" "$WINDOWS_FAKE_IP" 24 "$INETSIM_IP" "$CAPE_RESULTSERVER_IP" "$CAPE_RESULTSERVER_PORT" "$CONTROL_HOST_IP"
       ;;
-    cape-agent)
-      windows_configure_via_cape_agent "$CAPE_MACHINE_IP" "$WINDOWS_ISOLATED_MAC" "$WINDOWS_FAKE_IP" 24 "$INETSIM_IP" "$CAPE_RESULTSERVER_IP" "$CAPE_RESULTSERVER_PORT" "$CONTROL_HOST_IP"
-      WINDOWS_BACKEND_USED=cape-agent
-      state_write_atomic
+    winrm)
+      windows_configure_via_winrm "$CAPE_MACHINE_IP" "$WINDOWS_ISOLATED_MAC" "$WINDOWS_FAKE_IP" 24 "$INETSIM_IP" "$CAPE_RESULTSERVER_IP" "$CAPE_RESULTSERVER_PORT" "$CONTROL_HOST_IP"
       ;;
     manual-powershell)
       windows_configure_via_manual_callback
@@ -65,8 +63,8 @@ windows_verify_selected_backend() {
     qemu-guest-agent)
       windows_verify_via_qga "$CAPE_MACHINE_IP" "$WINDOWS_ISOLATED_MAC" "$WINDOWS_FAKE_IP" "$INETSIM_IP" "$CAPE_RESULTSERVER_IP" "$CAPE_RESULTSERVER_PORT"
       ;;
-    cape-agent)
-      windows_verify_via_cape_agent "$CAPE_MACHINE_IP" "$WINDOWS_ISOLATED_MAC" "$WINDOWS_FAKE_IP" "$INETSIM_IP" "$CAPE_RESULTSERVER_IP" "$CAPE_RESULTSERVER_PORT"
+    winrm)
+      windows_verify_via_winrm "$CAPE_MACHINE_IP" "$WINDOWS_ISOLATED_MAC" "$WINDOWS_FAKE_IP" "$INETSIM_IP" "$CAPE_RESULTSERVER_IP" "$CAPE_RESULTSERVER_PORT"
       ;;
     manual-powershell)
       validate_windows_result_file
@@ -82,7 +80,7 @@ windows_verify_selected_backend() {
 windows_poweroff_selected_backend() {
   case "$WINDOWS_BACKEND_USED" in
     qemu-guest-agent) windows_poweroff_via_qga ;;
-    cape-agent) windows_poweroff_via_cape_agent "$CAPE_MACHINE_IP" ;;
+    winrm) windows_poweroff_via_winrm "$CAPE_MACHINE_IP" ;;
     *) virsh shutdown "$DOMAIN" >/dev/null 2>&1 || true ;;
   esac
   windows_wait_for_domain_state "shut off" 120
@@ -129,7 +127,7 @@ windows_configure_via_manual_callback() {
   echo "================================================================"
   echo "ONE WINDOWS COMMAND REQUIRED"
   echo "================================================================"
-  echo "No QEMU Guest Agent or reachable administrative CAPE Agent was available."
+  echo "No QEMU Guest Agent or approved credentialed WinRM channel was available."
   echo "Run the following ONE command in Administrator PowerShell in the selected"
   echo "Windows analysis VM. The Linux installer is waiting and will continue"
   echo "automatically after the signed validation result returns."
