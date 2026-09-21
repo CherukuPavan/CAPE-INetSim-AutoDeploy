@@ -145,6 +145,9 @@ run "libvirt/domains" virsh list --all
 run "libvirt/networks" virsh net-list --all
 run "libvirt/pools" virsh pool-list --all
 runsh "libvirt/nodeinfo" "virsh nodeinfo; virsh freecell --all 2>/dev/null || true"
+runsh "libvirt/nwfilter_runtime" "systemctl status virtnwfilterd.socket virtnwfilterd.service --no-pager -l 2>&1 || true; echo; systemctl list-unit-files 'virtnwfilterd*' --no-pager 2>&1 || true"
+runsh "libvirt/nwfilter_inventory" "virsh nwfilter-list 2>&1 || true; echo '--- bindings ---'; virsh nwfilter-binding-list 2>&1 || true"
+runsh "libvirt/nwfilter_definitions" "find /etc/libvirt/nwfilter -maxdepth 1 -type f -printf '%f\n' 2>/dev/null | sort || true; echo '--- clean-traffic ---'; grep -RIl 'clean-traffic' /etc/libvirt/nwfilter /usr/share/libvirt 2>/dev/null || true"
 
 while IFS= read -r net; do
   [[ -n "$net" ]] || continue
