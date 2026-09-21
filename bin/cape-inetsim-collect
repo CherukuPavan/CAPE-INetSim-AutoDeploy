@@ -195,7 +195,12 @@ while IFS= read -r dom; do
   awk '$1=="file" {print $3}' "$ddir/block-devices.txt" 2>/dev/null | while read -r disk; do
     [[ -f "$disk" ]] || continue
     dsafe="$(basename "$disk" | tr -cs 'A-Za-z0-9._-' '_')"
-    sudo qemu-img info --backing-chain "$disk" >"$ddir/qemu-img-$dsafe.txt" 2>&1 || true
+    if ! sudo qemu-img info --backing-chain "$disk" >"$ddir/qemu-img-$dsafe.txt" 2>&1; then
+      # A running QEMU guest may hold the normal image lock. Retry only the
+      # read-only metadata probe with explicit shared access so inventory still
+      # captures the real format/backing chain without touching guest storage.
+      sudo qemu-img info --force-share --backing-chain "$disk" >"$ddir/qemu-img-$dsafe.txt" 2>&1 || true
+    fi
   done
 done < <(virsh list --all --name 2>/dev/null)
 
@@ -249,7 +254,7 @@ if [[ -n "$CAPE_ROOT" && -d "$CAPE_ROOT" ]]; then
   done
 fi
 
-# Windows-management reachability. Probes only; no guest commands.
+# Windows-management reachability. Read-only probes only; no guest configuration changes.
 CAPE_IP=""
 if [[ -f "$OUT/cape/kvm.conf.redacted.txt" ]]; then
   CAPE_IP="$(grep -E '^[[:space:]]*ip[[:space:]]*=' "$OUT/cape/kvm.conf.redacted.txt" | tail -1 | cut -d= -f2- | xargs || true)"
