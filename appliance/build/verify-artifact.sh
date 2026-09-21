@@ -43,6 +43,30 @@ grep -Fq 'loop_once(10)' <<<"$dns_pm"
 
 virt-cat -a "$IMAGE" /etc/cloud/cloud-init.disabled >/dev/null
 
+# A sealed release image must not contain deployment-owned or baked static
+# networking. The real target management/fake-Internet addresses are assigned
+# only after deployment identifies both NICs by MAC.
+if virt-cat -a "$IMAGE" /etc/netplan/90-cape-inetsim.yaml >/dev/null 2>&1; then
+  echo "[FAIL] candidate already contains deployment-owned netplan state" >&2
+  exit 5
+fi
+if virt-cat -a "$IMAGE" /etc/cape-inetsim-build-dns >/dev/null 2>&1; then
+  echo "[FAIL] candidate still contains temporary build DNS state" >&2
+  exit 5
+fi
+netplan_listing="$(virt-ls -a "$IMAGE" /etc/netplan 2>/dev/null || true)"
+while IFS= read -r netplan_name; do
+  case "$netplan_name" in
+    *.yaml|*.yml) ;;
+    *) continue ;;
+  esac
+  netplan_text="$(virt-cat -a "$IMAGE" "/etc/netplan/$netplan_name" 2>/dev/null || true)"
+  if grep -Eq '([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}|^[[:space:]]*gateway4:|^[[:space:]]*to:[[:space:]]*default([[:space:]]|$)' <<<"$netplan_text"; then
+    echo "[FAIL] candidate contains persistent static/default network configuration in /etc/netplan/$netplan_name" >&2
+    exit 5
+  fi
+done <<<"$netplan_listing"
+
 machine_id="$(virt-cat -a "$IMAGE" /etc/machine-id 2>/dev/null | tr -d '[:space:]' || true)"
 python3 - "$machine_id" <<'PY'
 import re,sys
