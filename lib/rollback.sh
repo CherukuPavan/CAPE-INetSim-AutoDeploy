@@ -55,7 +55,6 @@ rollback_restore_cutover() {
     for ((i=CAPE_TARGETS_COUNT-1;i>=0;i--)); do
       targets_bind "$i"
       rollback_try_critical "restore Windows pre-deployment snapshot/hardware for $CAPE_MACHINE_SECTION/$DOMAIN" windows_rollback_to_safety
-      TARGET_PHASE=rolled-back
       targets_capture_bound "$i"
       state_write_atomic
     done
