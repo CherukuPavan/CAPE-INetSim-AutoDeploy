@@ -250,6 +250,10 @@ jobs:
             echo "::error::release $RELEASE_TAG already exists; refusing to overwrite release assets"
             exit 3
           fi
+          if git -C source ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "::error::tag $RELEASE_TAG already exists; refusing to reuse or move an immutable release tag"
+            exit 3
+          fi
 
           args=(release create "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" --draft \
             --title "CAPE-INetSim-AutoDeploy $RELEASE_TAG" \
@@ -258,6 +262,12 @@ jobs:
             args+=(--prerelease)
           fi
           gh "${args[@]}"
+
+          RESOLVED_TAG_SHA="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha)"
+          [[ "$RESOLVED_TAG_SHA" == "$SOURCE_SHA" ]] || {
+            echo "::error::created release tag does not resolve to the verified source commit"
+            exit 4
+          }
 
           gh release upload "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --clobber \
             "$RUNNER_TEMP/release/install" \
