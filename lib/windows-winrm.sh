@@ -20,8 +20,10 @@ windows_winrm_password() {
 
 windows_winrm_port() {
   local ip="$1"
-  if probe_tcp "$ip" 5985; then printf '5985\n'; return 0; fi
+  # Prefer WinRM over HTTPS when both listeners are available. Plain HTTP is
+  # retained only as a fallback for existing lab guests using NTLM transport.
   if probe_tcp "$ip" 5986; then printf '5986\n'; return 0; fi
+  if probe_tcp "$ip" 5985; then printf '5985\n'; return 0; fi
   return 1
 }
 
