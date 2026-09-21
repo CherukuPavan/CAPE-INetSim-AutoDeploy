@@ -42,7 +42,7 @@ pathlib.Path(out).write_text(s)
 PY
 bash -n "$TMP/install"
 grep -Fq 'TAG="v1.0.0-rc.9"' "$TMP/install"
-grep -Fq "SOURCE_NAME="$NAME"" "$TMP/install"
-grep -Fq "SOURCE_SHA256="$SHA"" "$TMP/install"
+grep -Fq "SOURCE_NAME=\"$NAME\"" "$TMP/install"
+grep -Fq "SOURCE_SHA256=\"$SHA\"" "$TMP/install"
 
 echo '[PASS] release packaging is manual, exact-SHA-bound and checksum-pinned'
