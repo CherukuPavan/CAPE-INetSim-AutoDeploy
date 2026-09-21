@@ -39,20 +39,32 @@ validate_final_snapshot_hardware() {
   xml="$(virsh snapshot-dumpxml "$DOMAIN" "$FINAL_SNAPSHOT")" || return 1
   python3 -c '
 import sys,xml.etree.ElementTree as ET
-net,mac=sys.argv[1],sys.argv[2].lower()
+isolated_net,isolated_mac,mgmt_net,mgmt_mac,filter_name,mgmt_ip=sys.argv[1:]
+isolated_mac=isolated_mac.lower(); mgmt_mac=mgmt_mac.lower()
 r=ET.fromstring(sys.stdin.read())
 if (r.findtext("state") or "")!="running": raise SystemExit("snapshot state is not running")
 mem=r.find("memory")
 if mem is None or mem.get("snapshot")!="internal": raise SystemExit("snapshot has no internal memory state")
 dom=r.find("domain")
 if dom is None: raise SystemExit("snapshot has no embedded domain XML")
-found=False
+isolated=False
+mgmt_guard=False
 for i in dom.findall("./devices/interface"):
     s=i.find("source"); m=i.find("mac")
-    if s is not None and s.get("network")==net and m is not None and (m.get("address") or "").lower()==mac:
-        found=True
-if not found: raise SystemExit("snapshot does not contain the isolated NIC")
-' "$ISOLATED_NETWORK_NAME" "$WINDOWS_ISOLATED_MAC" <<<"$xml"
+    mac=(m.get("address") or "").lower() if m is not None else ""
+    net=s.get("network") if s is not None else ""
+    if net==isolated_net and mac==isolated_mac:
+        isolated=True
+    if net==mgmt_net and mac==mgmt_mac:
+        refs=i.findall("filterref")
+        if len(refs)==1 and (refs[0].get("filter") or "")==filter_name:
+            vals=[p.get("value") or "" for p in refs[0].findall("parameter")
+                  if (p.get("name") or "").upper()=="IP"]
+            if vals==[mgmt_ip]:
+                mgmt_guard=True
+if not isolated: raise SystemExit("snapshot does not contain the isolated NIC")
+if not mgmt_guard: raise SystemExit("snapshot does not preserve the Windows management anti-spoof guard")
+' "$ISOLATED_NETWORK_NAME" "$WINDOWS_ISOLATED_MAC" "$MANAGEMENT_NETWORK_NAME" "$WINDOWS_MANAGEMENT_MAC" "$WINDOWS_MGMT_FILTER_NAME" "$CAPE_MACHINE_IP" <<<"$xml"
 }
 
 validate_cape_configuration() {
