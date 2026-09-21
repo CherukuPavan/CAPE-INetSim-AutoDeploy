@@ -26,29 +26,70 @@ windows_find_isolated_mac() {
   windows_existing_network_interfaces "$DOMAIN" | awk -F '|' -v n="$ISOLATED_NETWORK_NAME" '$1==n {print $3}'
 }
 
+windows_mac_in_use() {
+  local want="${1,,}" d
+  while IFS= read -r d; do
+    [[ -n "$d" ]] || continue
+    virsh dumpxml "$d" 2>/dev/null | grep -Eiq "<mac[[:space:]]+address=['\"]$want['\"]" && return 0
+  done < <(virsh list --all --name 2>/dev/null)
+  return 1
+}
+
+windows_choose_isolated_mac() {
+  [[ -n "${WINDOWS_ISOLATED_MAC:-}" ]] && return 0
+  local i candidate
+  for i in $(seq 0 255); do
+    candidate="$(python3 - "$DEPLOYMENT_ID" "$DOMAIN" "$i" <<'PY'
+import hashlib,sys
+h=hashlib.sha256(("|".join(sys.argv[1:])).encode()).digest()
+print("52:54:00:%02x:%02x:%02x"%(h[0],h[1],h[2]))
+PY
+)"
+    if ! windows_mac_in_use "$candidate"; then
+      WINDOWS_ISOLATED_MAC="$candidate"
+      state_write_atomic
+      return 0
+    fi
+  done
+  fail "Could not allocate an unused deterministic MAC for the Windows isolated NIC"
+  return 1
+}
+
 windows_attach_isolated_nic() {
   [[ "$(virsh domstate "$DOMAIN" | xargs)" == "shut off" ]] || { fail "Windows domain must be shut off before persistent NIC attachment"; return 1; }
   isolated_network_defaults
   windows_choose_nic_model
+  windows_choose_isolated_mac
 
   local -a macs=()
   mapfile -t macs < <(windows_find_isolated_mac | sed '/^$/d')
-  if ((${#macs[@]} == 1)); then
-    if [[ -n "${WINDOWS_ISOLATED_MAC:-}" && "${WINDOWS_ISOLATED_MAC,,}" == "${macs[0],,}" ]] && state_resource_owned domain-interface "$DOMAIN:${macs[0]}"; then
-      pass "Windows isolated NIC already attached and owned"
-      return 0
+  if ((${#macs[@]} > 0)); then
+    if ((${#macs[@]} == 1)) && [[ "${macs[0],,}" == "${WINDOWS_ISOLATED_MAC,,}" ]]; then
+      if state_resource_owned domain-interface "$DOMAIN:$WINDOWS_ISOLATED_MAC"; then
+        pass "Windows isolated NIC already attached and owned"
+        return 0
+      fi
+      if state_resource_intended domain-interface "$DOMAIN:$WINDOWS_ISOLATED_MAC"; then
+        state_record_resource domain-interface "$DOMAIN:$WINDOWS_ISOLATED_MAC" recovered-attached yes "network=$ISOLATED_NETWORK_NAME model=$WINDOWS_ISOLATED_NIC_MODEL"
+        state_write_atomic
+        pass "Recovered deployment-owned Windows NIC after interrupted attach"
+        return 0
+      fi
     fi
     fail "Domain already has an unowned/untracked interface on $ISOLATED_NETWORK_NAME"
     return 1
-  elif ((${#macs[@]} > 1)); then
-    fail "Domain has multiple interfaces on $ISOLATED_NETWORK_NAME"
+  fi
+
+  state_record_intent domain-interface "$DOMAIN:$WINDOWS_ISOLATED_MAC" attaching "network=$ISOLATED_NETWORK_NAME model=$WINDOWS_ISOLATED_NIC_MODEL"
+  if ! virsh attach-interface --domain "$DOMAIN" --type network --source "$ISOLATED_NETWORK_NAME" --model "$WINDOWS_ISOLATED_NIC_MODEL" --mac "$WINDOWS_ISOLATED_MAC" --config >/dev/null; then
     return 1
   fi
 
-  virsh attach-interface --domain "$DOMAIN" --type network --source "$ISOLATED_NETWORK_NAME" --model "$WINDOWS_ISOLATED_NIC_MODEL" --config >/dev/null
   mapfile -t macs < <(windows_find_isolated_mac | sed '/^$/d')
-  ((${#macs[@]} == 1)) || { fail "Could not identify newly attached isolated NIC"; return 1; }
-  WINDOWS_ISOLATED_MAC="${macs[0],,}"
+  ((${#macs[@]} == 1)) && [[ "${macs[0],,}" == "${WINDOWS_ISOLATED_MAC,,}" ]] || {
+    fail "Could not verify newly attached isolated NIC"
+    return 1
+  }
   state_record_resource domain-interface "$DOMAIN:$WINDOWS_ISOLATED_MAC" attached yes "network=$ISOLATED_NETWORK_NAME model=$WINDOWS_ISOLATED_NIC_MODEL"
   state_write_atomic
   pass "Attached isolated NIC $WINDOWS_ISOLATED_MAC using model $WINDOWS_ISOLATED_NIC_MODEL"
@@ -69,16 +110,47 @@ windows_detach_isolated_nic() {
 
 windows_snapshot_exists() { virsh snapshot-info "$DOMAIN" "$1" >/dev/null 2>&1; }
 
+windows_snapshot_description() {
+  virsh snapshot-dumpxml "$DOMAIN" "$1" 2>/dev/null | python3 -c '
+import sys,xml.etree.ElementTree as ET
+try: r=ET.fromstring(sys.stdin.read())
+except Exception: raise SystemExit
+print(r.findtext("description") or "")
+'
+}
+
+windows_snapshot_adopt_if_intended() {
+  local snap="$1" expected_description="$2" expected_facts="$3"
+  state_resource_intended snapshot "$DOMAIN:$snap" || return 1
+  [[ "$(windows_snapshot_description "$snap")" == "$expected_description" ]] || return 1
+  [[ "$(snapshot_state_memory "$snap")" == "$expected_facts" ]] || return 1
+  state_record_resource snapshot "$DOMAIN:$snap" recovered-created yes "facts=$expected_facts"
+  state_write_atomic
+  return 0
+}
+
 windows_create_safety_snapshot() {
   [[ "$(virsh domstate "$DOMAIN" | xargs)" == "shut off" ]] || { fail "Safety snapshot requires shut-off domain"; return 1; }
   if [[ -z "${SAFETY_SNAPSHOT:-}" ]]; then
     SAFETY_SNAPSHOT="cape-inetsim-pre-${DEPLOYMENT_ID:0:24}"
+    state_write_atomic
   fi
+  local desc="CAPE-INetSim AutoDeploy pre-change snapshot $DEPLOYMENT_ID"
   if windows_snapshot_exists "$SAFETY_SNAPSHOT"; then
-    state_resource_owned snapshot "$DOMAIN:$SAFETY_SNAPSHOT" || { fail "Safety snapshot name already exists but is not owned"; return 1; }
+    if state_resource_owned snapshot "$DOMAIN:$SAFETY_SNAPSHOT"; then
+      [[ "$(windows_snapshot_description "$SAFETY_SNAPSHOT")" == "$desc" ]] || { fail "Owned safety snapshot description mismatch"; return 1; }
+      [[ "$(snapshot_state_memory "$SAFETY_SNAPSHOT")" == "shutoff|no" ]] || { fail "Owned safety snapshot state mismatch"; return 1; }
+      return 0
+    fi
+    windows_snapshot_adopt_if_intended "$SAFETY_SNAPSHOT" "$desc" "shutoff|no" || {
+      fail "Safety snapshot name already exists but is not safely attributable to this deployment"
+      return 1
+    }
     return 0
   fi
-  virsh snapshot-create-as "$DOMAIN" "$SAFETY_SNAPSHOT" --description "CAPE-INetSim AutoDeploy pre-change snapshot $DEPLOYMENT_ID" --atomic >/dev/null
+  state_record_intent snapshot "$DOMAIN:$SAFETY_SNAPSHOT" creating "state=shutoff purpose=safety"
+  virsh snapshot-create-as "$DOMAIN" "$SAFETY_SNAPSHOT" --description "$desc" --atomic >/dev/null
+  [[ "$(snapshot_state_memory "$SAFETY_SNAPSHOT")" == "shutoff|no" ]] || { fail "Safety snapshot state mismatch after create"; return 1; }
   state_record_resource snapshot "$DOMAIN:$SAFETY_SNAPSHOT" created yes "state=shutoff purpose=safety"
   state_write_atomic
 }
@@ -96,32 +168,54 @@ print(state+"|"+(m.get("snapshot","") if m is not None else ""))
 
 windows_create_working_snapshot() {
   [[ "$(virsh domstate "$DOMAIN" | xargs)" == "shut off" ]] || { fail "Configured rollback snapshot requires shut-off Windows domain"; return 1; }
-  if [[ -z "${WORKING_SNAPSHOT:-}" ]]; then WORKING_SNAPSHOT="cape-inetsim-working-${DEPLOYMENT_ID:0:20}"; fi
+  if [[ -z "${WORKING_SNAPSHOT:-}" ]]; then
+    WORKING_SNAPSHOT="cape-inetsim-working-${DEPLOYMENT_ID:0:20}"
+    state_write_atomic
+  fi
+  local desc="CAPE-INetSim AutoDeploy configured rollback snapshot $DEPLOYMENT_ID"
   if windows_snapshot_exists "$WORKING_SNAPSHOT"; then
-    state_resource_owned snapshot "$DOMAIN:$WORKING_SNAPSHOT" || { fail "Working snapshot name exists but is not AutoDeploy-owned"; return 1; }
+    if ! state_resource_owned snapshot "$DOMAIN:$WORKING_SNAPSHOT"; then
+      windows_snapshot_adopt_if_intended "$WORKING_SNAPSHOT" "$desc" "shutoff|no" || {
+        fail "Working snapshot name exists but is not safely attributable to this deployment"
+        return 1
+      }
+    fi
   else
-    virsh snapshot-create-as "$DOMAIN" "$WORKING_SNAPSHOT" --description "CAPE-INetSim AutoDeploy configured rollback snapshot $DEPLOYMENT_ID" --atomic >/dev/null
+    state_record_intent snapshot "$DOMAIN:$WORKING_SNAPSHOT" creating "state=shutoff purpose=configured-rollback"
+    virsh snapshot-create-as "$DOMAIN" "$WORKING_SNAPSHOT" --description "$desc" --atomic >/dev/null
     state_record_resource snapshot "$DOMAIN:$WORKING_SNAPSHOT" created yes "state=shutoff purpose=configured-rollback"
   fi
   local facts
   facts="$(snapshot_state_memory "$WORKING_SNAPSHOT")"
   [[ "$facts" == "shutoff|no" ]] || { fail "Working snapshot did not capture shutoff/no-memory state: $facts"; return 1; }
+  [[ "$(windows_snapshot_description "$WORKING_SNAPSHOT")" == "$desc" ]] || { fail "Working snapshot description mismatch"; return 1; }
   state_write_atomic
   pass "Created configured shutoff rollback snapshot $WORKING_SNAPSHOT"
 }
 
 windows_create_running_snapshot() {
   [[ "$(virsh domstate "$DOMAIN" | xargs)" == "running" ]] || { fail "Final CAPE snapshot must be created while Windows is running"; return 1; }
-  if [[ -z "${FINAL_SNAPSHOT:-}" ]]; then FINAL_SNAPSHOT="cape-inetsim-ready-${DEPLOYMENT_ID:0:22}"; fi
+  if [[ -z "${FINAL_SNAPSHOT:-}" ]]; then
+    FINAL_SNAPSHOT="cape-inetsim-ready-${DEPLOYMENT_ID:0:22}"
+    state_write_atomic
+  fi
+  local desc="CAPE-INetSim AutoDeploy running analysis snapshot $DEPLOYMENT_ID"
   if windows_snapshot_exists "$FINAL_SNAPSHOT"; then
-    state_resource_owned snapshot "$DOMAIN:$FINAL_SNAPSHOT" || { fail "Final snapshot name already exists but is not owned"; return 1; }
+    if ! state_resource_owned snapshot "$DOMAIN:$FINAL_SNAPSHOT"; then
+      windows_snapshot_adopt_if_intended "$FINAL_SNAPSHOT" "$desc" "running|internal" || {
+        fail "Final snapshot name exists but is not safely attributable to this deployment"
+        return 1
+      }
+    fi
   else
-    virsh snapshot-create-as "$DOMAIN" "$FINAL_SNAPSHOT" --description "CAPE-INetSim AutoDeploy running analysis snapshot $DEPLOYMENT_ID" --atomic >/dev/null
+    state_record_intent snapshot "$DOMAIN:$FINAL_SNAPSHOT" creating "state=running purpose=cape-analysis"
+    virsh snapshot-create-as "$DOMAIN" "$FINAL_SNAPSHOT" --description "$desc" --atomic >/dev/null
     state_record_resource snapshot "$DOMAIN:$FINAL_SNAPSHOT" created yes "state=running purpose=cape-analysis"
   fi
   local facts
   facts="$(snapshot_state_memory "$FINAL_SNAPSHOT")"
   [[ "$facts" == "running|internal" ]] || { fail "Final snapshot is not running-state with internal memory: $facts"; return 1; }
+  [[ "$(windows_snapshot_description "$FINAL_SNAPSHOT")" == "$desc" ]] || { fail "Final snapshot description mismatch"; return 1; }
   state_write_atomic
   pass "Created CAPE-ready running snapshot $FINAL_SNAPSHOT"
 }
