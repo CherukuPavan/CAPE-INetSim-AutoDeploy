@@ -56,6 +56,18 @@ discover_domain_details() {
   [[ -n "${DOMAIN:-}" ]] || return 0
   DOMAIN_STATE="$(virsh domstate "$DOMAIN" 2>/dev/null | head -1 | xargs || true)"
   DOMAIN_XML="$(virsh dumpxml "$DOMAIN" 2>/dev/null || true)"
-  DOMAIN_NIC_COUNT="$(grep -c '<interface type=' <<<"$DOMAIN_XML" || true)"
-  DOMAIN_NIC_MODELS="$(grep -oE "<model type='[^']+'" <<<"$DOMAIN_XML" | sed "s/.*type='//;s/'$//" | sort -u | paste -sd, -)"
+  read -r DOMAIN_NIC_COUNT DOMAIN_NIC_MODELS < <(python3 -c '
+import sys,xml.etree.ElementTree as ET
+xml=sys.stdin.read()
+try: root=ET.fromstring(xml)
+except Exception:
+    print("unknown unknown")
+    raise SystemExit
+ifs=root.findall("./devices/interface")
+models=[]
+for i in ifs:
+    m=i.find("model")
+    if m is not None and m.get("type"): models.append(m.get("type"))
+print(len(ifs), ",".join(sorted(set(models))) or "unknown")
+' <<<"$DOMAIN_XML")
 }
