@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 
 validate_release_provenance() {
   declare -F appliance_manifest_validate >/dev/null 2>&1 || {
@@ -69,8 +70,6 @@ validate_recovery_assets() {
 
   ((failures == 0))
 }
-
-#!/usr/bin/env bash
 
 validate_windows_result_path() {
   local f="$1"
