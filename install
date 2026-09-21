@@ -71,6 +71,8 @@ source "$AUTODEPLOY_ROOT/lib/deploy.sh"
 MODE="deploy"
 REQUESTED_MACHINE=""
 ROLLBACK_APPLY=no
+ACCEPT_POSITIVE_TASK=""
+ACCEPT_NEGATIVE_TASK=""
 
 usage(){
   cat <<EOF
@@ -83,6 +85,7 @@ Usage:
   sudo ./install --repair
   sudo ./install --status
   sudo ./install --collect
+  sudo ./install --acceptance [--positive-task ID] [--negative-task ID]
   sudo ./install --rollback [--apply]
 
 With no mode argument, AutoDeploy performs --deploy.
@@ -92,6 +95,7 @@ Safety:
   --deploy     transactional deployment; stops on unknown CAPE layouts and
                rolls back project-owned changes on failure.
   --collect    create one comprehensive read-only diagnostic .tar.gz for support/research.
+  --acceptance validate real completed positive/negative route=none task evidence read-only.
   --rollback   dry-run recovery plan unless --apply is also supplied.
 
 The malware-analysis Windows guest is never given a real/default Internet route.
@@ -106,6 +110,13 @@ while (($#)); do
     --repair) MODE=repair; shift ;;
     --status) MODE=status; shift ;;
     --collect) MODE=collect; shift ;;
+    --acceptance) MODE=acceptance; shift ;;
+    --positive-task)
+      [[ $# -ge 2 && "$2" =~ ^[0-9]+$ ]] || { echo "--positive-task requires an integer" >&2; exit 2; }
+      ACCEPT_POSITIVE_TASK="$2"; shift 2 ;;
+    --negative-task)
+      [[ $# -ge 2 && "$2" =~ ^[0-9]+$ ]] || { echo "--negative-task requires an integer" >&2; exit 2; }
+      ACCEPT_NEGATIVE_TASK="$2"; shift 2 ;;
     --rollback) MODE=rollback; shift ;;
     --apply) ROLLBACK_APPLY=yes; shift ;;
     --machine)
@@ -147,6 +158,12 @@ case "$MODE" in
     ;;
   collect)
     exec bash "$AUTODEPLOY_ROOT/bin/cape-inetsim-collect"
+    ;;
+  acceptance)
+    args=()
+    [[ -n "$ACCEPT_POSITIVE_TASK" ]] && args+=(--positive-task "$ACCEPT_POSITIVE_TASK")
+    [[ -n "$ACCEPT_NEGATIVE_TASK" ]] && args+=(--negative-task "$ACCEPT_NEGATIVE_TASK")
+    exec bash "$AUTODEPLOY_ROOT/bin/cape-inetsim-acceptance" "${args[@]}"
     ;;
   rollback)
     require_root
