@@ -1,0 +1,38 @@
+name: Build generalized INetSim appliance
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install image build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libguestfs-tools qemu-utils
+          sudo chmod 666 /dev/kvm 2>/dev/null || true
+
+      - name: Build generalized QCOW2
+        env:
+          LIBGUESTFS_BACKEND: direct
+        run: |
+          chmod +x appliance/build/build.sh appliance/image-rootfs-prepare.sh appliance/guest-configure.sh
+          appliance/build/build.sh "$RUNNER_TEMP/cape-inetsim-appliance-v1.0.0.qcow2"
+
+      - name: Upload build candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: cape-inetsim-appliance-v1.0.0-candidate
+          path: |
+            ${{ runner.temp }}/cape-inetsim-appliance-v1.0.0.qcow2
+            ${{ runner.temp }}/cape-inetsim-appliance-v1.0.0.qcow2.sha256
+            ${{ runner.temp }}/cape-inetsim-appliance-v1.0.0.qcow2.info.txt
+          retention-days: 7
+          compression-level: 0
