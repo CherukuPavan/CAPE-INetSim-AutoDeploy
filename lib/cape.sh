@@ -170,7 +170,13 @@ PY
 
   CAPE_RESULTSERVER_IP="${CAPE_MACHINE_RESULTSERVER_IP:-}"
   if [[ -z "$CAPE_RESULTSERVER_IP" || "$CAPE_RESULTSERVER_IP" == "0.0.0.0" ]]; then
-    if [[ -n "$global_ip" && "$global_ip" != "0.0.0.0" ]]; then
+    if [[ -n "$global_ip" && "$global_ip" != "0.0.0.0" ]] &&
+       python3 - "$global_ip" <<'PY' >/dev/null 2>&1
+import ipaddress,sys
+ip=ipaddress.ip_address(sys.argv[1])
+raise SystemExit(0 if ip.version==4 and not ip.is_loopback and not ip.is_unspecified else 1)
+PY
+    then
       CAPE_RESULTSERVER_IP="$global_ip"
     else
       CAPE_RESULTSERVER_IP="$CONTROL_HOST_IP"
@@ -181,4 +187,14 @@ PY
 
   [[ -n "$CAPE_RESULTSERVER_IP" ]] || add_error "Could not derive a guest-reachable CAPE ResultServer IP"
   [[ "$CAPE_RESULTSERVER_PORT" =~ ^[0-9]+$ ]] || add_error "Invalid ResultServer port: $CAPE_RESULTSERVER_PORT"
+
+  if [[ -n "$CAPE_RESULTSERVER_IP" ]]; then
+    local resultserver_local=no addr
+    while IFS= read -r addr; do
+      [[ "$addr" == "$CAPE_RESULTSERVER_IP" ]] && { resultserver_local=yes; break; }
+    done < <(ip -o -4 addr show 2>/dev/null | awk '{split($4,a,"/"); print a[1]}')
+    if [[ "$resultserver_local" != yes ]]; then
+      add_error "CAPE ResultServer IP $CAPE_RESULTSERVER_IP is not host-local; v1 refuses a routed ResultServer path that could weaken the Windows egress guard"
+    fi
+  fi
 }
