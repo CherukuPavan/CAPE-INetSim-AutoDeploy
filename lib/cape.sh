@@ -115,7 +115,9 @@ for sec in cfg.sections():
         'ip':d.get('ip',''),
         'snapshot':d.get('snapshot',''),
         'interface':d.get('interface',''),
-        'platform':d.get('platform','')
+        'platform':d.get('platform',''),
+        'resultserver_ip':d.get('resultserver_ip',''),
+        'resultserver_port':d.get('resultserver_port','')
     }, separators=(',',':')))
 PY
 )
@@ -142,4 +144,38 @@ set_selected_machine_fields() {
   CAPE_MACHINE_SNAPSHOT="$(record_field "$SELECTED_MACHINE_JSON" snapshot)"
   CAPE_MACHINE_INTERFACE="$(record_field "$SELECTED_MACHINE_JSON" interface)"
   CAPE_MACHINE_PLATFORM="$(record_field "$SELECTED_MACHINE_JSON" platform)"
+  CAPE_MACHINE_RESULTSERVER_IP="$(record_field "$SELECTED_MACHINE_JSON" resultserver_ip)"
+  CAPE_MACHINE_RESULTSERVER_PORT="$(record_field "$SELECTED_MACHINE_JSON" resultserver_port)"
+}
+
+discover_resultserver() {
+  CAPE_RESULTSERVER_IP=""
+  CAPE_RESULTSERVER_PORT=""
+  CONTROL_HOST_IP=""
+  [[ -n "${CAPE_ROOT:-}" && -n "${CAPE_MACHINE_IP:-}" ]] || return 0
+
+  local global_ip global_port route_line
+  read -r global_ip global_port < <(python3 - "$CAPE_ROOT/conf/cuckoo.conf" <<'PY'
+import configparser,sys
+c=configparser.ConfigParser(interpolation=None,strict=False)
+c.read(sys.argv[1])
+print(c.get('resultserver','ip',fallback=''), c.get('resultserver','port',fallback='2042'))
+PY
+)
+  route_line="$(ip -4 route get "$CAPE_MACHINE_IP" 2>/dev/null | head -1 || true)"
+  CONTROL_HOST_IP="$(awk '{for(i=1;i<=NF;i++) if($i=="src" && i<NF){print $(i+1);exit}}' <<<"$route_line")"
+
+  CAPE_RESULTSERVER_IP="${CAPE_MACHINE_RESULTSERVER_IP:-}"
+  if [[ -z "$CAPE_RESULTSERVER_IP" || "$CAPE_RESULTSERVER_IP" == "0.0.0.0" ]]; then
+    if [[ -n "$global_ip" && "$global_ip" != "0.0.0.0" ]]; then
+      CAPE_RESULTSERVER_IP="$global_ip"
+    else
+      CAPE_RESULTSERVER_IP="$CONTROL_HOST_IP"
+    fi
+  fi
+  CAPE_RESULTSERVER_PORT="${CAPE_MACHINE_RESULTSERVER_PORT:-$global_port}"
+  [[ -n "$CAPE_RESULTSERVER_PORT" ]] || CAPE_RESULTSERVER_PORT=2042
+
+  [[ -n "$CAPE_RESULTSERVER_IP" ]] || add_error "Could not derive a guest-reachable CAPE ResultServer IP"
+  [[ "$CAPE_RESULTSERVER_PORT" =~ ^[0-9]+$ ]] || add_error "Invalid ResultServer port: $CAPE_RESULTSERVER_PORT"
 }
