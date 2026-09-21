@@ -77,8 +77,11 @@ print_plan() {
   kv "busy reason:" "${BUSY_REASON:-unknown}"
   kv "compatibility state:" "${COMPAT_STATUS:-unknown}"
   kv "compatibility notes:" "$(IFS=,; echo "${COMPAT_NOTES[*]:-none}")"
-  kv "host RAM KiB:" "${HOST_MEM_KIB:-unknown}"
-  kv "libvirt image free KiB:" "${LIBVIRT_FREE_KIB:-unknown}"
+  kv "host RAM total KiB:" "${HOST_MEM_KIB:-unknown}"
+  kv "host RAM available KiB:" "${HOST_MEM_AVAILABLE_KIB:-unknown}"
+  kv "selected libvirt storage pool:" "${LIBVIRT_STORAGE_POOL:-unknown}"
+  kv "selected libvirt storage path:" "${LIBVIRT_STORAGE_PATH:-unknown}"
+  kv "selected pool free KiB:" "${LIBVIRT_FREE_KIB:-unknown}"
 
   echo; echo "Future deployment will create/configure"
   echo "  - generalized Ubuntu INetSim appliance"
