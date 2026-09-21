@@ -76,8 +76,18 @@ fi
 
 echo "[INFO] booting temporary isolated build VM to install appliance packages"
 set +e
-timeout --signal=TERM --kill-after=30s 1800   qemu-system-x86_64     "${QEMU_ACCEL[@]}"     -name cape-inetsim-appliance-build     -m 2048 -smp 2     -drive "file=$OUT.part,if=virtio,format=qcow2,cache=unsafe"     -drive "file=$SEED,if=virtio,format=raw,readonly=on"     -netdev user,id=buildnet,restrict=off     -device virtio-net-pci,netdev=buildnet     -display none -serial "file:$CONSOLE" -monitor none -no-reboot
-QEMU_RC=$?
+timeout --signal=TERM --kill-after=30s 1500 \
+  qemu-system-x86_64 \
+    "${QEMU_ACCEL[@]}" \
+    -name cape-inetsim-appliance-build \
+    -m 2048 -smp 2 \
+    -drive "file=$OUT.part,if=virtio,format=qcow2,cache=unsafe" \
+    -drive "file=$SEED,if=virtio,format=raw,readonly=on" \
+    -netdev user,id=buildnet,restrict=off \
+    -device virtio-net-pci,netdev=buildnet \
+    -display none -serial stdio -monitor none -no-reboot \
+  2>&1 | tee "$CONSOLE"
+QEMU_RC=${PIPESTATUS[0]}
 set -e
 
 if [[ "$QEMU_RC" -ne 0 ]]; then
