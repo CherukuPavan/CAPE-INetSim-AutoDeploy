@@ -29,7 +29,14 @@ state_load || { fail "No deployment state exists"; exit 1; }
 
 echo "Rollback plan for deployment $DEPLOYMENT_ID"
 kv "phase:" "${DEPLOYMENT_PHASE:-unknown}"
-[[ -n "${SAFETY_SNAPSHOT:-}" ]] && echo "  - revert Windows domain '$DOMAIN' to pre-deployment snapshot '$SAFETY_SNAPSHOT'"
+python3 - "${CAPE_TARGETS_JSON:-[]}" <<'PY'
+import json,sys
+try: a=json.loads(sys.argv[1])
+except Exception: a=[]
+for d in a:
+    if d.get("safety_snapshot") or d.get("isolated_mac"):
+        print(f"  - restore Windows domain '{d.get('domain','?')}' from deployment-owned safety state")
+PY
 state_has_owned_kind cape-file && echo "  - restore backed-up CAPE configuration/source files"
 state_has_owned_kind extension && echo "  - restore extension-protected CAPE web files"
 state_has_owned_kind domain && echo "  - remove AutoDeploy-owned INetSim VM"
