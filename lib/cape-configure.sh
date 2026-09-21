@@ -30,11 +30,14 @@ PY
 }
 
 cape_backup_integration_files() {
-  backup_file_once "$CAPE_ROOT/modules/auxiliary/sniffer.py" modules/auxiliary/sniffer.py
-  backup_file_once "$CAPE_ROOT/conf/auxiliary.conf" conf/auxiliary.conf
-  backup_file_once "$CAPE_ROOT/conf/kvm.conf" conf/kvm.conf
-  backup_file_once "$CAPE_ROOT/conf/processing.conf" conf/processing.conf
-  backup_file_once "$CAPE_ROOT/conf/routing.conf" conf/routing.conf
+  local rel
+  for rel in modules/auxiliary/sniffer.py conf/auxiliary.conf conf/kvm.conf conf/processing.conf conf/routing.conf; do
+    backup_file_once "$CAPE_ROOT/$rel" "$rel"
+    # Mark the file as transaction-managed immediately after its protected
+    # backup exists. A crash during later multi-file edits must still cause
+    # rollback to restore every touched CAPE file.
+    state_record_resource cape-file "$CAPE_ROOT/$rel" planned-modification yes "backup=$AD_BACKUP_ROOT/$DEPLOYMENT_ID/$rel"
+  done
 }
 
 cape_configure_inetsim() {
