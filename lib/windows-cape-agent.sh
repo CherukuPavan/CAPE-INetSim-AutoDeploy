@@ -90,8 +90,8 @@ cape_agent_run_powershell() {
   local remote_runner="C:\\Windows\\Temp\\${stem}.py"
   local remote_cfg="C:\\Windows\\Temp\\${stem}.json"
   local remote_result="C:\\Windows\\Temp\\${stem}-result.json"
-  local cfg="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-${stem}.json"
-  local log="$AD_LOG_ROOT/${DEPLOYMENT_ID}-${stem}-cape-agent-execpy.json"
+  local cfg="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-$(ad_safe_token "$DOMAIN")-${stem}.json"
+  local log="$AD_LOG_ROOT/${DEPLOYMENT_ID}-$(ad_safe_token "$DOMAIN")-${stem}-cape-agent-execpy.json"
 
   cape_agent_write_runner_config "$cfg" "$remote_ps" "$@" -ResultPath "$remote_result"
 
