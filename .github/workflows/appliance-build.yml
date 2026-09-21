@@ -120,6 +120,7 @@ jobs:
               "independent_verifier":"PASS"
           },indent=2)+"\n")
           ' "$EVIDENCE" "$SOURCE_SHA"
+          python3 -m json.tool "$EVIDENCE/candidate-provenance.json" >/dev/null
 
       - name: Upload candidate verification evidence
         if: steps.appliance_build.outcome == 'success' && steps.appliance_verify.outcome == 'success' && steps.appliance_package.outcome == 'success'
