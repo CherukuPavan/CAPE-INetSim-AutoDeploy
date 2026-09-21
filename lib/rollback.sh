@@ -60,6 +60,7 @@ rollback_restore_cutover() {
 
 rollback_remove_staged_resources() {
   rollback_try "remove AutoDeploy INetSim VM/disk" inetsim_vm_rollback
+  rollback_try "remove AutoDeploy host firewall guard" firewall_rollback
   rollback_try "remove AutoDeploy isolated libvirt network" isolated_network_rollback
 }
 
