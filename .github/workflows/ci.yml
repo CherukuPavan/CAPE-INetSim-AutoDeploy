@@ -1,0 +1,24 @@
+name: AutoDeploy CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  shell-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax
+        run: bash tests/syntax.sh
+      - name: Universal discovery logic
+        run: bash tests/universal_logic.sh
+      - name: State ownership logic
+        run: bash tests/state_logic.sh
+      - name: Transaction backup logic
+        run: bash tests/transaction_logic.sh
+      - name: Isolated network XML safety
+        run: bash tests/network_xml.sh
