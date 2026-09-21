@@ -7,6 +7,17 @@ set -eu
 # executes --run scripts through /bin/sh inside the guest.
 
 export DEBIAN_FRONTEND=noninteractive
+
+# Cloud images normally point /etc/resolv.conf at systemd-resolved's runtime
+# stub. That daemon is not running inside virt-customize's chroot. When the
+# builder supplies a temporary DNS proxy, use it only for package installation
+# and restore the normal systemd-resolved symlink before sealing the image.
+if [ -f /etc/cape-inetsim-build-dns ]; then
+  BUILD_DNS="$(cat /etc/cape-inetsim-build-dns)"
+  rm -f /etc/resolv.conf
+  printf 'nameserver %s\noptions timeout:2 attempts:3\n' "$BUILD_DNS" >/etc/resolv.conf
+fi
+
 apt-get update
 apt-get install -y --no-install-recommends inetsim qemu-guest-agent ca-certificates iproute2 netplan.io
 
@@ -49,3 +60,8 @@ systemctl disable inetsim.service >/dev/null 2>&1 || true
 
 apt-get clean
 rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+if [ -f /etc/cape-inetsim-build-dns ]; then
+  rm -f /etc/cape-inetsim-build-dns /etc/resolv.conf
+  ln -s ../run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+fi
