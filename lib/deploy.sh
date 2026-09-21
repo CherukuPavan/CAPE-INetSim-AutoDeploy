@@ -79,6 +79,10 @@ deploy_assert_supported_environment() {
       fail "cape.service must be active before a new deployment"
       return 1
     }
+    if grep -q 'CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1' "$CAPE_ROOT/modules/auxiliary/sniffer.py" 2>/dev/null; then
+      fail "An untracked AutoDeploy sniffer patch already exists; refusing to claim or overwrite it"
+      return 1
+    fi
     if grep -Rqs 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$CAPE_ROOT/web" 2>/dev/null; then
       fail "An untracked CAPE-INetSim VM extension is already installed; refusing to claim or overwrite it"
       return 1
