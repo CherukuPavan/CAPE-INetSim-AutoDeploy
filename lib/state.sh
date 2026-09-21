@@ -43,6 +43,8 @@ state_write_atomic() {
     printf 'CONTROL_HOST_IP=%q\n' "${CONTROL_HOST_IP:-}"
     printf 'DOMAIN=%q\n' "${DOMAIN:-}"
     printf 'MANAGEMENT_NETWORK_NAME=%q\n' "${MANAGEMENT_NETWORK_NAME:-}"
+    printf 'MANAGEMENT_BRIDGE_NAME=%q\n' "${MANAGEMENT_BRIDGE_NAME:-}"
+    printf 'WINDOWS_MANAGEMENT_MAC=%q\n' "${WINDOWS_MANAGEMENT_MAC:-}"
     printf 'ORIGINAL_CAPE_SNAPSHOT=%q\n' "${ORIGINAL_CAPE_SNAPSHOT:-}"
     printf 'ISOLATED_SUBNET=%q\n' "${ISOLATED_SUBNET:-}"
     printf 'BRIDGE_IP=%q\n' "${BRIDGE_IP:-}"
