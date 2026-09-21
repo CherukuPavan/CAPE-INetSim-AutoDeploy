@@ -12,6 +12,7 @@ run_discovery() {
   match_selected_domain
   discover_domain_details
   discover_management_network
+  discover_management_network_details
   discover_windows_backends
   plan_isolated_subnet
   discover_busy_state
@@ -47,6 +48,8 @@ print_plan() {
   kv "current CAPE interface:" "${CAPE_MACHINE_INTERFACE:-unknown}"
   kv "libvirt domain:" "${DOMAIN:-ambiguous}"
   kv "management libvirt network:" "${MANAGEMENT_NETWORK_NAME:-unknown}"
+  kv "management bridge:" "${MANAGEMENT_BRIDGE_NAME:-unknown}"
+  kv "Windows management MAC:" "${WINDOWS_MANAGEMENT_MAC:-unknown}"
   kv "domain state:" "${DOMAIN_STATE:-unknown}"
   kv "NIC count:" "${DOMAIN_NIC_COUNT:-unknown}"
   kv "NIC model(s):" "${DOMAIN_NIC_MODELS:-unknown}"
@@ -54,7 +57,7 @@ print_plan() {
   echo; echo "Windows control"
   kv "QEMU Guest Agent:" "${QGA_AVAILABLE:-unknown}"
   kv "WinRM reachable:" "${WINRM_AVAILABLE:-unknown}"
-  kv "CAPE agent :8000 reachable:" "${CAPE_AGENT_REACHABLE:-unknown}"
+  kv "CAPE agent :8000 reachable (diagnostic only):" "${CAPE_AGENT_REACHABLE:-unknown}"
   kv "selected/fallback backend:" "${WINDOWS_BACKEND:-unknown}"
 
   echo; echo "Network plan"
