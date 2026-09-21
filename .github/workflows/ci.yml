@@ -25,6 +25,8 @@ jobs:
           python3 -m py_compile tools/*.py
       - name: Universal discovery logic
         run: bash tests/universal_logic.sh
+      - name: Collector redaction safety
+        run: bash tests/collector_redaction.sh
       - name: State ownership logic
         run: bash tests/state_logic.sh
       - name: Transaction backup logic
