@@ -41,6 +41,8 @@ cat >"$TMP/negative.json" <<'JSON'
 }
 JSON
 gzip -c "$TMP/negative.json" >"$TMP/cape/storage/analyses/19/reports/report.json.gz"
+printf 'pcap-positive-placeholder\n' >"$TMP/cape/storage/analyses/20/dump.pcap"
+printf 'pcap-negative-placeholder\n' >"$TMP/cape/storage/analyses/19/dump.pcap"
 
 python3 "$ROOT/tools/acceptance_reports.py" \
   --cape-root "$TMP/cape" --inetsim-ip 10.77.50.2 --output "$TMP/result.json"
@@ -52,9 +54,11 @@ assert d["status"]=="pass"
 assert d["positive"]["task_id"]==20
 assert d["positive"]["uses_inetsim"] is True
 assert d["positive"]["context_enabled"] is True
+assert d["positive"]["capture_path"].endswith("/20/dump.pcap")
 assert d["negative"]["task_id"]==19
 assert d["negative"]["uses_inetsim"] is False
 assert d["negative"]["context_enabled"] is False
+assert d["negative"]["capture_path"].endswith("/19/dump.pcap")
 PY
 
 if python3 "$ROOT/tools/acceptance_reports.py" \
