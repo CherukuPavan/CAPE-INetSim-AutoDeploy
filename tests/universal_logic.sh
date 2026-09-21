@@ -36,3 +36,19 @@ plan_isolated_subnet
 [[ -n "$BRIDGE_IP" && -n "$INETSIM_IP" && -n "$WINDOWS_FAKE_IP" ]]
 
 echo "[PASS] universal machine selection and subnet fallback"
+
+# Reused management IPs must never cause "first domain wins" selection.
+virsh() {
+  if [[ "$1" == domifaddr ]]; then
+    cat <<'EOF'
+ Name       MAC address          Protocol     Address
+-------------------------------------------------------------------------------
+ vnet0      52:54:00:00:00:01    ipv4         192.0.2.44/24
+EOF
+    return 0
+  fi
+  return 1
+}
+LIBVIRT_DOMAINS=(domain-a domain-b)
+ambiguous='{"section":"not-a-domain","label":"also-not-a-domain","ip":"192.0.2.44","snapshot":"s"}'
+[[ -z "$(record_matches_domain "$ambiguous" 2>/dev/null || true)" ]]
