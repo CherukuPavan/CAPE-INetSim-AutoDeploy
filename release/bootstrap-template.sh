@@ -8,6 +8,11 @@ SOURCE_SHA256="@@SOURCE_SHA256@@"
 SOURCE_COMMIT="@@SOURCE_COMMIT@@"
 SOURCE_URL="https://github.com/$REPO/releases/download/$TAG/$SOURCE_NAME"
 
+[[ "$TAG" =~ ^v1\.0\.0(-rc\.[0-9]+)?$ ]] || { echo "[FAIL] invalid embedded release tag" >&2; exit 2; }
+[[ "$SOURCE_NAME" != */* && "$SOURCE_NAME" == *.tar.gz ]] || { echo "[FAIL] invalid embedded source bundle name" >&2; exit 2; }
+[[ "$SOURCE_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "[FAIL] invalid embedded source SHA-256" >&2; exit 2; }
+[[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "[FAIL] invalid embedded source commit" >&2; exit 2; }
+
 command -v curl >/dev/null 2>&1 || { echo "[FAIL] curl is required" >&2; exit 2; }
 command -v tar >/dev/null 2>&1 || { echo "[FAIL] tar is required" >&2; exit 2; }
 command -v sha256sum >/dev/null 2>&1 || { echo "[FAIL] sha256sum is required" >&2; exit 2; }
