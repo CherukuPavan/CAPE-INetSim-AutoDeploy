@@ -361,6 +361,10 @@ windows_rollback_to_safety() {
     windows_detach_isolated_nic
   fi
 
+  if declare -F windows_management_guard_restore_if_owned >/dev/null 2>&1; then
+    windows_management_guard_restore_if_owned
+  fi
+
   windows_delete_owned_snapshots_leaf_first
 
   if [[ "${WINDOWS_ORIGINAL_DOMAIN_STATE:-}" == running ]]; then
