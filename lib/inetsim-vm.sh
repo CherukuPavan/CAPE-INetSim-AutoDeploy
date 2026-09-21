@@ -99,7 +99,7 @@ inetsim_configure_guest() {
   qga_wait "$INETSIM_DOMAIN_NAME" 180 || { fail "INetSim appliance QEMU Guest Agent did not come online"; return 1; }
   qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/local/sbin/cape-inetsim-guest-configure --management-mac "$INETSIM_MANAGEMENT_MAC" --isolated-mac "$INETSIM_ISOLATED_MAC" --ip "$INETSIM_IP/24"
   state_record_resource inetsim-guest "$INETSIM_DOMAIN_NAME" configured yes "ip=$INETSIM_IP mac=$INETSIM_ISOLATED_MAC"
-  state_set_phase appliance-configured
+  state_write_atomic
 }
 
 inetsim_verify_host() {
