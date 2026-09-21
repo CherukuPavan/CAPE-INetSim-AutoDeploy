@@ -122,7 +122,8 @@ deploy_reset_resource_state() {
 deploy_initialize_or_resume_state() {
   local d_root="$CAPE_ROOT" d_commit="$CAPE_COMMIT" d_section="$CAPE_MACHINE_SECTION"
   local d_label="$CAPE_MACHINE_LABEL" d_ip="$CAPE_MACHINE_IP" d_domain="$DOMAIN"
-  local d_mgmt_net="$MANAGEMENT_NETWORK_NAME" d_rs_ip="$CAPE_RESULTSERVER_IP"
+  local d_mgmt_net="$MANAGEMENT_NETWORK_NAME" d_mgmt_bridge="$MANAGEMENT_BRIDGE_NAME" d_mgmt_mac="$WINDOWS_MANAGEMENT_MAC"
+  local d_rs_ip="$CAPE_RESULTSERVER_IP"
   local d_rs_port="$CAPE_RESULTSERVER_PORT" d_control="$CONTROL_HOST_IP"
   local d_snapshot="$CAPE_MACHINE_SNAPSHOT" d_subnet="$ISOLATED_SUBNET"
   local d_bridge_ip="$BRIDGE_IP" d_inetsim_ip="$INETSIM_IP" d_fake="$WINDOWS_FAKE_IP"
@@ -146,7 +147,8 @@ deploy_initialize_or_resume_state() {
 
   CAPE_ROOT="$d_root"; CAPE_COMMIT="$d_commit"; CAPE_MACHINE_SECTION="$d_section"
   CAPE_MACHINE_LABEL="$d_label"; CAPE_MACHINE_IP="$d_ip"; DOMAIN="$d_domain"
-  MANAGEMENT_NETWORK_NAME="$d_mgmt_net"; CAPE_RESULTSERVER_IP="$d_rs_ip"
+  MANAGEMENT_NETWORK_NAME="$d_mgmt_net"; MANAGEMENT_BRIDGE_NAME="$d_mgmt_bridge"; WINDOWS_MANAGEMENT_MAC="$d_mgmt_mac"
+  CAPE_RESULTSERVER_IP="$d_rs_ip"
   CAPE_RESULTSERVER_PORT="$d_rs_port"; CONTROL_HOST_IP="$d_control"
   CAPE_MACHINE_SNAPSHOT="$d_snapshot"; ORIGINAL_CAPE_SNAPSHOT="$d_snapshot"
   ISOLATED_SUBNET="$d_subnet"; BRIDGE_IP="$d_bridge_ip"; INETSIM_IP="$d_inetsim_ip"; WINDOWS_FAKE_IP="$d_fake"
