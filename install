@@ -10,32 +10,12 @@ if [[ -n "$SCRIPT_SOURCE" && -e "$SCRIPT_SOURCE" ]]; then
 fi
 
 if [[ -z "$SCRIPT_DIR" || ! -f "$SCRIPT_DIR/lib/common.sh" ]]; then
-  [[ "${CAPE_INETSIM_BOOTSTRAPPED:-0}" != 1 ]] || { echo "[FAIL] AutoDeploy bootstrap loop detected" >&2; exit 2; }
-  command -v curl >/dev/null 2>&1 || { echo "[FAIL] curl is required for bootstrap" >&2; exit 2; }
-  command -v tar >/dev/null 2>&1 || { echo "[FAIL] tar is required for bootstrap" >&2; exit 2; }
-
-  BOOT_REF="${CAPE_INETSIM_AUTODEPLOY_REF:-main}"
-  BOOT_TMP="$(mktemp -d /tmp/cape-inetsim-autodeploy.XXXXXX)"
-  case "$BOOT_REF" in
-    main)
-      BOOT_URL="https://github.com/CherukuPavan/CAPE-INetSim-AutoDeploy/archive/refs/heads/main.tar.gz"
-      ;;
-    v*)
-      BOOT_URL="https://github.com/CherukuPavan/CAPE-INetSim-AutoDeploy/archive/refs/tags/$BOOT_REF.tar.gz"
-      ;;
-    *)
-      echo "[FAIL] Unsupported bootstrap ref: $BOOT_REF" >&2
-      exit 2
-      ;;
-  esac
-
-  curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 "$BOOT_URL" -o "$BOOT_TMP/source.tar.gz"
-  tar -xzf "$BOOT_TMP/source.tar.gz" -C "$BOOT_TMP"
-  BOOT_ROOT="$(find "$BOOT_TMP" -mindepth 1 -maxdepth 1 -type d -name 'CAPE-INetSim-AutoDeploy-*' | head -1)"
-  [[ -x "$BOOT_ROOT/install" || -f "$BOOT_ROOT/install" ]] || { echo "[FAIL] Bootstrapped repository layout is invalid" >&2; exit 2; }
-  chmod +x "$BOOT_ROOT/install" "$BOOT_ROOT"/bin/* "$BOOT_ROOT"/tests/*.sh 2>/dev/null || true
-  export CAPE_INETSIM_BOOTSTRAPPED=1
-  exec "$BOOT_ROOT/install" "$@"
+  cat >&2 <<'EOF'
+[FAIL] This repository entry point is not a trusted network bootstrap.
+Use the versioned GitHub Release 'install' asset, which checksum-verifies an
+immutable source bundle before executing this installer.
+EOF
+  exit 2
 fi
 
 AUTODEPLOY_ROOT="$SCRIPT_DIR"
