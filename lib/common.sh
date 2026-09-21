@@ -11,12 +11,18 @@ info(){ printf '[INFO] %s\n' "$*"; }
 kv(){ printf '%-32s %s\n' "$1" "$2"; }
 have(){ command -v "$1" >/dev/null 2>&1; }
 
-require_root_for_plan() {
+require_root() {
   if [[ "$(id -u)" -ne 0 ]]; then
-    fail "--plan requires root only so libvirt/systemd state can be read consistently."
-    echo "Run: sudo ./install --plan"
+    fail "This operation requires root so CAPE/libvirt state can be handled consistently."
     return 1
   fi
+}
+
+require_root_for_plan() {
+  require_root || {
+    echo "Run: sudo ./install --plan"
+    return 1
+  }
 }
 
 add_error(){ DISCOVERY_ERRORS+=("$*"); }
