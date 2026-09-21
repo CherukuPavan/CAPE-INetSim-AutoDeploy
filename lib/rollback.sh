@@ -64,6 +64,10 @@ rollback_restore_cutover() {
 }
 
 rollback_remove_staged_resources() {
+  if ((ROLLBACK_CRITICAL_FAILURES > 0)); then
+    warn "Critical rollback restoration failed; preserving containment firewall/network/appliance resources for safe retry"
+    return 0
+  fi
   rollback_try "remove AutoDeploy INetSim VM/disk" inetsim_vm_rollback
   rollback_try "remove AutoDeploy host firewall guard" firewall_rollback
   rollback_try "remove AutoDeploy isolated libvirt network" isolated_network_rollback
