@@ -34,7 +34,7 @@ rollback_cutover_resources_exist() {
 rollback_prepare_cape_maintenance() {
   rollback_cutover_resources_exist || return 0
   [[ -f "$CAPE_MAINTENANCE_GUARD_FILE" ]] && return 0
-  if systemctl is-active --quiet cape.service; then
+  if systemctl is-active --quiet cape.service || systemctl is-active --quiet cape-processor.service; then
     cape_wait_and_acquire_maintenance "${ROLLBACK_WAIT_SECONDS:-3600}"
   fi
 }
