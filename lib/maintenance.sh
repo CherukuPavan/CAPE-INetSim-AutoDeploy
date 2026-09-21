@@ -96,3 +96,11 @@ cape_release_maintenance() {
   fail "CAPE maintenance release incomplete; guard preserved for safe recovery"
   return "$rc"
 }
+
+cape_verify_maintenance_guard() {
+  [[ -f "$CAPE_MAINTENANCE_GUARD_FILE" ]] || {
+    fail "CAPE maintenance guard is missing"
+    return 1
+  }
+  cape_maintenance_tool verify >/dev/null
+}
