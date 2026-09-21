@@ -32,7 +32,14 @@ cape_maintenance_tool() {
     local user_guard="/tmp/cape-inetsim-guard-$$.json"
     if [[ "$action" == acquire ]]; then
       runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" "$action" --label "$CAPE_MACHINE_LABEL" --guard-file "$user_guard"
-      install -m 0600 -o root -g root "$user_guard" "$CAPE_MAINTENANCE_GUARD_FILE"
+      if ! install -m 0600 -o root -g root "$user_guard" "$CAPE_MAINTENANCE_GUARD_FILE"; then
+        # The DB locks are already committed. Immediately release them using
+        # the CAPE-user guard rather than leaving machines orphan-locked.
+        runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" release --label "$CAPE_MACHINE_LABEL" --guard-file "$user_guard" >/dev/null 2>&1 || true
+        rm -f "$user_guard"
+        fail "Could not persist CAPE maintenance guard; locks were released"
+        return 1
+      fi
       rm -f "$user_guard"
     elif [[ "$action" == release ]]; then
       local copy="/tmp/cape-inetsim-guard-$$.json"
@@ -41,7 +48,12 @@ cape_maintenance_tool() {
       runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" "$action" --label "$CAPE_MACHINE_LABEL" --guard-file "$copy"
       local rc=$?
       set -e
-      rm -f "$copy" "$CAPE_MAINTENANCE_GUARD_FILE"
+      rm -f "$copy"
+      if [[ "$rc" -eq 0 || "$rc" -eq 3 ]]; then
+        rm -f "$CAPE_MAINTENANCE_GUARD_FILE"
+      else
+        warn "CAPE maintenance release failed; preserving recovery guard $CAPE_MAINTENANCE_GUARD_FILE"
+      fi
       return "$rc"
     else
       runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" "$action" --label "$CAPE_MACHINE_LABEL" --guard-file "$user_guard"
