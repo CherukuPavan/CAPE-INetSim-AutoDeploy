@@ -60,6 +60,43 @@ jobs:
           appliance/build/verify-artifact.sh "$RUNNER_TEMP/cape-inetsim-appliance-v1.0.0.qcow2" \
             2>&1 | tee "$RUNNER_TEMP/appliance-diag/artifact-verify.log"
 
+      - name: Create candidate verification evidence
+        if: steps.appliance_build.outcome == 'success' && steps.appliance_verify.outcome == 'success'
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          EVIDENCE="$RUNNER_TEMP/appliance-evidence"
+          mkdir -p "$EVIDENCE"
+          cp "$RUNNER_TEMP/cape-inetsim-appliance-v1.0.0.qcow2.sha256" "$EVIDENCE/"
+          cp "$RUNNER_TEMP/cape-inetsim-appliance-v1.0.0.qcow2.info.txt" "$EVIDENCE/"
+          cp "$RUNNER_TEMP/appliance-diag/artifact-verify.log" "$EVIDENCE/"
+          cp appliance/build/base-image.json "$EVIDENCE/base-image.json"
+          python3 - "$EVIDENCE" "$SOURCE_SHA" <<'PY'
+import json,pathlib,sys
+root=pathlib.Path(sys.argv[1])
+sha=sys.argv[2]
+base=json.loads((root/"base-image.json").read_text())
+qcow_sha=(root/"cape-inetsim-appliance-v1.0.0.qcow2.sha256").read_text().split()[0]
+(root/"candidate-provenance.json").write_text(json.dumps({
+    "schema":1,
+    "source_commit":sha,
+    "artifact_name":"cape-inetsim-appliance-v1.0.0.qcow2",
+    "qcow2_sha256":qcow_sha,
+    "base_release_build":base["release_build"],
+    "base_sha256":base["sha256"],
+    "independent_verifier":"PASS"
+},indent=2)+"\n")
+PY
+
+      - name: Upload candidate verification evidence
+        if: steps.appliance_build.outcome == 'success' && steps.appliance_verify.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cape-inetsim-appliance-v1.0.0-evidence
+          path: ${{ runner.temp }}/appliance-evidence
+          retention-days: 30
+
       - name: Upload build candidate
         if: steps.appliance_build.outcome == 'success' && steps.appliance_verify.outcome == 'success'
         uses: actions/upload-artifact@v4
@@ -81,11 +118,13 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Diagnostic outcome
+      - name: Final candidate outcome
         if: always()
         run: |
           echo "appliance_build_outcome=${{ steps.appliance_build.outcome }}"
           echo "appliance_verify_outcome=${{ steps.appliance_verify.outcome }}"
           if [[ "${{ steps.appliance_build.outcome }}" != "success" || "${{ steps.appliance_verify.outcome }}" != "success" ]]; then
-            echo "::warning::Appliance candidate build/verification did not pass; inspect diagnostics before publishing any manifest."
+            echo "::error::Appliance candidate build/verification did not pass. No candidate is publishable."
+            exit 1
           fi
+          echo "Appliance candidate build and independent verification passed."
