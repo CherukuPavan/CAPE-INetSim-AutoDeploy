@@ -36,12 +36,7 @@ jobs:
       - name: Install image build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libguestfs-tools qemu-utils
-          # libguestfs 1.52 prefers passt whenever the binary is runnable. The
-          # hosted runner's passt cannot establish the required namespace/socket,
-          # so force libguestfs' supported QEMU user-network fallback (SLIRP).
-          sudo apt-get remove -y passt 2>/dev/null || true
-          command -v passt >/dev/null && { echo "passt still present; refusing ambiguous network backend"; exit 1; } || true
+          sudo apt-get install -y --no-install-recommends libguestfs-tools qemu-utils qemu-system-x86 cloud-image-utils
           sudo chmod 666 /dev/kvm 2>/dev/null || true
           # libguestfs/supermin needs the runner user to read a host kernel.
           sudo chmod a+r /boot/vmlinuz-* /boot/initrd.img-* 2>/dev/null || true
@@ -53,9 +48,6 @@ jobs:
           LIBGUESTFS_BACKEND: direct
           LIBGUESTFS_MEMSIZE: 1024
           APPLIANCE_BASE_CACHE: /home/runner/.cache/cape-inetsim-autodeploy/base
-          # libguestfs direct/SLIRP uses 169.254.2.15/16 with gateway
-          # 169.254.2.2 and DNS proxy 169.254.2.3.
-          APPLIANCE_BUILD_DNS: 169.254.2.3
         run: |
           chmod +x appliance/build/build.sh appliance/image-rootfs-prepare.sh appliance/guest-configure.sh
           appliance/build/build.sh "$RUNNER_TEMP/cape-inetsim-appliance-v1.0.0.qcow2"
