@@ -13,6 +13,7 @@ run_discovery() {
   discover_domain_details
   discover_management_network
   discover_management_network_details
+  discover_hypervisor_safety_features
   discover_windows_backends
   plan_isolated_subnet
   discover_busy_state
@@ -50,6 +51,7 @@ print_plan() {
   kv "management libvirt network:" "${MANAGEMENT_NETWORK_NAME:-unknown}"
   kv "management bridge:" "${MANAGEMENT_BRIDGE_NAME:-unknown}"
   kv "Windows management MAC:" "${WINDOWS_MANAGEMENT_MAC:-unknown}"
+  kv "libvirt clean-traffic nwfilter:" "${MANAGEMENT_NWFILTER_AVAILABLE:-unknown}"
   kv "domain state:" "${DOMAIN_STATE:-unknown}"
   kv "NIC count:" "${DOMAIN_NIC_COUNT:-unknown}"
   kv "NIC model(s):" "${DOMAIN_NIC_MODELS:-unknown}"
