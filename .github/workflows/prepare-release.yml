@@ -45,9 +45,10 @@ jobs:
       SOURCE_SHA: ${{ inputs.source_sha }}
       RELEASE_TAG: ${{ inputs.release_tag }}
     steps:
-      - name: Checkout release tooling
+      - name: Checkout exact candidate release tooling
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          ref: ${{ inputs.source_sha }}
           path: tooling
 
       - name: Checkout exact candidate source
