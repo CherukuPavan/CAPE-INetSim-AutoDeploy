@@ -3,22 +3,37 @@ set -euo pipefail
 ROOT="${AUTODEPLOY_ROOT:-/usr/local/lib/cape-inetsim-autodeploy}"
 [[ -f "$ROOT/lib/state.sh" ]] || ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AUTODEPLOY_ROOT="$ROOT"
+export AUTODEPLOY_ROOT
 source "$ROOT/lib/common.sh"
 source "$ROOT/lib/state.sh"
 
-if ! state_load; then
-  echo "CAPE-INetSim-AutoDeploy: not deployed (no state file at $AD_STATE_FILE)"
-  exit 1
-fi
+require_root
+state_load || { echo "CAPE-INetSim-AutoDeploy: not deployed (no state file at $AD_STATE_FILE)"; exit 1; }
+
+domain_state(){ virsh domstate "$1" 2>/dev/null | head -1 | xargs || echo absent; }
+network_state(){ virsh net-info "$1" >/dev/null 2>&1 && virsh net-info "$1" | awk -F: '/^Active:/{gsub(/^[ \t]+/,"",$2);print $2}' || echo absent; }
+snapshot_state(){ [[ -n "$2" ]] && virsh snapshot-info "$1" "$2" >/dev/null 2>&1 && virsh snapshot-info "$1" "$2" | awk -F: '/^State:/{gsub(/^[ \t]+/,"",$2);print $2}' || echo absent; }
 
 echo "CAPE-INetSim-AutoDeploy status"
+kv "version:" "$AD_VERSION"
 kv "deployment id:" "${DEPLOYMENT_ID:-unknown}"
 kv "phase:" "${DEPLOYMENT_PHASE:-unknown}"
 kv "CAPE root:" "${CAPE_ROOT:-unknown}"
+kv "CAPE commit:" "${CAPE_COMMIT:-unknown}"
 kv "CAPE machine:" "${CAPE_MACHINE_SECTION:-unknown}"
-kv "libvirt domain:" "${DOMAIN:-unknown}"
+kv "Windows domain:" "${DOMAIN:-unknown}"
+kv "Windows current state:" "$(domain_state "${DOMAIN:-}")"
+kv "Windows backend used:" "${WINDOWS_BACKEND_USED:-unknown}"
+kv "running snapshot:" "${FINAL_SNAPSHOT:-unknown}"
+kv "running snapshot state:" "$(snapshot_state "${DOMAIN:-}" "${FINAL_SNAPSHOT:-}")"
 kv "isolated subnet:" "${ISOLATED_SUBNET:-unknown}"
+kv "isolated network:" "${ISOLATED_NETWORK_NAME:-unknown}"
+kv "isolated network active:" "$(network_state "${ISOLATED_NETWORK_NAME:-}")"
+kv "capture bridge:" "${ISOLATED_BRIDGE_NAME:-unknown}"
+kv "INetSim domain:" "${INETSIM_DOMAIN_NAME:-unknown}"
+kv "INetSim VM state:" "$(domain_state "${INETSIM_DOMAIN_NAME:-}")"
 kv "INetSim IP:" "${INETSIM_IP:-unknown}"
 kv "Windows fake IP:" "${WINDOWS_FAKE_IP:-unknown}"
-kv "isolated network:" "${ISOLATED_NETWORK_NAME:-unknown}"
-kv "bridge:" "${ISOLATED_BRIDGE_NAME:-unknown}"
+kv "cape.service:" "$(systemctl is-active cape.service 2>/dev/null || true)"
+kv "cape-processor:" "$(systemctl is-active cape-processor.service 2>/dev/null || true)"
+kv "cape-web:" "$(systemctl is-active cape-web.service 2>/dev/null || true)"
