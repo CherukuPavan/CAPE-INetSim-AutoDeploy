@@ -17,8 +17,10 @@ cat >"$TMP/manifest.json" <<EOF2
   "artifact_url":"https://example.invalid/a.qcow2",
   "sha256":"$sha",
   "format":"qcow2",
-  "os":{},
-  "inetsim":{}
+  "os":{"distribution":"Ubuntu","release":"24.04 LTS","architecture":"x86_64"},
+  "inetsim":{"unprivileged_port_start":53},
+  "guest_management":{"qemu_guest_agent":true},
+  "networking":{"baked_in_fake_internet_subnet":false}
 }
 EOF2
 appliance_manifest_validate "$TMP/manifest.json" >/dev/null
@@ -34,3 +36,6 @@ else
 fi
 
 echo '[PASS] appliance manifest/checksum gates'
+
+grep -Fq 'full-backing-filename' "$ROOT/lib/appliance.sh"
+grep -Fq 'qemu-img check "$file"' "$ROOT/lib/appliance.sh"
