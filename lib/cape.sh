@@ -109,6 +109,9 @@ for sec in cfg.sections():
     d={k.lower():v.strip() for k,v in cfg.items(sec)}
     if not any(k in d for k in ('ip','label','snapshot','platform','interface')): continue
     if d.get('enabled','yes').lower() in ('no','false','0'): continue
+    platform=d.get('platform','').strip().lower()
+    if platform and not platform.startswith('windows'):
+        continue
     print(json.dumps({
         'section':sec,
         'label':d.get('label',sec),
