@@ -1,17 +1,34 @@
 #!/usr/bin/env bash
 
 EXTENSION_VERSION="1.0.1"
-EXTENSION_ARCHIVE="CAPE-INetSim-VM-Extension-v${EXTENSION_VERSION}.tar.gz"
-EXTENSION_SHA256="f3be934f08ad364d5964842d3db9bfea0f11cd40a44b76980855d692d3a34d87"
-EXTENSION_URL="https://github.com/CherukuPavan/CAPE-INetSim-VM-Extension/releases/download/v${EXTENSION_VERSION}/${EXTENSION_ARCHIVE}"
+EXTENSION_RELEASE_ASSET_SHA256="f3be934f08ad364d5964842d3db9bfea0f11cd40a44b76980855d692d3a34d87"
+EXTENSION_BUNDLED_ROOT="${EXTENSION_BUNDLED_ROOT:-$AUTODEPLOY_ROOT/vendor/CAPE-INetSim-VM-Extension-v${EXTENSION_VERSION}}"
 EXTENSION_ROOT="${EXTENSION_ROOT:-$AD_STATE_ROOT/extension-v${EXTENSION_VERSION}}"
 
 extension_fetch_extract() {
-  local cache="$APPLIANCE_CACHE_ROOT/$EXTENSION_ARCHIVE"
-  install -d -m 0755 "$APPLIANCE_CACHE_ROOT"
+  # The exact v1.0.1 runtime is vendored inside the checksum-pinned AutoDeploy
+  # source bundle. A random target host must never need credentials for the
+  # separate private extension development repository.
+  [[ -d "$EXTENSION_BUNDLED_ROOT" ]] || {
+    fail "Bundled INetSim extension runtime is missing"
+    return 1
+  }
+  [[ -s "$EXTENSION_BUNDLED_ROOT/RUNTIME-SHA256SUMS" ]] || {
+    fail "Bundled INetSim extension checksum manifest is missing"
+    return 1
+  }
+
+  if ! (cd "$EXTENSION_BUNDLED_ROOT" && sha256sum -c RUNTIME-SHA256SUMS >/dev/null); then
+    fail "Bundled INetSim extension runtime checksum verification failed"
+    return 1
+  fi
+  [[ "$(cat "$EXTENSION_BUNDLED_ROOT/VERSION" 2>/dev/null || true)" == "$EXTENSION_VERSION" ]] || {
+    fail "Bundled INetSim extension version mismatch"
+    return 1
+  }
 
   # Preserve any extension-created recovery point across a crashed installer.
-  # Re-extracting over .last_backup/.installed_backup would destroy rollback data.
+  # Re-copying over .last_backup/.installed_backup would destroy rollback data.
   if [[ -x "$EXTENSION_ROOT/install.sh" ]] && {
        [[ -s "$EXTENSION_ROOT/.installed_backup" ]] ||
        [[ -s "$EXTENSION_ROOT/.last_backup" ]] ||
@@ -20,17 +37,18 @@ extension_fetch_extract() {
     return 0
   fi
 
-  if [[ ! -f "$cache" || "$(sha256sum "$cache" | awk '{print $1}')" != "$EXTENSION_SHA256" ]]; then
-    rm -f "$cache.part"
-    curl --fail --location --proto '=https' --tlsv1.2 --retry 3 -o "$cache.part" "$EXTENSION_URL"
-    [[ "$(sha256sum "$cache.part" | awk '{print $1}')" == "$EXTENSION_SHA256" ]] || { rm -f "$cache.part"; fail "Extension checksum mismatch"; return 1; }
-    mv -f "$cache.part" "$cache"
-  fi
   rm -rf "$EXTENSION_ROOT.new"
   install -d -m 0700 "$EXTENSION_ROOT.new"
-  tar -xzf "$cache" -C "$EXTENSION_ROOT.new" --strip-components=1
-  [[ -x "$EXTENSION_ROOT.new/install.sh" ]] || { fail "Extension archive layout invalid"; return 1; }
-  [[ "$(cat "$EXTENSION_ROOT.new/VERSION" 2>/dev/null || true)" == "$EXTENSION_VERSION" ]] || { fail "Extension package version mismatch"; return 1; }
+  cp -a "$EXTENSION_BUNDLED_ROOT/." "$EXTENSION_ROOT.new/"
+  chmod 0755 "$EXTENSION_ROOT.new/install.sh" "$EXTENSION_ROOT.new"/scripts/*.sh
+  chmod 0755 "$EXTENSION_ROOT.new/scripts/prepare_install_candidate.py" 2>/dev/null || true
+
+  [[ -x "$EXTENSION_ROOT.new/install.sh" ]] || { fail "Bundled extension layout invalid"; return 1; }
+  [[ "$(cat "$EXTENSION_ROOT.new/VERSION" 2>/dev/null || true)" == "$EXTENSION_VERSION" ]] || {
+    fail "Bundled extension package version mismatch"
+    return 1
+  }
+
   rm -rf "$EXTENSION_ROOT"
   mv "$EXTENSION_ROOT.new" "$EXTENSION_ROOT"
 }
