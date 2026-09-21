@@ -45,10 +45,18 @@ def load_report(task_id):
             return json.load(f),path
     return None,None
 
+def capture_path(task_id):
+    base=analyses/str(task_id)
+    for path in (base/"dump.pcap",base/"dump_sorted.pcap"):
+        if path.is_file() and path.stat().st_size > 0:
+            return path
+    return None
+
 def evaluate(task_id):
     report,path=load_report(task_id)
     if not isinstance(report,dict):
         return None
+    capture=capture_path(task_id)
     info=report.get("info") or {}
     route=str(info.get("route") or "").strip().lower()
     network=report.get("network") or {}
@@ -64,6 +72,7 @@ def evaluate(task_id):
         "context_enabled":bool(context.get("enabled")),
         "summary":context.get("summary") or {},
         "task_domains":(context.get("attribution_summary") or {}).get("task_domains") or [],
+        "capture_path":str(capture) if capture else "",
     }
 
 def numeric_task_ids():
@@ -83,10 +92,10 @@ def get(task_id):
     return cache[tid]
 
 def valid_positive(row):
-    return bool(row and row["route"]=="none" and row["uses_inetsim"] and row["context_enabled"])
+    return bool(row and row["capture_path"] and row["route"]=="none" and row["uses_inetsim"] and row["context_enabled"])
 
 def valid_negative(row):
-    return bool(row and row["route"]=="none" and not row["uses_inetsim"] and not row["context_enabled"])
+    return bool(row and row["capture_path"] and row["route"]=="none" and not row["uses_inetsim"] and not row["context_enabled"])
 
 positive=None
 negative=None
@@ -95,11 +104,11 @@ errors=[]
 if a.positive_task:
     positive=get(a.positive_task)
     if not valid_positive(positive):
-        errors.append("explicit positive task is not a route=none INetSim-positive report")
+        errors.append("explicit positive task is not a route=none INetSim-positive report with a local pcap")
 if a.negative_task:
     negative=get(a.negative_task)
     if not valid_negative(negative):
-        errors.append("explicit negative task is not a route=none INetSim-negative report")
+        errors.append("explicit negative task is not a route=none INetSim-negative report with a local pcap")
 
 if positive is None or negative is None:
     for tid in numeric_task_ids():
@@ -112,9 +121,9 @@ if positive is None or negative is None:
             break
 
 if positive is None:
-    errors.append("no completed route=none report with INetSim traffic was found")
+    errors.append("no completed route=none report with INetSim traffic and a local pcap was found")
 if negative is None:
-    errors.append("no completed ordinary route=none negative-control report was found")
+    errors.append("no completed ordinary route=none negative-control report with a local pcap was found")
 
 result={
     "schema":1,
