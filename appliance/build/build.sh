@@ -8,7 +8,7 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 need(){ command -v "$1" >/dev/null 2>&1 || { echo "[FAIL] missing build command: $1" >&2; exit 2; }; }
-for x in python3 curl sha256sum qemu-img qemu-system-x86_64 cloud-localds virt-sysprep virt-cat virt-filesystems virt-resize virt-df virt-customize timeout; do need "$x"; done
+for x in python3 curl sha256sum qemu-img qemu-system-x86_64 cloud-localds virt-sysprep virt-cat virt-filesystems virt-df virt-customize timeout; do need "$x"; done
 
 readarray -t BASE < <(python3 - "$BASE_MANIFEST" <<'PY'
 import json,sys
@@ -53,8 +53,14 @@ printf '%s\n' "${PARTITIONS[@]}" | grep -Fxq /dev/sda1 || {
   exit 5
 }
 
-qemu-img create -f qcow2 "$OUT.part" 20G >/dev/null
-virt-resize --expand /dev/sda1 "$BASE_FILE" "$OUT.part"
+# Preserve the cloud image's bootloader/GPT exactly. The earlier
+# virt-resize copy path renumbered the root partition on this pinned Noble
+# image and left GRUB pointing at a partition that no longer existed.
+# Enlarge only the virtual disk here; cloud-init growpart/resize_rootfs expands
+# the existing root partition/filesystem during the temporary build boot.
+qemu-img convert -p -O qcow2 "$BASE_FILE" "$OUT.part"
+qemu-img resize "$OUT.part" 20G >/dev/null
+qemu-img check "$OUT.part" >/dev/null
 
 # Provision through the cloud image's native boot path instead of depending on
 # libguestfs appliance networking. QEMU user networking is build-time only.
