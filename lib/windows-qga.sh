@@ -14,13 +14,7 @@ windows_configure_via_qga() {
   qga_exec_wait "$DOMAIN" "$windows_qga_powershell_path"     -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$remote_ps"     -ManagementIP "$guest_ip" -IsolatedMac "$isolated_mac" -FakeIP "$fake_ip"     -PrefixLength "$prefix" -DnsIP "$dns_ip" -ResultServerIP "$result_ip"     -ResultServerPort "$result_port" -ControlHostIP "$control_host_ip" -ResultPath "$remote_result"
   qga_file_read "$DOMAIN" "$remote_result" "$local_result"
 
-  python3 - "$local_result" <<'PY'
-import json,sys
-with open(sys.argv[1],encoding="utf-8-sig") as f: d=json.load(f)
-if not d.get("ok"):
-    print(json.dumps(d,indent=2),file=sys.stderr)
-    raise SystemExit(1)
-PY
+  validate_windows_result_path "$local_result"
   qga_exec_wait "$DOMAIN" "$windows_qga_powershell_path" -NoProfile -NonInteractive -Command     "Remove-Item -LiteralPath '$remote_ps','$remote_result' -Force -ErrorAction SilentlyContinue" >/dev/null || true
   WINDOWS_BACKEND_USED=qemu-guest-agent
   state_record_resource windows-config "$DOMAIN" configured-via-qga yes "isolated_mac=$isolated_mac fake_ip=$fake_ip"
@@ -36,11 +30,7 @@ windows_verify_via_qga() {
   qga_file_write "$DOMAIN" "$ps1" "$remote_ps"
   qga_exec_wait "$DOMAIN" "$windows_qga_powershell_path" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$remote_ps"     -ManagementIP "$guest_ip" -IsolatedMac "$isolated_mac" -FakeIP "$fake_ip" -DnsIP "$dns_ip"     -ResultServerIP "$result_ip" -ResultServerPort "$result_port" -ResultPath "$remote_result"
   qga_file_read "$DOMAIN" "$remote_result" "$local_result"
-  python3 - "$local_result" <<'PY'
-import json,sys
-with open(sys.argv[1],encoding="utf-8-sig") as f: d=json.load(f)
-if not d.get("ok"): raise SystemExit(json.dumps(d))
-PY
+  validate_windows_result_path "$local_result"
 }
 
 windows_poweroff_via_qga() {
