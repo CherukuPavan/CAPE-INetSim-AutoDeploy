@@ -16,6 +16,29 @@ python3 "$ROOT/appliance/build/render-cloud-init.py" \
   --prepare "$ROOT/appliance/image-rootfs-prepare.sh" \
   --output "$TMP/user-data"
 
+printf 'raw appliance test bytes\n' >"$TMP/test.qcow2"
+gzip -c "$TMP/test.qcow2" >"$TMP/test.qcow2.gz"
+python3 "$ROOT/appliance/build/render-manifest.py" \
+  --artifact "$TMP/test.qcow2" \
+  --transport-artifact "$TMP/test.qcow2.gz" \
+  --url "https://example.invalid/test.qcow2.gz" \
+  --output "$TMP/manifest.json"
+python3 - "$TMP/manifest.json" "$TMP/test.qcow2" "$TMP/test.qcow2.gz" <<'PY'
+import hashlib,json,sys
+m=json.load(open(sys.argv[1]))
+def h(path):
+    x=hashlib.sha256()
+    x.update(open(path,"rb").read())
+    return x.hexdigest()
+assert m["status"]=="published"
+assert m["artifact_name"]=="test.qcow2"
+assert m["sha256"]==h(sys.argv[2])
+assert m["artifact_url"]=="https://example.invalid/test.qcow2.gz"
+assert m["transport"]["compression"]=="gzip"
+assert m["transport"]["artifact_name"]=="test.qcow2.gz"
+assert m["transport"]["sha256"]==h(sys.argv[3])
+PY
+
 grep -Fxq '#cloud-config' "$TMP/user-data"
 grep -q 'cape-inetsim-image-rootfs-prepare' "$TMP/user-data"
 grep -q 'cape-inetsim-build-wrapper' "$TMP/user-data"
@@ -65,6 +88,8 @@ grep -q 'persistent machine-id' "$ROOT/appliance/build/verify-artifact.sh"
 grep -q 'persistent SSH host private keys' "$ROOT/appliance/build/verify-artifact.sh"
 grep -q 'cloud-init instance state' "$ROOT/appliance/build/verify-artifact.sh"
 grep -q 'appliance_verify.outcome' "$ROOT/.github/workflows/appliance-build.yml"
+grep -q -- '--transport-artifact' "$ROOT/appliance/build/render-manifest.py"
+grep -q '"compression":"gzip"' "$ROOT/appliance/build/render-manifest.py"
 
 grep -q -- '--management-mac' "$ROOT/appliance/guest-configure.sh"
 ! grep -q '192\.168\.200\.' "$ROOT/appliance/guest-configure.sh"
