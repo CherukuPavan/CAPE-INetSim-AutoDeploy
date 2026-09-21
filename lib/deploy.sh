@@ -140,16 +140,26 @@ deploy_windows_cutover() {
   windows_verify_selected_backend
   state_set_phase windows-configured
 
-  windows_poweroff_selected_backend
-  windows_create_working_snapshot
-  state_set_phase windows-working-snapshot
+  if [[ "$WINDOWS_BACKEND_USED" == manual-powershell ]]; then
+    # The fallback contract is exactly one Windows command. Capture the verified
+    # running state now, then shut down and create the separate rollback snapshot.
+    windows_create_running_snapshot
+    state_set_phase windows-running-snapshot
+    windows_poweroff_selected_backend
+    windows_create_working_snapshot
+    state_set_phase windows-working-snapshot
+  else
+    windows_poweroff_selected_backend
+    windows_create_working_snapshot
+    state_set_phase windows-working-snapshot
 
-  windows_start_for_cutover
-  windows_select_live_backend
-  windows_verify_selected_backend
-  windows_create_running_snapshot
-  state_set_phase windows-running-snapshot
-  windows_poweroff_selected_backend
+    windows_start_for_cutover
+    windows_select_live_backend
+    windows_verify_selected_backend
+    windows_create_running_snapshot
+    state_set_phase windows-running-snapshot
+    windows_poweroff_selected_backend
+  fi
 }
 
 deploy_cape_cutover() {
