@@ -15,6 +15,7 @@ run_discovery() {
   discover_windows_snapshot_capability
   discover_management_network
   discover_management_network_details
+  discover_cape_analysis_snapshot
   discover_hypervisor_safety_features
   discover_windows_backends
   plan_isolated_subnet
@@ -48,7 +49,9 @@ print_plan() {
   kv "ResultServer IP:" "${CAPE_RESULTSERVER_IP:-unknown}"
   kv "ResultServer port:" "${CAPE_RESULTSERVER_PORT:-unknown}"
   kv "host control IP:" "${CONTROL_HOST_IP:-unknown}"
-  kv "current CAPE snapshot:" "${CAPE_MACHINE_SNAPSHOT:-unknown}"
+  kv "configured CAPE snapshot:" "${CAPE_MACHINE_SNAPSHOT:-unknown}"
+  kv "CAPE snapshot proof:" "${CAPE_ANALYSIS_SNAPSHOT_STATUS:-unknown}"
+  kv "CAPE snapshot state/memory:" "${CAPE_ANALYSIS_SNAPSHOT_STATE:-unknown}/${CAPE_ANALYSIS_SNAPSHOT_MEMORY:-unknown}"
   kv "current CAPE interface:" "${CAPE_MACHINE_INTERFACE:-unknown}"
   kv "libvirt domain:" "${DOMAIN:-ambiguous}"
   kv "management libvirt network:" "${MANAGEMENT_NETWORK_NAME:-unknown}"
