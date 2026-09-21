@@ -53,3 +53,5 @@ jobs:
         run: bash tests/maintenance_tool.sh
       - name: Frozen extension constants
         run: bash tests/extension_logic.sh
+      - name: Workflow notification policy
+        run: bash tests/workflow_policy.sh
