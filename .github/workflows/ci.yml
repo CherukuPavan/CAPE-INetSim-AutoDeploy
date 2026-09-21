@@ -25,6 +25,8 @@ jobs:
         run: bash tests/transaction_logic.sh
       - name: Isolated network XML safety
         run: bash tests/network_xml.sh
+      - name: Host fake-Internet firewall safety
+        run: bash tests/firewall_logic.sh
       - name: Appliance manifest gates
         run: bash tests/appliance_manifest.sh
       - name: Appliance build pin/generalization
