@@ -37,7 +37,7 @@ windows_winrm_ready() {
   password="$(windows_winrm_password)" || return 1
   [[ -n "$password" ]] || return 1
 
-  printf '%s' "$password" | python3 - "$ip" "$port" "$CAPE_INETSIM_WINRM_USERNAME" "$validation" <<'PY'
+  printf '%s' "$password" | python3 -c '
 import sys
 try:
     import winrm
@@ -52,7 +52,7 @@ except Exception:
     raise SystemExit(1)
 if r.status_code != 0 or r.std_out.decode(errors="replace").strip().lower() != "true":
     raise SystemExit(1)
-PY
+' "$ip" "$port" "$CAPE_INETSIM_WINRM_USERNAME" "$validation"
 }
 
 windows_winrm_run_script() {
@@ -87,7 +87,7 @@ windows_poweroff_via_winrm() {
   local ip="$1" port password validation="${CAPE_INETSIM_WINRM_CERT_VALIDATION:-validate}"
   port="$(windows_winrm_port "$ip" 2>/dev/null)" || return 0
   password="$(windows_winrm_password)" || return 0
-  printf '%s' "$password" | python3 - "$ip" "$port" "$CAPE_INETSIM_WINRM_USERNAME" "$validation" <<'PY' || true
+  printf '%s' "$password" | python3 -c '
 import sys
 try:
     import winrm
@@ -97,5 +97,5 @@ try:
     s.run_cmd("shutdown.exe",["/s","/t","0","/f"])
 except Exception:
     pass
-PY
+' "$ip" "$port" "$CAPE_INETSIM_WINRM_USERNAME" "$validation" || true
 }
