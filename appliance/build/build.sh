@@ -8,7 +8,7 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 need(){ command -v "$1" >/dev/null 2>&1 || { echo "[FAIL] missing build command: $1" >&2; exit 2; }; }
-for x in python3 curl sha256sum qemu-img virt-customize virt-sysprep virt-cat; do need "$x"; done
+for x in python3 curl sha256sum qemu-img virt-customize virt-sysprep virt-cat virt-filesystems virt-resize virt-df; do need "$x"; done
 
 readarray -t BASE < <(python3 - "$BASE_MANIFEST" <<'PY'
 import json,sys
@@ -31,8 +31,19 @@ curl --fail --location --proto '=https' --tlsv1.2 --retry 3 -o "$BASE_FILE" "$BA
 }
 
 rm -f "$OUT" "$OUT.part"
-qemu-img convert -O qcow2 "$BASE_FILE" "$OUT.part"
-qemu-img resize "$OUT.part" 20G >/dev/null
+
+# The Ubuntu cloud image root filesystem is on /dev/sda1. Assert that layout
+# before resizing so a future upstream image-layout change stops the build.
+mapfile -t PARTITIONS < <(virt-filesystems -a "$BASE_FILE" --partitions 2>/dev/null)
+printf '%s\n' "${PARTITIONS[@]}" | grep -Fxq /dev/sda1 || {
+  echo "[FAIL] pinned Ubuntu image no longer exposes expected root partition /dev/sda1" >&2
+  exit 5
+}
+
+# Grow both the virtual disk and the guest root filesystem. qemu-img resize
+# alone would leave the guest filesystem at the small cloud-image size.
+qemu-img create -f qcow2 "$OUT.part" 20G >/dev/null
+virt-resize --expand /dev/sda1 "$BASE_FILE" "$OUT.part"
 
 export LIBGUESTFS_BACKEND="${LIBGUESTFS_BACKEND:-direct}"
 virt-customize -a "$OUT.part" --network   --mkdir /usr/local/src   --upload "$ROOT/appliance/guest-configure.sh:/usr/local/src/cape-inetsim-guest-configure"   --upload "$ROOT/appliance/image-rootfs-prepare.sh:/root/cape-inetsim-image-rootfs-prepare"   --chmod '0755:/root/cape-inetsim-image-rootfs-prepare'   --run /root/cape-inetsim-image-rootfs-prepare   --delete /root/cape-inetsim-image-rootfs-prepare
@@ -48,6 +59,9 @@ virt-sysprep -a "$OUT.part" --operations "$(IFS=,; echo "${selected[*]}")"
 
 qemu-img check "$OUT.part" >/dev/null
 [[ "$(qemu-img info --output=json "$OUT.part" | python3 -c 'import json,sys;print(json.load(sys.stdin)["format"])')" == qcow2 ]]
+VIRTUAL_SIZE="$(qemu-img info --output=json "$OUT.part" | python3 -c 'import json,sys;print(json.load(sys.stdin)["virtual-size"])')"
+[[ "$VIRTUAL_SIZE" -ge 20000000000 ]] || { echo "[FAIL] appliance virtual disk was not expanded to ~20 GiB" >&2; exit 6; }
+virt-df -a "$OUT.part" >/dev/null
 
 OS_RELEASE="$(virt-cat -a "$OUT.part" /etc/os-release)"
 grep -q '^VERSION_ID="24.04"$' <<<"$OS_RELEASE"
