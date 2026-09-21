@@ -4,7 +4,7 @@ The appliance is a release artifact, not a target-host build.
 
 For v1.0.0 the builder must use a frozen Ubuntu 24.04 LTS x86_64 base, install INetSim and QEMU Guest Agent, run `image-rootfs-prepare.sh`, place `guest-configure.sh` at `/usr/local/src/cape-inetsim-guest-configure`, and then generalize the image before publication.
 
-Before release, run `virt-sysprep` on the powered-off image to remove machine identity, SSH host keys, DHCP state and other host-specific material. Do not remove the guest configuration helper or the INetSim DNS compatibility backup.
+Before publication, the build guest generalizes its own identity before shutdown: SSH host keys and cloud-init instance state are removed, machine-id is emptied, and temporary DHCP/lease/build state is removed. `verify-artifact.sh` independently rejects a candidate that retains those identities, the deployment-owned `90-cape-inetsim.yaml`, temporary build DNS state, or persistent static/default routing in sealed netplan configuration.
 
 The finished QCOW2 is published outside normal Git history. Update `appliance/manifest.json` with the HTTPS artifact URL and exact SHA-256, change `status` to `published`, and tag the repository release. Deployment refuses unpublished or checksum-mismatched artifacts.
 
