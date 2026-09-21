@@ -15,6 +15,14 @@ ARCHIVE="${OUT}.tar.gz"
 mkdir -p "$OUT"/{host,network,libvirt,cape,windows,packages,tests}
 sudo -v
 
+# Always inspect the system libvirt instance used by CAPE, never the caller's
+# qemu:///session instance. Defining/exporting this wrapper also makes runsh()
+# child shells use the same authoritative URI.
+virsh() {
+  sudo /usr/bin/virsh -c qemu:///system "$@"
+}
+export -f virsh
+
 run() {
   local rel="$1"; shift
   mkdir -p "$(dirname "$OUT/$rel.txt")"
@@ -53,7 +61,7 @@ redact_conf() {
   python3 - "$src" "$dst" <<'PY'
 import re,sys
 src,dst=sys.argv[1:3]
-sensitive=re.compile(r'(?i)(password|passwd|secret|token|api[_-]?key|private[_-]?key|access[_-]?key|client[_-]?secret|proxy[_-]?password)')
+sensitive=re.compile(r'(?i)(^|[^a-z0-9_])(password|passwd|secret|token|key|api[_-]?key|private[_-]?key|access[_-]?key|client[_-]?secret|proxy[_-]?password)([^a-z0-9_]|$)')
 urlcred=re.compile(r'(https?://)[^/@\s]+@')
 with open(src,'r',errors='replace') as f, open(dst,'w') as o:
     for line in f:
@@ -252,7 +260,7 @@ fi
 # Packages/tools
 runsh "packages/virtualization" "dpkg-query -W 2>/dev/null | grep -E '^(qemu|libvirt|virt-manager|virtinst|libguestfs|guestfs|ovmf|dnsmasq|bridge-utils|iproute2|nftables|iptables)[[:space:]]' || true"
 runsh "packages/cape_related" "dpkg-query -W 2>/dev/null | grep -E '^(python3|tcpdump|suricata|yara|libpcap|postgresql|mongodb|redis)[[:space:]]' || true"
-runsh "packages/tools" "for x in virsh qemu-img virt-install virt-sysprep guestfish python3 git curl jq tcpdump; do printf '%-18s ' \"\$x\"; command -v \"\$x\" || true; done"
+runsh "packages/tools" "for x in qemu-img virt-install virt-sysprep guestfish python3 git curl jq tcpdump; do printf '%-18s ' \"\$x\"; command -v \"\$x\" || true; done; printf '%-18s ' virsh; command -v /usr/bin/virsh || true"
 runsh "packages/python" "python3 --version; pip3 --version 2>/dev/null || true"
 
 find "$OUT" -type f -print0 | sort -z | xargs -0 sha256sum >"$OUT/SHA256SUMS"
