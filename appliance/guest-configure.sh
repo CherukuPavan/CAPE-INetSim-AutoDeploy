@@ -94,6 +94,7 @@ sleep 2
 
 ip -4 addr show dev "$ISO_IF" | grep -Fq "$CIDR"
 ss -lnup | grep -Fq "$IP:53"
-ss -lntp | grep -Eq "$IP:(80|443)[[:space:]]"
+ss -lntp | grep -Eq "$IP:80[[:space:]]"
+ss -lntp | grep -Eq "$IP:443[[:space:]]"
 
 echo "INETSIM_GUEST_CONFIG_OK management=$MGMT_IF isolated=$ISO_IF ip=$CIDR"
