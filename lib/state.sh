@@ -35,6 +35,7 @@ state_write_atomic() {
     printf 'DEPLOYMENT_PHASE=%q\n' "${DEPLOYMENT_PHASE:-discovered}"
     printf 'CAPE_ROOT=%q\n' "${CAPE_ROOT:-}"
     printf 'CAPE_COMMIT=%q\n' "${CAPE_COMMIT:-}"
+    printf 'CAPE_DB_BACKEND=%q\n' "${CAPE_DB_BACKEND:-}"
     printf 'CAPE_MACHINE_SECTION=%q\n' "${CAPE_MACHINE_SECTION:-}"
     printf 'CAPE_MACHINE_LABEL=%q\n' "${CAPE_MACHINE_LABEL:-}"
     printf 'CAPE_MACHINE_IP=%q\n' "${CAPE_MACHINE_IP:-}"
