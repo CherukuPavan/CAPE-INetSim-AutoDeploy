@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 p=argparse.ArgumentParser()
-p.add_argument("action",choices=["inspect","acquire","release"])
+p.add_argument("action",choices=["inspect","acquire","verify","release"])
 p.add_argument("--label",default="")
 p.add_argument("--guard-file",required=True)
 a=p.parse_args()
@@ -53,6 +53,44 @@ if a.action=="inspect":
             "machines":[{"id":m.id,"label":m.label,"locked":bool(m.locked),"status":m.status} for m in machines],
         }
     output(result)
+
+
+if a.action=="verify":
+    try:
+        state=json.load(open(a.guard_file))
+    except FileNotFoundError:
+        output({"valid":False,"reason":"no-guard-file"},4)
+    if state.get("schema") != 2 or not state.get("acquired"):
+        output({"valid":False,"reason":"unsupported-or-invalid-guard"},4)
+    marker=state.get("maintenance_locked_changed_on")
+    expected={m.get("label") for m in state.get("machines",[]) if m.get("label")}
+    with session.begin():
+        tasks=task_rows(session)
+        machines=machine_rows(session,lock=True)
+        current={m.label for m in machines}
+        mismatches=[]
+        if current != expected:
+            mismatches.append({
+                "machine_set_changed":True,
+                "expected":sorted(expected),
+                "current":sorted(current),
+            })
+        for m in machines:
+            if m.label not in expected:
+                continue
+            if not m.locked or dt_dump(m.locked_changed_on) != marker:
+                mismatches.append({
+                    "label":m.label,
+                    "locked":bool(m.locked),
+                    "locked_changed_on":dt_dump(m.locked_changed_on),
+                })
+        if tasks:
+            mismatches.append({
+                "active_tasks":[{"id":t.id,"status":t.status,"machine":t.machine} for t in tasks]
+            })
+    if mismatches:
+        output({"valid":False,"reason":"maintenance-ownership-mismatch","mismatches":mismatches},20)
+    output({"valid":True,"machine_count":len(expected),"marker":marker})
 
 if a.action=="acquire":
     Path(a.guard_file).parent.mkdir(parents=True,exist_ok=True)
