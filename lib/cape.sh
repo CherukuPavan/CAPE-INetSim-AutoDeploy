@@ -115,7 +115,9 @@ discover_cape_services() {
 discover_cape_machine_records() {
   CAPE_MACHINE_RECORDS=()
   [[ -n "${CAPE_ROOT:-}" ]] || return 0
-  mapfile -t CAPE_MACHINE_RECORDS < <(python3 - "$CAPE_ROOT/conf/kvm.conf" <<'PY'
+
+  local -a parsed=()
+  mapfile -t parsed < <(python3 - "$CAPE_ROOT/conf/kvm.conf" <<'PY'
 import configparser,json,sys
 p=sys.argv[1]
 cfg=configparser.ConfigParser(interpolation=None, strict=False)
@@ -123,41 +125,85 @@ cfg.optionxform=str.lower
 cfg.read(p)
 ignore={'kvm','resultserver','timeouts'}
 
-# CAPE's [kvm] machines= list is the authoritative set of guests actually
-# available to the KVM machinery. Example/template/stale sections may coexist
-# in the same file and must not be auto-deployed merely because they look like
-# valid machine sections.
 configured=[]
 if cfg.has_section('kvm'):
     raw=cfg.get('kvm','machines',fallback='').strip()
     configured=[x.strip() for x in raw.replace('\n',',').split(',') if x.strip()]
-configured_set=set(configured)
 
-sections=configured if configured else [s for s in cfg.sections() if s.lower() not in ignore]
-for sec in sections:
-    if sec.lower() in ignore or not cfg.has_section(sec):
-        continue
-    d={k.lower():v.strip() for k,v in cfg.items(sec)}
-    if not any(k in d for k in ('ip','label','snapshot','platform','interface')): continue
-    if d.get('enabled','yes').lower() in ('no','false','0'): continue
-    platform=d.get('platform','').strip().lower()
-    if platform and not platform.startswith('windows'):
-        continue
-    print(json.dumps({
-        'section':sec,
-        'label':d.get('label',sec),
-        'ip':d.get('ip',''),
-        'snapshot':d.get('snapshot',''),
-        'interface':d.get('interface',''),
-        'platform':d.get('platform',''),
-        'resultserver_ip':d.get('resultserver_ip',''),
-        'resultserver_port':d.get('resultserver_port','')
-    }, separators=(',',':')))
+def error(msg):
+    print("__AUTODEPLOY_ERROR__"+msg)
+
+if configured:
+    seen=set()
+    for sec in configured:
+        if sec in seen:
+            error(f"Duplicate CAPE machine in [kvm] machines list: {sec}")
+            continue
+        seen.add(sec)
+        if not cfg.has_section(sec):
+            error(f"CAPE [kvm] machines lists missing section: {sec}")
+            continue
+        d={k.lower():v.strip() for k,v in cfg.items(sec)}
+        if d.get('enabled','yes').lower() in ('no','false','0'):
+            error(f"CAPE [kvm] machines lists disabled section: {sec}")
+            continue
+        platform=d.get('platform','').strip().lower()
+        if platform and not platform.startswith('windows'):
+            error(f"Active CAPE KVM machine is not Windows-compatible: {sec} ({platform})")
+            continue
+        if not any(k in d for k in ('ip','label','snapshot','platform','interface')):
+            error(f"Active CAPE KVM machine section has no machine fields: {sec}")
+            continue
+        print(json.dumps({
+            'section':sec,
+            'label':d.get('label',sec),
+            'ip':d.get('ip',''),
+            'snapshot':d.get('snapshot',''),
+            'interface':d.get('interface',''),
+            'platform':d.get('platform',''),
+            'resultserver_ip':d.get('resultserver_ip',''),
+            'resultserver_port':d.get('resultserver_port','')
+        }, separators=(',',':')))
+else:
+    # Legacy fallback only when CAPE does not declare [kvm] machines. In this
+    # mode explicit non-Windows sections are ignored because there is no
+    # authoritative active-machine list to prove they are scheduled by KVM.
+    for sec in cfg.sections():
+        if sec.lower() in ignore:
+            continue
+        d={k.lower():v.strip() for k,v in cfg.items(sec)}
+        if not any(k in d for k in ('ip','label','snapshot','platform','interface')):
+            continue
+        if d.get('enabled','yes').lower() in ('no','false','0'):
+            continue
+        platform=d.get('platform','').strip().lower()
+        if platform and not platform.startswith('windows'):
+            continue
+        print(json.dumps({
+            'section':sec,
+            'label':d.get('label',sec),
+            'ip':d.get('ip',''),
+            'snapshot':d.get('snapshot',''),
+            'interface':d.get('interface',''),
+            'platform':d.get('platform',''),
+            'resultserver_ip':d.get('resultserver_ip',''),
+            'resultserver_port':d.get('resultserver_port','')
+        }, separators=(',',':')))
 PY
 )
-  if ((${#CAPE_MACHINE_RECORDS[@]} == 0)); then add_error "No enabled CAPE analysis-machine sections were discovered"; fi
-}
 
+  local item
+  for item in "${parsed[@]}"; do
+    if [[ "$item" == __AUTODEPLOY_ERROR__* ]]; then
+      add_error "${item#__AUTODEPLOY_ERROR__}"
+    else
+      CAPE_MACHINE_RECORDS+=("$item")
+    fi
+  done
+  if (("${#CAPE_MACHINE_RECORDS[@]}" == 0)); then
+    add_error "No enabled Windows-compatible CAPE analysis-machine sections were discovered"
+  fi
+}
 record_field(){ python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get(sys.argv[2],""))' "$1" "$2"; }
 
 select_machine_by_request() {
