@@ -139,8 +139,13 @@ isolated_network_rollback() {
   isolated_network_defaults
   if ! isolated_network_exists "$ISOLATED_NETWORK_NAME"; then return 0; fi
   if ! state_resource_owned "libvirt-network" "$ISOLATED_NETWORK_NAME"; then
-    fail "Refusing to remove non-owned libvirt network '$ISOLATED_NETWORK_NAME'"
-    return 1
+    if state_resource_intended "libvirt-network" "$ISOLATED_NETWORK_NAME" &&
+       verify_isolated_network_definition "$ISOLATED_NETWORK_NAME" "$ISOLATED_BRIDGE_NAME" "$ISOLATED_SUBNET" "$BRIDGE_IP"; then
+      state_record_resource "libvirt-network" "$ISOLATED_NETWORK_NAME" recovered-created yes "rollback-adoption"
+    else
+      fail "Refusing to remove non-owned libvirt network '$ISOLATED_NETWORK_NAME'"
+      return 1
+    fi
   fi
   virsh net-destroy "$ISOLATED_NETWORK_NAME" >/dev/null 2>&1 || true
   virsh net-autostart "$ISOLATED_NETWORK_NAME" --disable >/dev/null 2>&1 || true
