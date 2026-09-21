@@ -9,6 +9,10 @@ grep -q 'configured-via-winrm' "$ROOT/lib/windows-winrm.sh"
 grep -q 'CAPE_INETSIM_WINRM_PASSWORD_FILE' "$ROOT/lib/windows-winrm.sh"
 grep -q 'CAPE_INETSIM_WINRM_CERT_VALIDATION' "$ROOT/lib/windows-winrm.sh"
 
+source "$ROOT/lib/windows-winrm.sh"
+probe_tcp(){ return 0; }
+[[ "$(windows_winrm_port 192.0.2.1)" == 5986 ]]
+
 python3 - "$ROOT/lib/windows-control.sh" <<'PY'
 import sys
 s=open(sys.argv[1],encoding="utf-8").read()
