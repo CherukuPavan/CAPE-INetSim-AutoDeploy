@@ -20,6 +20,9 @@ kv "deployment id:" "${DEPLOYMENT_ID:-unknown}"
 kv "phase:" "${DEPLOYMENT_PHASE:-unknown}"
 kv "CAPE root:" "${CAPE_ROOT:-unknown}"
 kv "CAPE commit:" "${CAPE_COMMIT:-unknown}"
+kv "release tag:" "${RELEASE_TAG:-development/unknown}"
+kv "release source commit:" "${RELEASE_SOURCE_COMMIT:-development/unknown}"
+kv "release source SHA256:" "${RELEASE_SOURCE_SHA256:-development/unknown}"
 kv "CAPE machine:" "${CAPE_MACHINE_SECTION:-unknown}"
 kv "Windows domain:" "${DOMAIN:-unknown}"
 kv "Windows current state:" "$(domain_state "${DOMAIN:-}")"
@@ -37,3 +40,15 @@ kv "Windows fake IP:" "${WINDOWS_FAKE_IP:-unknown}"
 kv "cape.service:" "$(systemctl is-active cape.service 2>/dev/null || true)"
 kv "cape-processor:" "$(systemctl is-active cape-processor.service 2>/dev/null || true)"
 kv "cape-web:" "$(systemctl is-active cape-web.service 2>/dev/null || true)"
+
+if [[ -n "${DEPLOYMENT_ID:-}" && -f "$AD_LOG_ROOT/${DEPLOYMENT_ID}-functional-acceptance.json" ]]; then
+  ACCEPTANCE_STATUS="$(python3 - "$AD_LOG_ROOT/${DEPLOYMENT_ID}-functional-acceptance.json" <<'PY'
+import json,sys
+try: print(json.load(open(sys.argv[1])).get("status","unknown"))
+except Exception: print("invalid")
+PY
+)"
+  kv "functional acceptance:" "$ACCEPTANCE_STATUS"
+else
+  kv "functional acceptance:" "not yet recorded"
+fi
