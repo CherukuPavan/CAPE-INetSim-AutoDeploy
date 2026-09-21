@@ -8,6 +8,7 @@ run_discovery() {
   discover_cape_machine_records
   discover_libvirt
   auto_select_cape_machine
+  discover_resultserver
   match_selected_domain
   discover_domain_details
   discover_windows_backends
@@ -38,6 +39,9 @@ print_plan() {
   kv "CAPE machine section:" "${CAPE_MACHINE_SECTION:-ambiguous}"
   kv "CAPE machine label:" "${CAPE_MACHINE_LABEL:-ambiguous}"
   kv "management IP:" "${CAPE_MACHINE_IP:-unknown}"
+  kv "ResultServer IP:" "${CAPE_RESULTSERVER_IP:-unknown}"
+  kv "ResultServer port:" "${CAPE_RESULTSERVER_PORT:-unknown}"
+  kv "host control IP:" "${CONTROL_HOST_IP:-unknown}"
   kv "current CAPE snapshot:" "${CAPE_MACHINE_SNAPSHOT:-unknown}"
   kv "current CAPE interface:" "${CAPE_MACHINE_INTERFACE:-unknown}"
   kv "libvirt domain:" "${DOMAIN:-ambiguous}"
