@@ -112,6 +112,33 @@ discover_cape_machine_records
 [[ "$(record_field "${CAPE_MACHINE_RECORDS[1]}" section)" == win7 ]]
 rm -rf "$TMP_CAPE"
 
+# An authoritative [kvm] list must never silently drop a broken or unsupported
+# active entry.
+TMP_CAPE="$(mktemp -d)"
+mkdir -p "$TMP_CAPE/conf"
+cat >"$TMP_CAPE/conf/kvm.conf" <<'EOF'
+[kvm]
+machines = win10, missing, linux1
+
+[win10]
+label = win10
+platform = windows
+ip = 192.0.2.10
+
+[linux1]
+label = linux1
+platform = linux
+ip = 192.0.2.12
+EOF
+CAPE_ROOT="$TMP_CAPE"
+DISCOVERY_ERRORS=()
+discover_cape_machine_records
+[[ "${#CAPE_MACHINE_RECORDS[@]}" -eq 1 ]]
+[[ "${#DISCOVERY_ERRORS[@]}" -eq 2 ]]
+printf '%s\n' "${DISCOVERY_ERRORS[@]}" | grep -Fq 'missing section: missing'
+printf '%s\n' "${DISCOVERY_ERRORS[@]}" | grep -Fq 'not Windows-compatible: linux1'
+rm -rf "$TMP_CAPE"
+
 TMP_DB="$(mktemp -d)"
 mkdir -p "$TMP_DB/conf"
 cat >"$TMP_DB/conf/cuckoo.conf" <<'EOF'
