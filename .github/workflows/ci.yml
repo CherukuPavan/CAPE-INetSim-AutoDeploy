@@ -41,6 +41,8 @@ jobs:
         run: bash tests/inetsim_vm_logic.sh
       - name: Windows VM logic
         run: bash tests/windows_vm_logic.sh
+      - name: Windows management hypervisor guard
+        run: bash tests/windows_network_guard.sh
       - name: Windows management backend
         run: bash tests/windows_backend.sh
       - name: Windows controller
