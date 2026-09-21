@@ -19,9 +19,10 @@ s=open(sys.argv[1],encoding="utf-8").read()
 q=s.index('if qga_wait "$DOMAIN" 10; then')
 w=s.index('if windows_winrm_ready "$CAPE_MACHINE_IP"')
 a=s.index('if cape_agent_wait "$CAPE_MACHINE_IP" 45', w)
-m=s.index('WINDOWS_BACKEND_USED=manual-powershell', a)
-assert q < w < a < m
+z=s.index('No supported zero-touch Windows control channel is available', a)
+assert q < w < a < z
 assert "WINDOWS_BACKEND_USED=cape-agent-execpy" in s
+assert "WINDOWS_BACKEND_USED=manual-powershell" not in s[s.index("windows_select_live_backend()"):s.index("windows_configure_selected_backend()")]
 PY
 
 grep -q 'windows-cape-agent.sh' "$ROOT/install"
@@ -115,4 +116,4 @@ if validate_windows_result_path "$TMP/result.json" >/dev/null 2>&1; then
   exit 1
 fi
 
-echo '[PASS] QGA -> approved WinRM -> verified CAPE Agent execpy -> one-command fallback and Windows safety gates'
+echo '[PASS] QGA -> approved WinRM -> verified CAPE Agent execpy -> safe-stop zero-touch policy and Windows safety gates'
