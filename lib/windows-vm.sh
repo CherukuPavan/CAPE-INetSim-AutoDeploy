@@ -115,6 +115,13 @@ windows_detach_isolated_nic() {
 
 windows_snapshot_exists() { virsh snapshot-info "$DOMAIN" "$1" >/dev/null 2>&1; }
 
+windows_snapshot_token() {
+  python3 - "$DEPLOYMENT_ID" <<'PY'
+import hashlib,sys
+print(hashlib.sha256(sys.argv[1].encode()).hexdigest()[:12])
+PY
+}
+
 windows_snapshot_description() {
   virsh snapshot-dumpxml "$DOMAIN" "$1" 2>/dev/null | python3 -c '
 import sys,xml.etree.ElementTree as ET
@@ -137,7 +144,7 @@ windows_snapshot_adopt_if_intended() {
 windows_create_safety_snapshot() {
   [[ "$(virsh domstate "$DOMAIN" | xargs)" == "shut off" ]] || { fail "Safety snapshot requires shut-off domain"; return 1; }
   if [[ -z "${SAFETY_SNAPSHOT:-}" ]]; then
-    SAFETY_SNAPSHOT="cape-inetsim-pre-${DEPLOYMENT_ID:0:24}"
+    SAFETY_SNAPSHOT="cape-inetsim-pre-$(windows_snapshot_token)"
     state_write_atomic
   fi
   local desc="CAPE-INetSim AutoDeploy pre-change snapshot $DEPLOYMENT_ID"
@@ -174,7 +181,7 @@ print(state+"|"+(m.get("snapshot","") if m is not None else ""))
 windows_create_working_snapshot() {
   [[ "$(virsh domstate "$DOMAIN" | xargs)" == "shut off" ]] || { fail "Configured rollback snapshot requires shut-off Windows domain"; return 1; }
   if [[ -z "${WORKING_SNAPSHOT:-}" ]]; then
-    WORKING_SNAPSHOT="cape-inetsim-working-${DEPLOYMENT_ID:0:20}"
+    WORKING_SNAPSHOT="cape-inetsim-working-$(windows_snapshot_token)"
     state_write_atomic
   fi
   local desc="CAPE-INetSim AutoDeploy configured rollback snapshot $DEPLOYMENT_ID"
@@ -201,7 +208,7 @@ windows_create_working_snapshot() {
 windows_create_running_snapshot() {
   [[ "$(virsh domstate "$DOMAIN" | xargs)" == "running" ]] || { fail "Final CAPE snapshot must be created while Windows is running"; return 1; }
   if [[ -z "${FINAL_SNAPSHOT:-}" ]]; then
-    FINAL_SNAPSHOT="cape-inetsim-ready-${DEPLOYMENT_ID:0:22}"
+    FINAL_SNAPSHOT="cape-inetsim-ready-$(windows_snapshot_token)"
     state_write_atomic
   fi
   local desc="CAPE-INetSim AutoDeploy running analysis snapshot $DEPLOYMENT_ID"
