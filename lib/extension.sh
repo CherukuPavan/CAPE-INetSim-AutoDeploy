@@ -73,7 +73,8 @@ extension_write_config() {
     printf 'CAPTURE_INTERFACE=%q\n' "$ISOLATED_BRIDGE_NAME"
   } >"$cfg"
   chmod 0600 "$cfg"
-  [[ "$saved" =~ ^[0-9]+$ ]] && targets_bind "$saved"
+  if [[ "$saved" =~ ^[0-9]+$ ]]; then targets_bind "$saved"; fi
+  return 0
 }
 
 extension_install() {
