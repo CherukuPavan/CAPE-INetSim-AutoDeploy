@@ -49,8 +49,19 @@ jobs:
           chmod +x appliance/build/build.sh appliance/image-rootfs-prepare.sh appliance/guest-configure.sh
           appliance/build/build.sh "$RUNNER_TEMP/cape-inetsim-appliance-v1.0.0.qcow2"
 
-      - name: Upload build candidate
+      - name: Verify generalized QCOW2
+        id: appliance_verify
         if: steps.appliance_build.outcome == 'success'
+        continue-on-error: true
+        run: |
+          mkdir -p "$RUNNER_TEMP/appliance-diag"
+          chmod +x appliance/build/verify-artifact.sh
+          set -o pipefail
+          appliance/build/verify-artifact.sh "$RUNNER_TEMP/cape-inetsim-appliance-v1.0.0.qcow2" \
+            2>&1 | tee "$RUNNER_TEMP/appliance-diag/artifact-verify.log"
+
+      - name: Upload build candidate
+        if: steps.appliance_build.outcome == 'success' && steps.appliance_verify.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: cape-inetsim-appliance-v1.0.0-candidate
@@ -62,7 +73,7 @@ jobs:
           compression-level: 0
 
       - name: Upload failure diagnostics
-        if: steps.appliance_build.outcome != 'success'
+        if: steps.appliance_build.outcome != 'success' || steps.appliance_verify.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
           name: cape-inetsim-appliance-build-diagnostics
@@ -74,6 +85,7 @@ jobs:
         if: always()
         run: |
           echo "appliance_build_outcome=${{ steps.appliance_build.outcome }}"
-          if [[ "${{ steps.appliance_build.outcome }}" != "success" ]]; then
-            echo "::warning::Appliance candidate build failed in non-gating diagnostic mode; inspect this run before publishing any manifest."
+          echo "appliance_verify_outcome=${{ steps.appliance_verify.outcome }}"
+          if [[ "${{ steps.appliance_build.outcome }}" != "success" || "${{ steps.appliance_verify.outcome }}" != "success" ]]; then
+            echo "::warning::Appliance candidate build/verification did not pass; inspect diagnostics before publishing any manifest."
           fi
