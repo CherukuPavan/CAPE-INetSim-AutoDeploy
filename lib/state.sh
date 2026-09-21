@@ -81,7 +81,9 @@ state_load() {
   mode="$(stat -c '%a' "$AD_STATE_FILE" 2>/dev/null || echo 777)"
   if [[ "$(id -u)" -eq 0 ]]; then
     [[ "$uid" -eq 0 ]] || { fail "State file is not root-owned: $AD_STATE_FILE"; return 2; }
-    [[ "$mode" =~ ^[0-6]?[0-6]?[0-6]$ ]] || { fail "State file permissions are unsafe: $mode"; return 2; }
+    [[ "$mode" =~ ^[0-7]{3,4}$ ]] || { fail "State file permissions are invalid: $mode"; return 2; }
+    local perm=$((8#$mode))
+    (( (perm & 0077) == 0 )) || { fail "State file must not be accessible by group/other: mode $mode"; return 2; }
   fi
   # File is created only by AutoDeploy under a root-only directory.
   # shellcheck disable=SC1090
