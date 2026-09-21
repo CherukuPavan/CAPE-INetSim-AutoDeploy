@@ -24,5 +24,10 @@
     "management": "dhcp",
     "isolated": "configured-at-deployment",
     "baked_in_fake_internet_subnet": false
+  },
+  "transport": {
+    "compression": "gzip",
+    "artifact_name": "cape-inetsim-appliance-v1.0.0.qcow2.gz",
+    "sha256": null
   }
 }
