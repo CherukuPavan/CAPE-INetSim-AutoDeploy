@@ -83,6 +83,54 @@ print(len(ifs), ",".join(sorted(set(models))) or "unknown")
 }
 
 
+discover_windows_snapshot_capability() {
+  WINDOWS_INTERNAL_SNAPSHOT_CAPABLE=no
+  [[ -n "${DOMAIN_XML:-}" && -n "${DOMAIN:-}" ]] || return 0
+
+  local disk_records
+  disk_records="$(python3 -c '
+import sys,xml.etree.ElementTree as ET
+try: root=ET.fromstring(sys.stdin.read())
+except Exception: raise SystemExit
+for d in root.findall("./devices/disk"):
+    if d.get("device")!="disk" or d.get("snapshot")=="no":
+        continue
+    src=d.find("source"); drv=d.find("driver")
+    if src is None:
+        continue
+    path=src.get("file") or ""
+    typ=(drv.get("type") if drv is not None else "") or ""
+    readonly=d.find("readonly") is not None
+    if not readonly:
+        print(path+"|"+typ)
+' <<<"$DOMAIN_XML")"
+
+  local -a records=()
+  mapfile -t records < <(printf '%s\n' "$disk_records" | sed '/^$/d')
+  if ((${#records[@]} == 0)); then
+    add_error "Selected Windows domain has no writable file-backed disk eligible for the required internal snapshots"
+    return 0
+  fi
+
+  local rec path declared detected
+  for rec in "${records[@]}"; do
+    IFS='|' read -r path declared <<<"$rec"
+    if [[ -z "$path" || ! -f "$path" ]]; then
+      add_error "Windows snapshot preflight requires writable file-backed disks; unsupported disk source detected"
+      return 0
+    fi
+    detected="$(qemu-img info --output=json "$path" 2>/dev/null | python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("format",""))
+except Exception: pass' || true)"
+    if [[ "$declared" != qcow2 || "$detected" != qcow2 ]]; then
+      add_error "Windows disk is not qcow2; required shutoff/running internal snapshots are not safely supported: $path"
+      return 0
+    fi
+  done
+
+  WINDOWS_INTERNAL_SNAPSHOT_CAPABLE=yes
+}
+
 discover_management_network() {
   MANAGEMENT_NETWORK_NAME=""
   [[ -n "${DOMAIN_XML:-}" && -n "${CAPE_MACHINE_IP:-}" && -n "${DOMAIN:-}" ]] || return 0
