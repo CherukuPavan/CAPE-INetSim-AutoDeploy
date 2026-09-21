@@ -16,3 +16,6 @@ grep -Fq 'pending-guard-partial-state' "$ROOT/tools/cape_maintenance.py"
 grep -Fq 'recovered":True' "$ROOT/tools/cape_maintenance.py"
 grep -Fq 'local user_dir="/tmp/cape-inetsim-autodeploy-$DEPLOYMENT_ID"' "$ROOT/lib/maintenance.sh"
 grep -Fq 'verify --label "$CAPE_MACHINE_LABEL"' "$ROOT/lib/maintenance.sh"
+
+grep -Fq 'REPAIR_CAPE_ACTIVE" == yes || "$REPAIR_PROCESSOR_ACTIVE" == yes' "$ROOT/bin/cape-inetsim-repair"
+grep -Fq 'cape-processor may still be reporting a' "$ROOT/bin/cape-inetsim-repair"
