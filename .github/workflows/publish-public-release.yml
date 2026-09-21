@@ -136,12 +136,15 @@ jobs:
           MANIFEST="$DIST/appliance-manifest.json"
           ASSET_URL="https://github.com/$PUBLIC_REPO/releases/download/$RELEASE_TAG/cape-inetsim-appliance-v1.0.0.qcow2.gz"
 
-          mkdir -p "$DIST" "$ROOT"/{lib,bin,tools,windows,appliance}
+          mkdir -p "$DIST" "$ROOT"/{lib,bin,tools,windows,appliance,vendor}
           install -m 0755 source/install "$ROOT/install"
           cp -a source/lib/. "$ROOT/lib/"
           cp -a source/bin/. "$ROOT/bin/"
           cp -a source/tools/. "$ROOT/tools/"
           cp -a source/windows/. "$ROOT/windows/"
+          mkdir -p "$ROOT/vendor/CAPE-INetSim-VM-Extension-v1.0.1"
+          rsync -a --exclude ORIGIN.json             source/vendor/CAPE-INetSim-VM-Extension-v1.0.1/             "$ROOT/vendor/CAPE-INetSim-VM-Extension-v1.0.1/"
+          (cd "$ROOT/vendor/CAPE-INetSim-VM-Extension-v1.0.1" && sha256sum -c RUNTIME-SHA256SUMS >/dev/null)
           chmod 0755 "$ROOT"/bin/cape-inetsim-*
           printf '%s\n' "$VERSION" >"$ROOT/VERSION"
 
@@ -170,6 +173,10 @@ jobs:
           # examples are intentionally not used as publication evidence.
           if grep -RInE --binary-files=without-match             'CSE-SSL|SSL43|SSL44|SSL45|52:54:00:e9:13:a0|192\.168\.122\.100|/home/charan|charan@' "$ROOT"; then
             echo "::error::host-specific lab identifier found in public runtime"
+            exit 3
+          fi
+          if grep -RInF --binary-files=without-match 'CherukuPavan/CAPE-INetSim-VM-Extension' "$ROOT"; then
+            echo "::error::private extension repository reference leaked into public runtime"
             exit 3
           fi
 
