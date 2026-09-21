@@ -54,6 +54,32 @@ for i in r.findall("./devices/interface"):
 '
 }
 
+inetsim_domain_matches_plan() {
+  local xml
+  xml="$(virsh dumpxml "$INETSIM_DOMAIN_NAME" 2>/dev/null)" || return 1
+  python3 -c '
+import os,sys,xml.etree.ElementTree as ET
+disk,mgmt,isolated=sys.argv[1:]
+r=ET.fromstring(sys.stdin.read())
+files=[]
+for d in r.findall("./devices/disk"):
+    if d.get("device")!="disk": continue
+    s=d.find("source")
+    if s is not None and s.get("file"): files.append(os.path.realpath(s.get("file")))
+if os.path.realpath(disk) not in files: raise SystemExit(1)
+nets=[]
+for i in r.findall("./devices/interface"):
+    s=i.find("source")
+    if s is not None and s.get("network"): nets.append(s.get("network"))
+if nets.count(mgmt)!=1 or nets.count(isolated)!=1: raise SystemExit(1)
+qga=False
+for ch in r.findall("./devices/channel"):
+    t=ch.find("target")
+    if t is not None and t.get("name")=="org.qemu.guest_agent.0": qga=True
+if not qga: raise SystemExit(1)
+' "$INETSIM_DISK_PATH" "$MANAGEMENT_NETWORK_NAME" "$ISOLATED_NETWORK_NAME" <<<"$xml"
+}
+
 inetsim_copy_appliance_disk() {
   local artifact="$1"
 
@@ -81,6 +107,13 @@ print(x.text if x is not None else "")' 2>/dev/null || true)"
       qemu-img check "$INETSIM_DISK_PATH" >/dev/null
       return 0
     fi
+    if state_resource_intended disk "$INETSIM_DISK_PATH"; then
+      qemu-img check "$INETSIM_DISK_PATH" >/dev/null
+      state_record_resource disk "$INETSIM_DISK_PATH" recovered-created yes "pool=${LIBVIRT_STORAGE_POOL:-unknown}"
+      state_write_atomic
+      pass "Recovered deployment-owned INetSim disk after interrupted create"
+      return 0
+    fi
     fail "INetSim target disk already exists but is not AutoDeploy-owned: $INETSIM_DISK_PATH"
     return 1
   fi
@@ -90,6 +123,8 @@ print(x.text if x is not None else "")' 2>/dev/null || true)"
   avail="$(df -Pk "$(dirname "$INETSIM_DISK_PATH")" | awk 'NR==2{print $4}')"
   [[ "$avail" =~ ^[0-9]+$ && "$avail" -ge 20971520 ]] || { fail "Less than 20 GiB free for INetSim appliance disk"; return 1; }
 
+  state_write_atomic
+  state_record_intent disk "$INETSIM_DISK_PATH" creating "pool=${LIBVIRT_STORAGE_POOL:-unknown}"
   rm -f "$INETSIM_DISK_PATH.part"
   qemu-img convert -p -O qcow2 "$artifact" "$INETSIM_DISK_PATH.part"
   qemu-img check "$INETSIM_DISK_PATH.part" >/dev/null
@@ -101,21 +136,43 @@ print(x.text if x is not None else "")' 2>/dev/null || true)"
 }
 
 inetsim_define_domain() {
+  [[ -n "${MANAGEMENT_NETWORK_NAME:-}" ]] || { fail "Management libvirt network is unknown"; return 1; }
+
   if virsh dominfo "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1; then
-    state_resource_owned domain "$INETSIM_DOMAIN_NAME" || { fail "Domain $INETSIM_DOMAIN_NAME exists but is not AutoDeploy-owned"; return 1; }
+    inetsim_domain_matches_plan || { fail "Existing domain $INETSIM_DOMAIN_NAME does not match deployment plan"; return 1; }
+    if state_resource_owned domain "$INETSIM_DOMAIN_NAME"; then
+      virsh autostart "$INETSIM_DOMAIN_NAME" >/dev/null
+    elif state_resource_intended domain "$INETSIM_DOMAIN_NAME"; then
+      virsh autostart "$INETSIM_DOMAIN_NAME" >/dev/null
+      state_record_resource domain "$INETSIM_DOMAIN_NAME" recovered-created yes "disk=$INETSIM_DISK_PATH"
+      pass "Recovered deployment-owned INetSim domain after interrupted create"
+    else
+      fail "Domain $INETSIM_DOMAIN_NAME exists but is not AutoDeploy-owned"
+      return 1
+    fi
+
+    INETSIM_MANAGEMENT_MAC="$(inetsim_domain_macs | awk -F'|' -v n="$MANAGEMENT_NETWORK_NAME" '$1==n{print $2;exit}')"
+    INETSIM_ISOLATED_MAC="$(inetsim_domain_macs | awk -F'|' -v n="$ISOLATED_NETWORK_NAME" '$1==n{print $2;exit}')"
+    [[ -n "$INETSIM_MANAGEMENT_MAC" && -n "$INETSIM_ISOLATED_MAC" ]] || { fail "Could not identify appliance NIC MAC addresses"; return 1; }
+    state_write_atomic
     return 0
   fi
-  [[ -n "${MANAGEMENT_NETWORK_NAME:-}" ]] || { fail "Management libvirt network is unknown"; return 1; }
 
   local raw="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-inetsim-domain.raw.xml"
   local xml="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-inetsim-domain.xml"
   virt-install --connect qemu:///system --name "$INETSIM_DOMAIN_NAME" --memory 4096 --vcpus 2 --import     --disk "path=$INETSIM_DISK_PATH,format=qcow2,bus=virtio"     --network "network=$MANAGEMENT_NETWORK_NAME,model=virtio"     --network "network=$ISOLATED_NETWORK_NAME,model=virtio"     --os-variant generic --graphics none --noautoconsole --print-xml >"$raw"
   inject_qga_channel <"$raw" >"$xml"
 
-  virsh define "$xml" >/dev/null
-  virsh autostart "$INETSIM_DOMAIN_NAME" >/dev/null
-  state_record_resource domain "$INETSIM_DOMAIN_NAME" defined yes "disk=$INETSIM_DISK_PATH"
+  state_record_intent domain "$INETSIM_DOMAIN_NAME" defining "disk=$INETSIM_DISK_PATH"
+  if ! virsh define "$xml" >/dev/null; then return 1; fi
+  if ! virsh autostart "$INETSIM_DOMAIN_NAME" >/dev/null; then
+    virsh undefine "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1 || true
+    state_record_resource domain "$INETSIM_DOMAIN_NAME" removed-after-failure no ""
+    return 1
+  fi
+  inetsim_domain_matches_plan || { fail "Defined INetSim domain does not match deployment plan"; return 1; }
 
+  state_record_resource domain "$INETSIM_DOMAIN_NAME" created yes "disk=$INETSIM_DISK_PATH"
   INETSIM_MANAGEMENT_MAC="$(inetsim_domain_macs | awk -F'|' -v n="$MANAGEMENT_NETWORK_NAME" '$1==n{print $2;exit}')"
   INETSIM_ISOLATED_MAC="$(inetsim_domain_macs | awk -F'|' -v n="$ISOLATED_NETWORK_NAME" '$1==n{print $2;exit}')"
   [[ -n "$INETSIM_MANAGEMENT_MAC" && -n "$INETSIM_ISOLATED_MAC" ]] || { fail "Could not identify appliance NIC MAC addresses"; return 1; }
