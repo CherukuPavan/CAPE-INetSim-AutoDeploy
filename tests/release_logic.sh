@@ -11,6 +11,8 @@ grep -Fq 'curl --fail --silent --show-error --location' "$BOOT"
 grep -Fq 'invalid embedded source SHA-256' "$BOOT"
 grep -Fq 'invalid embedded source commit' "$BOOT"
 ! grep -Fq '/archive/refs/heads/main' "$BOOT"
+! grep -Fq '/archive/refs/heads/main' "$ROOT/install"
+grep -Fq "not a trusted network bootstrap" "$ROOT/install"
 
 grep -q '^  workflow_dispatch:' "$WF"
 ! grep -q '^  push:' "$WF"
