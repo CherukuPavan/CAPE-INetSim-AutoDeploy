@@ -28,6 +28,10 @@ state_write_atomic() {
   local tmp
   tmp="$(mktemp "$AD_STATE_ROOT/.state.XXXXXX")"
   ORIGINAL_CAPE_SNAPSHOT="${ORIGINAL_CAPE_SNAPSHOT:-${CAPE_MACHINE_SNAPSHOT:-}}"
+  RELEASE_TAG="${RELEASE_TAG:-${CAPE_INETSIM_RELEASE_TAG:-}}"
+  RELEASE_SOURCE_BUNDLE="${RELEASE_SOURCE_BUNDLE:-${CAPE_INETSIM_RELEASE_SOURCE_BUNDLE:-}}"
+  RELEASE_SOURCE_SHA256="${RELEASE_SOURCE_SHA256:-${CAPE_INETSIM_RELEASE_SOURCE_SHA256:-}}"
+  RELEASE_SOURCE_COMMIT="${RELEASE_SOURCE_COMMIT:-${CAPE_INETSIM_RELEASE_SOURCE_COMMIT:-}}"
   {
     echo '# CAPE-INetSim-AutoDeploy state; shell-quoted values; root-readable only.'
     printf 'STATE_SCHEMA=%q\n' "2"
@@ -35,6 +39,10 @@ state_write_atomic() {
     printf 'DEPLOYMENT_PHASE=%q\n' "${DEPLOYMENT_PHASE:-discovered}"
     printf 'CAPE_ROOT=%q\n' "${CAPE_ROOT:-}"
     printf 'CAPE_COMMIT=%q\n' "${CAPE_COMMIT:-}"
+    printf 'RELEASE_TAG=%q\n' "${RELEASE_TAG:-}"
+    printf 'RELEASE_SOURCE_BUNDLE=%q\n' "${RELEASE_SOURCE_BUNDLE:-}"
+    printf 'RELEASE_SOURCE_SHA256=%q\n' "${RELEASE_SOURCE_SHA256:-}"
+    printf 'RELEASE_SOURCE_COMMIT=%q\n' "${RELEASE_SOURCE_COMMIT:-}"
     printf 'CAPE_DB_BACKEND=%q\n' "${CAPE_DB_BACKEND:-}"
     printf 'CAPE_MACHINE_SECTION=%q\n' "${CAPE_MACHINE_SECTION:-}"
     printf 'CAPE_MACHINE_LABEL=%q\n' "${CAPE_MACHINE_LABEL:-}"
