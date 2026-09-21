@@ -93,3 +93,6 @@ discover_cape_database_backend
 rm -rf "$TMP_DB"
 
 grep -Fq 'automated live cutover currently requires CAPE PostgreSQL' "$ROOT/lib/deploy.sh"
+
+grep -Fq 'COMPAT_STATUS:-blocked}" != "plan-compatible"' "$ROOT/lib/plan.sh"
+grep -Fq 'CAPE LAYOUT NOT APPROVED FOR MUTATION -- SAFE STOP' "$ROOT/lib/plan.sh"
