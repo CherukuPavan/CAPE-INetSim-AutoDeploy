@@ -94,10 +94,10 @@ print_plan() {
   if ((${#DISCOVERY_ERRORS[@]})); then
     echo "Blocking/ambiguous findings"; printf '  - %s\n' "${DISCOVERY_ERRORS[@]}"; echo
     echo "RESULT: PLAN INCOMPLETE -- SAFE STOP"
-  elif [[ "${COMPAT_STATUS:-blocked}" == "blocked" ]]; then
-    echo "RESULT: UNSUPPORTED ENVIRONMENT -- SAFE STOP"
+  elif [[ "${COMPAT_STATUS:-blocked}" != "plan-compatible" ]]; then
+    echo "RESULT: CAPE LAYOUT NOT APPROVED FOR MUTATION -- SAFE STOP"
   else
-    echo "RESULT: DEPLOYMENT PLAN DISCOVERED"
+    echo "RESULT: DEPLOYMENT PLAN DISCOVERED AND COMPATIBLE"
     [[ "${CAPE_BUSY:-unknown}" == "yes" ]] && echo "CUTOVER: must wait for a task-aware safe idle point"
   fi
   echo "NO SYSTEM CONFIGURATION WAS CHANGED"
