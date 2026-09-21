@@ -1,5 +1,39 @@
 #!/usr/bin/env bash
 
+cape_post_sha_for_rel() {
+  case "$1" in
+    modules/auxiliary/sniffer.py) printf '%s\n' "${CAPE_POST_SHA_SNIFFER:-}" ;;
+    conf/auxiliary.conf) printf '%s\n' "${CAPE_POST_SHA_AUXILIARY:-}" ;;
+    conf/kvm.conf) printf '%s\n' "${CAPE_POST_SHA_KVM:-}" ;;
+    conf/processing.conf) printf '%s\n' "${CAPE_POST_SHA_PROCESSING:-}" ;;
+    conf/routing.conf) printf '%s\n' "${CAPE_POST_SHA_ROUTING:-}" ;;
+    *) return 1 ;;
+  esac
+}
+
+cape_capture_post_hashes() {
+  CAPE_POST_SHA_SNIFFER="$(sha256sum "$CAPE_ROOT/modules/auxiliary/sniffer.py" | awk '{print $1}')"
+  CAPE_POST_SHA_AUXILIARY="$(sha256sum "$CAPE_ROOT/conf/auxiliary.conf" | awk '{print $1}')"
+  CAPE_POST_SHA_KVM="$(sha256sum "$CAPE_ROOT/conf/kvm.conf" | awk '{print $1}')"
+  CAPE_POST_SHA_PROCESSING="$(sha256sum "$CAPE_ROOT/conf/processing.conf" | awk '{print $1}')"
+  CAPE_POST_SHA_ROUTING="$(sha256sum "$CAPE_ROOT/conf/routing.conf" | awk '{print $1}')"
+  state_write_atomic
+}
+
+cape_assert_owned_files_unchanged() {
+  local rel expected current failures=0
+  for rel in modules/auxiliary/sniffer.py conf/auxiliary.conf conf/kvm.conf conf/processing.conf conf/routing.conf; do
+    expected="$(cape_post_sha_for_rel "$rel" 2>/dev/null || true)"
+    [[ -n "$expected" ]] || continue
+    current="$(sha256sum "$CAPE_ROOT/$rel" 2>/dev/null | awk '{print $1}' || true)"
+    if [[ "$current" != "$expected" ]]; then
+      fail "CAPE file changed after AutoDeploy committed it; refusing to overwrite operator/update drift: $rel"
+      failures=$((failures+1))
+    fi
+  done
+  ((failures == 0))
+}
+
 cape_runtime_python() {
   local svc pid exe
   for svc in cape cape-processor cape-web; do
@@ -71,17 +105,36 @@ cape_configure_inetsim() {
   state_record_resource cape-file "$CAPE_ROOT/conf/kvm.conf" modified yes "snapshot=$FINAL_SNAPSHOT interface=$ISOLATED_BRIDGE_NAME"
   state_record_resource cape-file "$CAPE_ROOT/conf/processing.conf" modified yes "dnswhitelist=no ipwhitelist=no"
   state_record_resource cape-file "$CAPE_ROOT/conf/routing.conf" modified yes "route=none enable_pcap=yes"
+  cape_capture_post_hashes
   state_set_phase cape-configured
 }
 
 cape_restore_integration_files() {
-  local rel
+  local rel expected current backup backup_sha failures=0
   for rel in modules/auxiliary/sniffer.py conf/auxiliary.conf conf/kvm.conf conf/processing.conf conf/routing.conf; do
+    backup="$AD_BACKUP_ROOT/${DEPLOYMENT_ID}/$rel"
+    [[ -e "$backup" ]] || continue
+    backup_sha="$(sha256sum "$backup" | awk '{print $1}')"
+    current="$(sha256sum "$CAPE_ROOT/$rel" 2>/dev/null | awk '{print $1}' || true)"
+    expected="$(cape_post_sha_for_rel "$rel" 2>/dev/null || true)"
+
+    if [[ "$current" == "$backup_sha" ]]; then
+      state_record_resource cape-file "$CAPE_ROOT/$rel" restored yes "already-predeployment"
+      continue
+    fi
+    if [[ -n "$expected" && "$current" != "$expected" ]]; then
+      fail "Refusing to rollback CAPE file changed after AutoDeploy: $rel"
+      failures=$((failures+1))
+      continue
+    fi
     if restore_backup_file "$CAPE_ROOT/$rel" "$rel"; then
       state_record_resource cape-file "$CAPE_ROOT/$rel" restored yes ""
+    else
+      failures=$((failures+1))
     fi
   done
   local py
   py="$(cape_runtime_python)"
   "$py" -m py_compile "$CAPE_ROOT/modules/auxiliary/sniffer.py"
+  ((failures == 0))
 }
