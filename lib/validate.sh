@@ -75,6 +75,7 @@ validate_resultserver_host() {
 validate_deployment_structural() {
   verify_isolated_network_definition "$ISOLATED_NETWORK_NAME" "$ISOLATED_BRIDGE_NAME" "$ISOLATED_SUBNET" "$BRIDGE_IP"
   firewall_verify
+  windows_management_guard_verify
   inetsim_verify_host
   validate_windows_result_file
   validate_final_snapshot_hardware
