@@ -17,9 +17,19 @@ record_matches_domain() {
     if [[ "$d" == "$section" || "$d" == "$label" ]]; then printf '%s\n' "$d"; return 0; fi
   done
   if [[ -n "$ip" ]]; then
+    local -a ip_matches=()
     for d in "${LIBVIRT_DOMAINS[@]}"; do
-      if virsh domifaddr "$d" --source agent 2>/dev/null | grep -Fq "$ip" || virsh domifaddr "$d" --source lease 2>/dev/null | grep -Fq "$ip"; then printf '%s\n' "$d"; return 0; fi
+      if virsh domifaddr "$d" --source agent 2>/dev/null | awk -v ip="$ip" '$0 ~ ip"/" {found=1} END{exit !found}' ||
+         virsh domifaddr "$d" --source lease 2>/dev/null | awk -v ip="$ip" '$0 ~ ip"/" {found=1} END{exit !found}'; then
+        ip_matches+=("$d")
+      fi
     done
+    if ((${#ip_matches[@]} == 1)); then
+      printf '%s\n' "${ip_matches[0]}"
+      return 0
+    fi
+    # Zero or multiple IP matches are deliberately non-matches. The caller
+    # safe-stops rather than selecting the first domain with a reused address.
   fi
   return 1
 }
@@ -75,8 +85,39 @@ print(len(ifs), ",".join(sorted(set(models))) or "unknown")
 
 discover_management_network() {
   MANAGEMENT_NETWORK_NAME=""
-  [[ -n "${DOMAIN_XML:-}" && -n "${CAPE_MACHINE_IP:-}" ]] || return 0
+  [[ -n "${DOMAIN_XML:-}" && -n "${CAPE_MACHINE_IP:-}" && -n "${DOMAIN:-}" ]] || return 0
 
+  # First preference: map the management IP reported by libvirt to the exact
+  # interface MAC, then map that MAC back to its source network in domain XML.
+  local addr_text mgmt_mac
+  addr_text="$(
+    { virsh domifaddr "$DOMAIN" --source agent 2>/dev/null || true
+      virsh domifaddr "$DOMAIN" --source lease 2>/dev/null || true; } |
+    awk -v ip="$CAPE_MACHINE_IP" '$0 ~ ip"/" {print tolower($2)}' | sed '/^$/d' | sort -u
+  )"
+  mapfile -t _mgmt_macs < <(printf '%s\n' "$addr_text" | sed '/^$/d')
+  if ((${#_mgmt_macs[@]} == 1)); then
+    mgmt_mac="${_mgmt_macs[0]}"
+    MANAGEMENT_NETWORK_NAME="$(python3 -c '
+import sys,xml.etree.ElementTree as ET
+mac=sys.argv[1].lower()
+try: root=ET.fromstring(sys.stdin.read())
+except Exception: raise SystemExit
+nets=[]
+for i in root.findall("./devices/interface"):
+    m=i.find("mac"); s=i.find("source")
+    if m is not None and s is not None and (m.get("address") or "").lower()==mac and s.get("network"):
+        nets.append(s.get("network"))
+if len(set(nets))==1: print(nets[0])
+' "$mgmt_mac" <<<"$DOMAIN_XML")"
+    [[ -n "$MANAGEMENT_NETWORK_NAME" ]] && return 0
+  elif ((${#_mgmt_macs[@]} > 1)); then
+    add_error "Multiple libvirt interfaces report CAPE management IP $CAPE_MACHINE_IP"
+    return 0
+  fi
+
+  # Fallback for guests without QGA/lease visibility: require exactly one
+  # attached libvirt network whose declared subnet contains the CAPE IP.
   local candidates
   candidates="$(python3 -c '
 import sys,xml.etree.ElementTree as ET
@@ -86,12 +127,9 @@ for i in root.findall("./devices/interface"):
     if src is not None and src.get("network"): print(src.get("network"))
 ' <<<"$DOMAIN_XML")"
   mapfile -t _mgmt_candidates < <(printf '%s\n' "$candidates" | sed '/^$/d' | sort -u)
-  if ((${#_mgmt_candidates[@]} == 1)); then
-    MANAGEMENT_NETWORK_NAME="${_mgmt_candidates[0]}"
-    return 0
-  fi
 
   local n netxml match
+  local -a subnet_matches=()
   for n in "${_mgmt_candidates[@]}"; do
     netxml="$(virsh net-dumpxml "$n" 2>/dev/null || true)"
     match="$(python3 -c '
@@ -108,18 +146,17 @@ for x in root.findall("ip"):
         print("yes")
         break
 ' "$CAPE_MACHINE_IP" <<<"$netxml")"
-    if [[ "$match" == yes ]]; then
-      if [[ -n "$MANAGEMENT_NETWORK_NAME" ]]; then
-        add_error "Multiple libvirt networks contain CAPE management IP $CAPE_MACHINE_IP"
-        MANAGEMENT_NETWORK_NAME=""
-        return 0
-      fi
-      MANAGEMENT_NETWORK_NAME="$n"
-    fi
+    [[ "$match" == yes ]] && subnet_matches+=("$n")
   done
-  [[ -n "$MANAGEMENT_NETWORK_NAME" ]] || add_error "Could not discover libvirt management network for $CAPE_MACHINE_IP"
-}
 
+  if ((${#subnet_matches[@]} == 1)); then
+    MANAGEMENT_NETWORK_NAME="${subnet_matches[0]}"
+  elif ((${#subnet_matches[@]} > 1)); then
+    add_error "Multiple attached libvirt networks contain CAPE management IP $CAPE_MACHINE_IP"
+  else
+    add_error "Could not prove the libvirt management network for $CAPE_MACHINE_IP"
+  fi
+}
 discover_management_network_details() {
   MANAGEMENT_BRIDGE_NAME=""
   WINDOWS_MANAGEMENT_MAC=""
