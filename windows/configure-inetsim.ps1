@@ -42,14 +42,17 @@ try {
 
     Enable-NetAdapter -InterfaceIndex $isoIf.ifIndex -Confirm:$false -ErrorAction SilentlyContinue
 
-    foreach ($remote in @($ResultServerIP,$ControlHostIP) | Select-Object -Unique) {
-        if (-not $remote) { continue }
-        $best = Find-NetRoute -RemoteIPAddress $remote -ErrorAction SilentlyContinue
-        if ($best -and $best.NetRoute.DestinationPrefix -eq '0.0.0.0/0' -and $best.NetRoute.NextHop -ne '0.0.0.0') {
-            $prefix = "$remote/32"
-            $exists = Get-NetRoute -AddressFamily IPv4 -DestinationPrefix $prefix -ErrorAction SilentlyContinue | Where-Object { $_.InterfaceIndex -eq $best.NetRoute.InterfaceIndex -and $_.NextHop -eq $best.NetRoute.NextHop }
+    # Before removing default routes, preserve an explicit /32 management return
+    # path when Windows currently reaches CAPE through a gateway.
+    foreach ($remote in @($ResultServerIP,$ControlHostIP) | Where-Object { $_ } | Select-Object -Unique) {
+        $found = @(Find-NetRoute -RemoteIPAddress $remote -ErrorAction SilentlyContinue)
+        $route = $found | Where-Object { $_.PSObject.Properties.Name -contains 'DestinationPrefix' } | Select-Object -First 1
+        if ($route -and $route.DestinationPrefix -eq '0.0.0.0/0' -and $route.NextHop -and $route.NextHop -ne '0.0.0.0') {
+            $hostPrefix = "$remote/32"
+            $exists = Get-NetRoute -AddressFamily IPv4 -DestinationPrefix $hostPrefix -ErrorAction SilentlyContinue |
+                Where-Object { $_.InterfaceIndex -eq $route.InterfaceIndex -and $_.NextHop -eq $route.NextHop }
             if (-not $exists) {
-                New-NetRoute -AddressFamily IPv4 -DestinationPrefix $prefix -InterfaceIndex $best.NetRoute.InterfaceIndex -NextHop $best.NetRoute.NextHop -RouteMetric 1 -PolicyStore PersistentStore | Out-Null
+                New-NetRoute -AddressFamily IPv4 -DestinationPrefix $hostPrefix -InterfaceIndex $route.InterfaceIndex -NextHop $route.NextHop -RouteMetric 1 -PolicyStore PersistentStore | Out-Null
             }
         }
     }
@@ -60,14 +63,18 @@ try {
     Get-NetRoute -InterfaceIndex $isoIf.ifIndex -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
         Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue
 
-    $existingFake = Get-NetIPAddress -InterfaceIndex $isoIf.ifIndex -AddressFamily IPv4 -IPAddress $FakeIP -ErrorAction SilentlyContinue
-    if (-not $existingFake) {
+    if (-not (Get-NetIPAddress -InterfaceIndex $isoIf.ifIndex -AddressFamily IPv4 -IPAddress $FakeIP -ErrorAction SilentlyContinue)) {
         New-NetIPAddress -InterfaceIndex $isoIf.ifIndex -IPAddress $FakeIP -PrefixLength $PrefixLength -AddressFamily IPv4 | Out-Null
     }
 
-    Set-DnsClientServerAddress -InterfaceIndex $mgmtIf.ifIndex -ServerAddresses @($DnsIP)
-    Set-DnsClientServerAddress -InterfaceIndex $isoIf.ifIndex -ServerAddresses @($DnsIP)
+    # Prevent DNS leakage through any active adapter, not only adapter aliases we know.
+    $activeAdapters = @(Get-NetAdapter | Where-Object { $_.Status -eq 'Up' })
+    foreach ($adapter in $activeAdapters) {
+        Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses @($DnsIP) -ErrorAction Stop
+    }
+    Clear-DnsClientCache -ErrorAction SilentlyContinue
 
+    # The malware-analysis guest must never retain a public/default route.
     Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
         Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue
 
@@ -75,15 +82,18 @@ try {
     if ($defaults.Count -ne 0) { throw "default route removal failed; count=$($defaults.Count)" }
 
     $null = Get-NetIPAddress -InterfaceIndex $isoIf.ifIndex -AddressFamily IPv4 -IPAddress $FakeIP -ErrorAction Stop
-    $dnsMgmt = (Get-DnsClientServerAddress -InterfaceIndex $mgmtIf.ifIndex -AddressFamily IPv4).ServerAddresses
-    $dnsIso = (Get-DnsClientServerAddress -InterfaceIndex $isoIf.ifIndex -AddressFamily IPv4).ServerAddresses
-    if (@($dnsMgmt).Count -ne 1 -or $dnsMgmt[0] -ne $DnsIP) { throw 'management-adapter DNS validation failed' }
-    if (@($dnsIso).Count -ne 1 -or $dnsIso[0] -ne $DnsIP) { throw 'isolated-adapter DNS validation failed' }
+    $dns = @()
+    foreach ($adapter in @(Get-NetAdapter | Where-Object { $_.Status -eq 'Up' })) {
+        $dns += @((Get-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue).ServerAddresses)
+    }
+    $dns = @($dns | Where-Object { $_ } | Sort-Object -Unique)
+    if ($dns.Count -ne 1 -or $dns[0] -ne $DnsIP) { throw "active-adapter DNS is not exclusively $DnsIP" }
 
     $rsOK = Test-NetConnection -ComputerName $ResultServerIP -Port $ResultServerPort -InformationLevel Quiet -WarningAction SilentlyContinue
     if (-not $rsOK) { throw ("ResultServer {0}:{1} is not reachable" -f $ResultServerIP,$ResultServerPort) }
 
-    $dnsAnswer = Resolve-DnsName -Name 'cape-inetsim-validation.invalid' -Server $DnsIP -Type A -DnsOnly -ErrorAction Stop | Where-Object { $_.Type -eq 'A' } | Select-Object -First 1
+    $dnsAnswer = Resolve-DnsName -Name 'cape-inetsim-validation.invalid' -Server $DnsIP -Type A -DnsOnly -ErrorAction Stop |
+        Where-Object { $_.Type -eq 'A' } | Select-Object -First 1
     if (-not $dnsAnswer -or $dnsAnswer.IPAddress -ne $DnsIP) { throw 'INetSim DNS validation failed' }
 
     Write-Result $true 'Windows isolated networking configured' ([ordered]@{
