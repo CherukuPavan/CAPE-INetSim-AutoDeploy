@@ -94,14 +94,21 @@ cape_agent_run_powershell() {
   local log="$AD_LOG_ROOT/${DEPLOYMENT_ID}-${stem}-cape-agent-execpy.json"
 
   cape_agent_write_runner_config "$cfg" "$remote_ps" "$@" -ResultPath "$remote_result"
-  cape_agent_store "$ip" "$ps1" "$remote_ps"
-  cape_agent_store "$ip" "$AUTODEPLOY_ROOT/tools/windows_agent_runner.py" "$remote_runner"
-  cape_agent_store "$ip" "$cfg" "$remote_cfg"
 
+  # Every branch converges on the cleanup block below. Do not leave the
+  # privileged helper/config behind in the analysis snapshot if a transfer,
+  # execution, or result retrieval step fails.
   local rc=0
-  cape_agent_execpy "$ip" "$remote_runner" "$log" || rc=$?
-  if [[ "$rc" -eq 0 ]]; then
-    cape_agent_retrieve "$ip" "$remote_result" "$local_result" || rc=$?
+  if ! cape_agent_store "$ip" "$ps1" "$remote_ps"; then
+    rc=50
+  elif ! cape_agent_store "$ip" "$AUTODEPLOY_ROOT/tools/windows_agent_runner.py" "$remote_runner"; then
+    rc=51
+  elif ! cape_agent_store "$ip" "$cfg" "$remote_cfg"; then
+    rc=52
+  elif ! cape_agent_execpy "$ip" "$remote_runner" "$log"; then
+    rc=53
+  elif ! cape_agent_retrieve "$ip" "$remote_result" "$local_result"; then
+    rc=54
   fi
 
   cape_agent_remove "$ip" "$remote_ps"
