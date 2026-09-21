@@ -14,6 +14,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Syntax
         run: bash tests/syntax.sh
+      - name: Python syntax
+        run: |
+          python3 -m py_compile tools/*.py
       - name: Universal discovery logic
         run: bash tests/universal_logic.sh
       - name: State ownership logic
@@ -24,13 +27,19 @@ jobs:
         run: bash tests/network_xml.sh
       - name: Appliance manifest gates
         run: bash tests/appliance_manifest.sh
+      - name: Appliance domain logic
+        run: bash tests/inetsim_vm_logic.sh
       - name: Windows VM logic
         run: bash tests/windows_vm_logic.sh
       - name: Windows management backend
         run: bash tests/windows_backend.sh
+      - name: Windows controller
+        run: bash tests/windows_control.sh
       - name: INI editor
         run: bash tests/ini_edit.sh
       - name: CAPE configuration patch
         run: bash tests/cape_config_logic.sh
+      - name: CAPE maintenance helper
+        run: bash tests/maintenance_tool.sh
       - name: Frozen extension constants
         run: bash tests/extension_logic.sh
