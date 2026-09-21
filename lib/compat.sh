@@ -139,5 +139,43 @@ PY
 
 discover_resources() {
   HOST_MEM_KIB="$(awk '/MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)"
-  LIBVIRT_FREE_KIB="$(df -Pk /var/lib/libvirt/images 2>/dev/null | awk 'NR==2{print $4}' || echo 0)"
+  HOST_MEM_AVAILABLE_KIB="$(awk '/MemAvailable:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)"
+  LIBVIRT_FREE_KIB=0
+  LIBVIRT_STORAGE_POOL=""
+  LIBVIRT_STORAGE_PATH=""
+
+  local p state xml typ path avail
+  local -a ordered=()
+  virsh pool-info default >/dev/null 2>&1 && ordered+=(default)
+  while IFS= read -r p; do
+    [[ -n "$p" && "$p" != default ]] && ordered+=("$p")
+  done < <(virsh pool-list --all --name 2>/dev/null)
+
+  for p in "${ordered[@]}"; do
+    state="$(virsh pool-info "$p" 2>/dev/null | awk -F: '/^State:/ {gsub(/^[ \t]+/,"",$2);print $2}')"
+    [[ "$state" == running ]] || continue
+    xml="$(virsh pool-dumpxml "$p" 2>/dev/null || true)"
+    typ="$(python3 -c 'import sys,xml.etree.ElementTree as E
+try: r=E.fromstring(sys.stdin.read())
+except Exception: raise SystemExit
+print(r.get("type",""))' <<<"$xml" 2>/dev/null || true)"
+    [[ "$typ" == dir ]] || continue
+    path="$(python3 -c 'import sys,xml.etree.ElementTree as E
+try: r=E.fromstring(sys.stdin.read())
+except Exception: raise SystemExit
+x=r.find("./target/path")
+print(x.text if x is not None else "")' <<<"$xml" 2>/dev/null || true)"
+    [[ -n "$path" && -d "$path" ]] || continue
+    avail="$(df -Pk "$path" 2>/dev/null | awk 'NR==2{print $4}')"
+    [[ "$avail" =~ ^[0-9]+$ ]] || continue
+    if ((avail > LIBVIRT_FREE_KIB)); then
+      LIBVIRT_FREE_KIB="$avail"
+      LIBVIRT_STORAGE_POOL="$p"
+      LIBVIRT_STORAGE_PATH="$path"
+    fi
+  done
+
+  if [[ -z "$LIBVIRT_STORAGE_POOL" || "$LIBVIRT_FREE_KIB" -lt 20971520 ]]; then
+    add_error "No active directory libvirt storage pool with at least 20 GiB free was found"
+  fi
 }
