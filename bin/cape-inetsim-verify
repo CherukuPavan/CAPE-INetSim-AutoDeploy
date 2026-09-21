@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+ROOT="${AUTODEPLOY_ROOT:-/usr/local/lib/cape-inetsim-autodeploy}"
+[[ -f "$ROOT/lib/state.sh" ]] || ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+AUTODEPLOY_ROOT="$ROOT"
+export AUTODEPLOY_ROOT
+
+source "$ROOT/lib/common.sh"
+source "$ROOT/lib/state.sh"
+source "$ROOT/lib/isolated-network.sh"
+source "$ROOT/lib/inetsim-vm.sh"
+source "$ROOT/lib/services.sh"
+source "$ROOT/lib/validate.sh"
+
+require_root
+state_load || { fail "No deployment state exists"; exit 1; }
+validate_deployment_structural
+validate_deployment_services
+pass "Deployment verification passed"
