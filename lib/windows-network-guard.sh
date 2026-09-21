@@ -52,14 +52,15 @@ windows_management_guard_available() {
 }
 
 nwfilter_runtime_prepare() {
-  local socket_was_active=no service_was_active=no
+  local socket_was_active=no service_was_active=no socket_was_enabled=no
   systemctl is-active --quiet virtnwfilterd.socket && socket_was_active=yes
   systemctl is-active --quiet virtnwfilterd.service && service_was_active=yes
+  systemctl is-enabled --quiet virtnwfilterd.socket && socket_was_enabled=yes
 
   if windows_management_guard_available; then
-    # A socket that was already active may have started the modular daemon when
-    # the availability probe connected. Track only a daemon transition caused
-    # by this deployment so rollback can restore it conservatively.
+    # If libvirt was already serving nwfilter successfully, do not force a
+    # modular-daemon architecture change. Merely record any modular service
+    # transition caused by this proof probe.
     if [[ "$service_was_active" != yes ]] &&
        systemctl is-active --quiet virtnwfilterd.service &&
        ! state_resource_owned libvirt-service virtnwfilterd.service; then
@@ -76,6 +77,19 @@ nwfilter_runtime_prepare() {
     fail "libvirt nwfilter runtime is unavailable and was not proven safely activatable"
     return 1
   }
+
+  # Socket activation must survive a host reboot because the Windows management
+  # NIC continues to reference clean-traffic after deployment commits.
+  if [[ "$socket_was_enabled" != yes ]]; then
+    state_record_intent libvirt-unit-enable virtnwfilterd.socket applying "preexisting=disabled"
+    systemctl enable virtnwfilterd.socket >/dev/null
+    systemctl is-enabled --quiet virtnwfilterd.socket || {
+      fail "Could not enable virtnwfilterd.socket for reboot-safe operation"
+      return 1
+    }
+    state_record_resource libvirt-unit-enable virtnwfilterd.socket applied yes "preexisting=disabled"
+    state_write_atomic
+  fi
 
   if [[ "$socket_was_active" != yes ]]; then
     state_record_intent libvirt-service virtnwfilterd.socket activating "preexisting=inactive"
@@ -115,19 +129,22 @@ nwfilter_runtime_has_bindings() {
 }
 
 nwfilter_runtime_rollback() {
-  local owned_socket=no owned_service=no
+  local owned_socket=no owned_service=no owned_enable=no
   state_resource_owned libvirt-service virtnwfilterd.socket && owned_socket=yes
   state_resource_owned libvirt-service virtnwfilterd.service && owned_service=yes
-  [[ "$owned_socket" == yes || "$owned_service" == yes ]] || return 0
+  state_resource_owned libvirt-unit-enable virtnwfilterd.socket && owned_enable=yes
+  [[ "$owned_socket" == yes || "$owned_service" == yes || "$owned_enable" == yes ]] || return 0
 
   # Never trade exact daemon-state restoration for possible disruption of a
   # filter binding that appeared while AutoDeploy was active. If bindings are
-  # present, or their state cannot be proven, leave the runtime available.
+  # present, or their state cannot be proven, leave the runtime available and
+  # boot-enabled.
   local binding_rc=0
   if nwfilter_runtime_has_bindings; then
     warn "libvirt nwfilter bindings remain; leaving AutoDeploy-started nwfilter runtime active"
     [[ "$owned_service" == yes ]] && state_record_resource libvirt-service virtnwfilterd.service released yes "left-active;bindings-present"
     [[ "$owned_socket" == yes ]] && state_record_resource libvirt-service virtnwfilterd.socket released yes "left-active;bindings-present"
+    [[ "$owned_enable" == yes ]] && state_record_resource libvirt-unit-enable virtnwfilterd.socket released yes "left-enabled;bindings-present"
     state_write_atomic
     return 0
   else
@@ -137,6 +154,7 @@ nwfilter_runtime_rollback() {
     warn "Could not prove nwfilter binding state; leaving AutoDeploy-started nwfilter runtime active"
     [[ "$owned_service" == yes ]] && state_record_resource libvirt-service virtnwfilterd.service released yes "left-active;binding-state-unproven"
     [[ "$owned_socket" == yes ]] && state_record_resource libvirt-service virtnwfilterd.socket released yes "left-active;binding-state-unproven"
+    [[ "$owned_enable" == yes ]] && state_record_resource libvirt-unit-enable virtnwfilterd.socket released yes "left-enabled;binding-state-unproven"
     state_write_atomic
     return 0
   fi
@@ -148,6 +166,10 @@ nwfilter_runtime_rollback() {
   if [[ "$owned_socket" == yes ]]; then
     systemctl stop virtnwfilterd.socket
     state_record_resource libvirt-service virtnwfilterd.socket restored yes "restored=inactive"
+  fi
+  if [[ "$owned_enable" == yes ]]; then
+    systemctl disable virtnwfilterd.socket >/dev/null
+    state_record_resource libvirt-unit-enable virtnwfilterd.socket restored yes "restored=disabled"
   fi
   state_write_atomic
 }
