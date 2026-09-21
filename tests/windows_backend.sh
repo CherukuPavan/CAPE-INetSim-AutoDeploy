@@ -16,7 +16,12 @@ PY
 
 grep -q 'Get-NetAdapter' "$ROOT/windows/configure-inetsim.ps1"
 grep -q "DestinationPrefix '0.0.0.0/0'" "$ROOT/windows/configure-inetsim.ps1"
+grep -q "DestinationPrefix '::/0'" "$ROOT/windows/configure-inetsim.ps1"
+grep -q 'Disable-NetAdapterBinding' "$ROOT/windows/configure-inetsim.ps1"
+grep -q 'unexpected active network adapter' "$ROOT/windows/configure-inetsim.ps1"
+grep -q '2606:4700:4700::1111' "$ROOT/windows/configure-inetsim.ps1"
 grep -q 'Test-NetConnection' "$ROOT/windows/configure-inetsim.ps1"
 grep -q 'Resolve-DnsName' "$ROOT/windows/configure-inetsim.ps1"
+grep -q 'public_ipv6_reachable' "$ROOT/windows/verify-inetsim.ps1"
 
 echo '[PASS] CAPE-agent backend and Windows safety script present'
