@@ -22,6 +22,7 @@ AUTODEPLOY_ROOT="$SCRIPT_DIR"
 export AUTODEPLOY_ROOT
 
 source "$AUTODEPLOY_ROOT/lib/common.sh"
+source "$AUTODEPLOY_ROOT/lib/targets.sh"
 source "$AUTODEPLOY_ROOT/lib/state.sh"
 source "$AUTODEPLOY_ROOT/lib/transaction.sh"
 source "$AUTODEPLOY_ROOT/lib/cape.sh"
@@ -62,6 +63,9 @@ ${AD_NAME} ${AD_VERSION}
 Usage:
   sudo ./install [--deploy] [--machine CAPE_MACHINE] [--wait-seconds N]
   sudo ./install --plan [--machine CAPE_MACHINE]
+
+With no --machine override, AutoDeploy configures every enabled Windows-compatible
+CAPE analysis VM that can be mapped safely to libvirt.
   sudo ./install --verify
   sudo ./install --repair
   sudo ./install --status
