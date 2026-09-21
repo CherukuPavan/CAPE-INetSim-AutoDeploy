@@ -94,51 +94,10 @@ inetsim_define_domain() {
   state_write_atomic
 }
 
-qga_wait() {
-  local dom="$1" timeout="${2:-180}" i
-  for ((i=0;i<timeout;i+=2)); do
-    virsh qemu-agent-command "$dom" '{"execute":"guest-ping"}' >/dev/null 2>&1 && return 0
-    sleep 2
-  done
-  return 1
-}
-
-qga_exec_wait() {
-  local dom="$1" path="$2"
-  shift 2
-  local json pid status exited i args_json
-  args_json="$(python3 - "$@" <<'PY'
-import json,sys
-print(json.dumps(sys.argv[1:]))
-PY
-)"
-  json="$(python3 - "$path" "$args_json" <<'PY'
-import json,sys
-print(json.dumps({"execute":"guest-exec","arguments":{"path":sys.argv[1],"arg":json.loads(sys.argv[2]),"capture-output":True}}))
-PY
-)"
-  pid="$(virsh qemu-agent-command "$dom" "$json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["return"]["pid"])')"
-
-  for ((i=0;i<180;i++)); do
-    status="$(virsh qemu-agent-command "$dom" "{\"execute\":\"guest-exec-status\",\"arguments\":{\"pid\":$pid}}")"
-    exited="$(python3 -c 'import json,sys; print(str(json.load(sys.stdin)["return"].get("exited",False)).lower())' <<<"$status")"
-    if [[ "$exited" == true ]]; then
-      python3 -c 'import base64,json,sys
-r=json.load(sys.stdin)["return"]
-if r.get("out-data"): sys.stdout.write(base64.b64decode(r["out-data"]).decode(errors="replace"))
-if r.get("err-data"): sys.stderr.write(base64.b64decode(r["err-data"]).decode(errors="replace"))
-raise SystemExit(r.get("exitcode",1))' <<<"$status"
-      return $?
-    fi
-    sleep 1
-  done
-  return 124
-}
-
 inetsim_configure_guest() {
   virsh start "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1 || true
   qga_wait "$INETSIM_DOMAIN_NAME" 180 || { fail "INetSim appliance QEMU Guest Agent did not come online"; return 1; }
-  qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/local/sbin/cape-inetsim-guest-configure --isolated-mac "$INETSIM_ISOLATED_MAC" --ip "$INETSIM_IP/24"
+  qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/local/sbin/cape-inetsim-guest-configure --management-mac "$INETSIM_MANAGEMENT_MAC" --isolated-mac "$INETSIM_ISOLATED_MAC" --ip "$INETSIM_IP/24"
   state_record_resource inetsim-guest "$INETSIM_DOMAIN_NAME" configured yes "ip=$INETSIM_IP mac=$INETSIM_ISOLATED_MAC"
   state_set_phase appliance-configured
 }
