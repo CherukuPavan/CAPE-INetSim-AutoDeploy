@@ -1,3 +1,75 @@
+
+validate_release_provenance() {
+  declare -F appliance_manifest_validate >/dev/null 2>&1 || {
+    fail "Appliance manifest validator is unavailable"
+    return 1
+  }
+  appliance_manifest_validate "$APPLIANCE_MANIFEST" >/dev/null || {
+    fail "Installed appliance manifest is not a published checksum-pinned release manifest"
+    return 1
+  }
+
+  # Bootstrap-installed releases preserve the source bundle hash and exact
+  # source commit in root-only deployment state. Development checkouts may
+  # legitimately omit these fields, but a partially populated provenance tuple
+  # is never accepted.
+  local populated=0
+  [[ -n "${RELEASE_TAG:-}" ]] && populated=$((populated+1))
+  [[ -n "${RELEASE_SOURCE_BUNDLE:-}" ]] && populated=$((populated+1))
+  [[ -n "${RELEASE_SOURCE_SHA256:-}" ]] && populated=$((populated+1))
+  [[ -n "${RELEASE_SOURCE_COMMIT:-}" ]] && populated=$((populated+1))
+  if ((populated != 0 && populated != 4)); then
+    fail "Release source provenance is incomplete in deployment state"
+    return 1
+  fi
+  if ((populated == 4)); then
+    [[ "$RELEASE_TAG" =~ ^v1\.0\.0(-rc\.[0-9]+)?$ ]] || { fail "Release tag provenance is invalid"; return 1; }
+    [[ "$RELEASE_SOURCE_BUNDLE" != */* && "$RELEASE_SOURCE_BUNDLE" == *.tar.gz ]] || { fail "Release source-bundle provenance is invalid"; return 1; }
+    [[ "$RELEASE_SOURCE_SHA256" =~ ^[0-9a-f]{64}$ ]] || { fail "Release source SHA-256 provenance is invalid"; return 1; }
+    [[ "$RELEASE_SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { fail "Release source commit provenance is invalid"; return 1; }
+  fi
+}
+
+validate_recovery_assets() {
+  local rel backup failures=0
+  if state_has_owned_kind cape-file; then
+    for rel in modules/auxiliary/sniffer.py conf/auxiliary.conf conf/kvm.conf conf/processing.conf conf/routing.conf; do
+      backup="$AD_BACKUP_ROOT/${DEPLOYMENT_ID}/$rel"
+      if [[ ! -f "$backup" || ! -f "$backup.sha256" ]]; then
+        fail "Rollback backup is missing for CAPE file: $rel"
+        failures=$((failures+1))
+        continue
+      fi
+      if ! (cd "$(dirname "$backup")" && sha256sum -c "$(basename "$backup.sha256")" >/dev/null); then
+        fail "Rollback backup checksum failed for CAPE file: $rel"
+        failures=$((failures+1))
+      fi
+    done
+  fi
+
+  if state_has_owned_kind extension; then
+    [[ -d "${EXTENSION_ROOT:-}" && -x "${EXTENSION_ROOT:-}/scripts/rollback.sh" ]] || {
+      fail "Extension rollback tooling is missing"
+      failures=$((failures+1))
+    }
+    if [[ -x "${EXTENSION_ROOT:-}/scripts/rollback.sh" ]]; then
+      (cd "$EXTENSION_ROOT" && ./scripts/rollback.sh --check >/dev/null) || {
+        fail "Extension rollback protection check failed"
+        failures=$((failures+1))
+      }
+    fi
+  fi
+
+  [[ -n "${SAFETY_SNAPSHOT:-}" ]] &&
+    state_resource_owned snapshot "$DOMAIN:$SAFETY_SNAPSHOT" &&
+    windows_snapshot_exists "$SAFETY_SNAPSHOT" || {
+      fail "Deployment-owned pre-change Windows safety snapshot is missing"
+      failures=$((failures+1))
+    }
+
+  ((failures == 0))
+}
+
 #!/usr/bin/env bash
 
 validate_windows_result_path() {
@@ -101,6 +173,7 @@ validate_resultserver_host() {
 }
 
 validate_deployment_structural() {
+  validate_release_provenance
   verify_isolated_network_definition "$ISOLATED_NETWORK_NAME" "$ISOLATED_BRIDGE_NAME" "$ISOLATED_SUBNET" "$BRIDGE_IP"
   firewall_verify
   windows_management_guard_verify
@@ -109,7 +182,8 @@ validate_deployment_structural() {
   validate_final_snapshot_hardware
   validate_cape_configuration
   grep -Rqs 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$CAPE_ROOT/web"
-  pass "Structural deployment gates passed"
+  validate_recovery_assets
+  pass "Structural deployment, release-provenance and recovery gates passed"
 }
 
 validate_deployment_services() {
