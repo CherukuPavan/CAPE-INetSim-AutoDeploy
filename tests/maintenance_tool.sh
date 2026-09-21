@@ -11,3 +11,6 @@ grep -q 'm.locked=True' "$ROOT/tools/cape_maintenance.py"
 grep -q 'TASK_RUNNING' "$ROOT/tools/cape_maintenance.py"
 grep -q 'TASK_COMPLETED' "$ROOT/tools/cape_maintenance.py"
 echo '[PASS] task-aware atomic CAPE maintenance guard uses lock ownership marker'
+
+grep -Fq 'local copy="/tmp/cape-inetsim-guard-$$.json"' "$ROOT/lib/maintenance.sh"
+! grep -Fq 'cape-inetsim-guard-$.json' "$ROOT/lib/maintenance.sh"
