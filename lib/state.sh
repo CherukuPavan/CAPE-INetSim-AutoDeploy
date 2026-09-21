@@ -128,7 +128,7 @@ state_resource_intended() {
     END {
       if (!seen) exit 1
       if (created!="no") exit 1
-      if (action !~ /^(planned|creating|defining|attaching)$/) exit 1
+      if (action !~ /^(planned|creating|defining|attaching|applying)$/) exit 1
       exit 0
     }' "$AD_RESOURCE_LEDGER"
 }
