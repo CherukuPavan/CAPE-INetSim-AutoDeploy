@@ -20,3 +20,20 @@ grep -q 'capture_host_key = f"capture_host_{self.machine.label}"' "$TMP/sniffer.
 patch_sniffer_capture_override "$TMP/sniffer.py"
 [[ "$(grep -c CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1 "$TMP/sniffer.py")" -eq 1 ]]
 echo '[PASS] exact-match CAPE sniffer patch logic'
+
+# Compatibility must reject non-unique/partial source anchors rather than
+# claiming a source layout is safe to patch.
+source "$ROOT/lib/compat.sh"
+CAPE_ROOT="$TMP/cape"
+mkdir -p "$CAPE_ROOT/conf" "$CAPE_ROOT/modules/auxiliary" "$CAPE_ROOT/web/analysis"
+touch "$CAPE_ROOT/conf/kvm.conf" "$CAPE_ROOT/conf/auxiliary.conf" "$CAPE_ROOT/conf/processing.conf" "$CAPE_ROOT/web/analysis/views.py"
+cp "$TMP/sniffer.py" "$CAPE_ROOT/modules/auxiliary/sniffer.py"
+COMPAT_NOTES=()
+check_cape_layout
+[[ "$COMPAT_STATUS" == plan-compatible ]]
+
+# A vague host assignment without the exact neighboring source line is unsafe.
+sed '/Selects per-machine interface/d' "$TMP/sniffer.py" | sed '/CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1/d' >"$CAPE_ROOT/modules/auxiliary/sniffer.py"
+COMPAT_NOTES=()
+check_cape_layout
+[[ "$COMPAT_STATUS" == plan-only-unknown-cape-layout ]]
