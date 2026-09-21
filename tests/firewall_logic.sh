@@ -26,3 +26,15 @@ grep -Fq 'ExecStart=/usr/sbin/nft -f /etc/cape-inetsim-autodeploy/firewall.nft' 
 grep -Fq 'ExecStop=-/usr/sbin/nft delete table bridge cape_inetsim_autodeploy_l2' <<<"$unit"
 
 echo '[PASS] host firewall blocks isolated and Windows-management escape paths'
+
+grep -q 'want_management=yes' "$ROOT/lib/firewall.sh"
+grep -q 'state_resource_owned firewall-management-guard' "$ROOT/lib/firewall.sh"
+grep -q 'Restored firewall is missing the Windows management egress guard' "$ROOT/lib/firewall.sh"
+python3 - "$ROOT/bin/cape-inetsim-repair" <<'PY'
+import sys
+s=open(sys.argv[1],encoding="utf-8").read()
+a=s.index("windows_management_guard_verify")
+b=s.index("firewall_apply",a)
+assert a < b
+assert "repair will not mutate the analysis VM security baseline" in s
+PY
