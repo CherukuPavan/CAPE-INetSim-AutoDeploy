@@ -61,3 +61,6 @@ printf '[wrong]\nvalue = 1\n' >"$CAPE_ROOT/conf/routing.conf"
 COMPAT_NOTES=()
 check_cape_layout
 [[ "$COMPAT_STATUS" == plan-only-unknown-cape-layout ]]
+
+grep -Fq 'routing enable_pcap yes' "$ROOT/lib/cape-configure.sh"
+grep -Fq 'CAPE packet capture is disabled for route none' "$ROOT/lib/validate.sh"
