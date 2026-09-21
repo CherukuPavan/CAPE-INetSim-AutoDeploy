@@ -54,8 +54,6 @@ if grep -Eq '^ssh_host_.*_key$' <<<"$ssh_listing"; then
 fi
 
 dpkg_status="$(virt-cat -a "$IMAGE" /var/lib/dpkg/status)"
-python3 - <<'PY' <<<"$dpkg_status"
-PY
 # Keep the package checks in shell so package names are visible in logs.
 grep -Eq '^Package: inetsim$' <<<"$dpkg_status"
 grep -Eq '^Package: qemu-guest-agent$' <<<"$dpkg_status"
