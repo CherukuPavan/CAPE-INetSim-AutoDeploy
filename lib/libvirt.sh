@@ -19,8 +19,8 @@ record_matches_domain() {
   if [[ -n "$ip" ]]; then
     local -a ip_matches=()
     for d in "${LIBVIRT_DOMAINS[@]}"; do
-      if virsh domifaddr "$d" --source agent 2>/dev/null | awk -v ip="$ip" '$0 ~ ip"/" {found=1} END{exit !found}' ||
-         virsh domifaddr "$d" --source lease 2>/dev/null | awk -v ip="$ip" '$0 ~ ip"/" {found=1} END{exit !found}'; then
+      if virsh domifaddr "$d" --source agent 2>/dev/null | awk -v ip="$ip" '{split($4,a,"/"); if(a[1]==ip) found=1} END{exit !found}' ||
+         virsh domifaddr "$d" --source lease 2>/dev/null | awk -v ip="$ip" '{split($4,a,"/"); if(a[1]==ip) found=1} END{exit !found}'; then
         ip_matches+=("$d")
       fi
     done
@@ -93,7 +93,7 @@ discover_management_network() {
   addr_text="$(
     { virsh domifaddr "$DOMAIN" --source agent 2>/dev/null || true
       virsh domifaddr "$DOMAIN" --source lease 2>/dev/null || true; } |
-    awk -v ip="$CAPE_MACHINE_IP" '$0 ~ ip"/" {print tolower($2)}' | sed '/^$/d' | sort -u
+    awk -v ip="$CAPE_MACHINE_IP" '{split($4,a,"/"); if(a[1]==ip) print tolower($2)}' | sed '/^$/d' | sort -u
   )"
   mapfile -t _mgmt_macs < <(printf '%s\n' "$addr_text" | sed '/^$/d')
   if ((${#_mgmt_macs[@]} == 1)); then
