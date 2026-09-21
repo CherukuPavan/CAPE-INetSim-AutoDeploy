@@ -74,13 +74,17 @@ import json,sys
 a=json.loads(sys.argv[1])
 assert a, "empty target set"
 for d in a:
+    platform=str(d.get("platform") or "windows-unspecified").lower()
+    assert platform.startswith("windows"), f"{d.get('section','?')}: not a Windows CAPE analysis machine"
     assert d.get("domain"), f"{d.get('section','?')}: no libvirt domain"
     assert d.get("snapshot_capable")=="yes", f"{d.get('section','?')}: qcow2 internal snapshots not proven"
+    assert d.get("analysis_snapshot_status") in ("proven","not-configured"), f"{d.get('section','?')}: existing CAPE snapshot is not safe/proven"
     assert d.get("management_network"), f"{d.get('section','?')}: management network unknown"
     assert d.get("management_bridge"), f"{d.get('section','?')}: management bridge unknown"
     assert d.get("management_mac"), f"{d.get('section','?')}: management MAC unknown"
     assert d.get("resultserver_ip"), f"{d.get('section','?')}: ResultServer IP unknown"
     assert str(d.get("resultserver_port","")).isdigit(), f"{d.get('section','?')}: ResultServer port invalid"
+    assert d.get("fake_ip"), f"{d.get('section','?')}: fake-Internet IP was not planned"
 PY
     fail "One or more CAPE analysis VMs failed the multi-machine safety preflight"
     return 1
