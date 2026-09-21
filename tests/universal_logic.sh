@@ -96,3 +96,33 @@ grep -Fq 'automated live cutover currently requires CAPE PostgreSQL' "$ROOT/lib/
 
 grep -Fq 'COMPAT_STATUS:-blocked}" != "plan-compatible"' "$ROOT/lib/plan.sh"
 grep -Fq 'CAPE LAYOUT NOT APPROVED FOR MUTATION -- SAFE STOP' "$ROOT/lib/plan.sh"
+
+TMP_SNAP="$(mktemp -d)"
+trap 'rm -rf "$TMP_SNAP"' EXIT
+touch "$TMP_SNAP/windows.qcow2"
+mkdir -p "$TMP_SNAP/bin"
+cat >"$TMP_SNAP/bin/qemu-img" <<'EOF'
+#!/usr/bin/env bash
+printf '{"format":"qcow2"}\n'
+EOF
+chmod +x "$TMP_SNAP/bin/qemu-img"
+OLD_PATH="$PATH"
+PATH="$TMP_SNAP/bin:$PATH"
+DOMAIN=testvm
+DOMAIN_XML="<domain><devices><disk type='file' device='disk'><driver name='qemu' type='qcow2'/><source file='$TMP_SNAP/windows.qcow2'/></disk></devices></domain>"
+DISCOVERY_ERRORS=()
+discover_windows_snapshot_capability
+[[ "$WINDOWS_INTERNAL_SNAPSHOT_CAPABLE" == yes ]]
+[[ "${#DISCOVERY_ERRORS[@]}" -eq 0 ]]
+
+DOMAIN_XML="<domain><devices><disk type='file' device='disk'><driver name='qemu' type='raw'/><source file='$TMP_SNAP/windows.qcow2'/></disk></devices></domain>"
+DISCOVERY_ERRORS=()
+discover_windows_snapshot_capability
+[[ "$WINDOWS_INTERNAL_SNAPSHOT_CAPABLE" == no ]]
+[[ "${#DISCOVERY_ERRORS[@]}" -eq 1 ]]
+grep -Fq 'Windows disk is not qcow2' <<<"${DISCOVERY_ERRORS[0]}"
+PATH="$OLD_PATH"
+
+grep -Fq 'discover_windows_snapshot_capability' "$ROOT/lib/plan.sh"
+grep -Fq 'internal snapshot capable:' "$ROOT/lib/plan.sh"
+echo "[PASS] Windows internal-snapshot capability safe-stop preflight"
