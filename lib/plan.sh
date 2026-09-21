@@ -58,6 +58,7 @@ print_plan() {
   kv "management bridge:" "${MANAGEMENT_BRIDGE_NAME:-unknown}"
   kv "Windows management MAC:" "${WINDOWS_MANAGEMENT_MAC:-unknown}"
   kv "libvirt clean-traffic nwfilter:" "${MANAGEMENT_NWFILTER_AVAILABLE:-unknown}"
+  kv "nwfilter runtime mode:" "${NWFILTER_RUNTIME_MODE:-unknown}"
   kv "domain state:" "${DOMAIN_STATE:-unknown}"
   kv "NIC count:" "${DOMAIN_NIC_COUNT:-unknown}"
   kv "NIC model(s):" "${DOMAIN_NIC_MODELS:-unknown}"
