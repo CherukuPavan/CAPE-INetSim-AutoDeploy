@@ -13,5 +13,9 @@ grep -A8 '^  push:' "$AP" | grep -q 'dev/v1-orchestrator-hardening'
 grep -A10 '^  push:' "$AP" | grep -q 'appliance/\*\*'
 ! grep -q '^  pull_request:' "$AP"
 grep -q 'cancel-in-progress: true' "$AP"
+grep -q 'cape-inetsim-appliance-v1.0.0-evidence' "$AP"
+grep -q 'candidate-provenance.json' "$AP"
+grep -q 'No candidate is publishable' "$AP"
+grep -q 'exit 1' "$AP"
 
 echo '[PASS] workflow policy avoids duplicate/noisy PR appliance builds'
