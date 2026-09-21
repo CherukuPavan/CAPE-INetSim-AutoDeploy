@@ -119,3 +119,35 @@ for x in root.findall("ip"):
   done
   [[ -n "$MANAGEMENT_NETWORK_NAME" ]] || add_error "Could not discover libvirt management network for $CAPE_MACHINE_IP"
 }
+
+discover_management_network_details() {
+  MANAGEMENT_BRIDGE_NAME=""
+  WINDOWS_MANAGEMENT_MAC=""
+  [[ -n "${MANAGEMENT_NETWORK_NAME:-}" && -n "${DOMAIN_XML:-}" ]] || return 0
+
+  local netxml
+  netxml="$(virsh net-dumpxml "$MANAGEMENT_NETWORK_NAME" 2>/dev/null || true)"
+  MANAGEMENT_BRIDGE_NAME="$(python3 -c '
+import sys,xml.etree.ElementTree as ET
+try: r=ET.fromstring(sys.stdin.read())
+except Exception: raise SystemExit
+b=r.find("bridge")
+print((b.get("name") or "") if b is not None else "")
+' <<<"$netxml")"
+
+  WINDOWS_MANAGEMENT_MAC="$(python3 -c '
+import sys,xml.etree.ElementTree as ET
+net=sys.argv[1]
+try: r=ET.fromstring(sys.stdin.read())
+except Exception: raise SystemExit
+macs=[]
+for i in r.findall("./devices/interface"):
+    src=i.find("source"); mac=i.find("mac")
+    if src is not None and src.get("network")==net and mac is not None and mac.get("address"):
+        macs.append(mac.get("address").lower())
+if len(macs)==1: print(macs[0])
+' "$MANAGEMENT_NETWORK_NAME" <<<"$DOMAIN_XML")"
+
+  [[ -n "$MANAGEMENT_BRIDGE_NAME" ]] || add_error "Could not derive bridge name for management libvirt network $MANAGEMENT_NETWORK_NAME"
+  [[ -n "$WINDOWS_MANAGEMENT_MAC" ]] || add_error "Could not uniquely derive Windows management NIC MAC on $MANAGEMENT_NETWORK_NAME"
+}
