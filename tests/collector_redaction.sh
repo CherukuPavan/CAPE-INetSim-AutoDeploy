@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+python3 - "$ROOT/bin/cape-inetsim-collect" <<'PY'
+import sys
+s=open(sys.argv[1],encoding="utf-8").read()
+assert r"([A-Za-z][A-Za-z0-9+.-]*://)[^/@\s]+@" in s
+assert r"urlcred.sub(r'\1***REDACTED***@'" in s
+assert r"(https?://)[^/@\s]+@" not in s
+PY
+
+grep -Fq -- '--collect) MODE=collect' "$ROOT/install"
+grep -Fq 'exec bash "$AUTODEPLOY_ROOT/bin/cape-inetsim-collect"' "$ROOT/install"
+grep -Fq 'OUTPUT_USER="${SUDO_USER:-$(id -un)}"' "$ROOT/bin/cape-inetsim-collect"
+grep -Fq -- 'qemu-img info --force-share --backing-chain' "$ROOT/bin/cape-inetsim-collect"
+grep -Fq 'libvirt/nwfilter_runtime' "$ROOT/bin/cape-inetsim-collect"
+grep -Fq 'virsh nwfilter-binding-list' "$ROOT/bin/cape-inetsim-collect"
+grep -Fq 'virtnwfilterd.socket' "$ROOT/bin/cape-inetsim-collect"
+
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+cat >"$TMP/secrets.txt" <<'EOF'
+DATABASE_URL=postgresql://cape:supersecret@example.invalid/cape
+password=hunter2
+Authorization: Bearer abcdefghijklmnopqrstuvwxyz
+command --token github_pat_012345678901234567890123456789
+aws=AKIAABCDEFGHIJKLMNOP
+-----BEGIN PRIVATE KEY-----
+secret-private-key-material
+-----END PRIVATE KEY-----
+EOF
+python3 "$ROOT/tools/redact_inventory.py" "$TMP" >/dev/null
+! grep -Fq 'supersecret' "$TMP/secrets.txt"
+! grep -Fq 'hunter2' "$TMP/secrets.txt"
+! grep -Fq 'abcdefghijklmnopqrstuvwxyz' "$TMP/secrets.txt"
+! grep -Fq 'github_pat_012345678901234567890123456789' "$TMP/secrets.txt"
+! grep -Fq 'AKIAABCDEFGHIJKLMNOP' "$TMP/secrets.txt"
+! grep -Fq 'secret-private-key-material' "$TMP/secrets.txt"
+grep -Fq '***REDACTED***' "$TMP/secrets.txt"
+grep -Fq 'redact_inventory.py' "$ROOT/bin/cape-inetsim-collect"
+
+echo '[PASS] supported read-only collector redacts bundle-wide credentials and is exposed as --collect'

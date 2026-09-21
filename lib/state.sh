@@ -28,6 +28,10 @@ state_write_atomic() {
   local tmp
   tmp="$(mktemp "$AD_STATE_ROOT/.state.XXXXXX")"
   ORIGINAL_CAPE_SNAPSHOT="${ORIGINAL_CAPE_SNAPSHOT:-${CAPE_MACHINE_SNAPSHOT:-}}"
+  RELEASE_TAG="${RELEASE_TAG:-${CAPE_INETSIM_RELEASE_TAG:-}}"
+  RELEASE_SOURCE_BUNDLE="${RELEASE_SOURCE_BUNDLE:-${CAPE_INETSIM_RELEASE_SOURCE_BUNDLE:-}}"
+  RELEASE_SOURCE_SHA256="${RELEASE_SOURCE_SHA256:-${CAPE_INETSIM_RELEASE_SOURCE_SHA256:-}}"
+  RELEASE_SOURCE_COMMIT="${RELEASE_SOURCE_COMMIT:-${CAPE_INETSIM_RELEASE_SOURCE_COMMIT:-}}"
   {
     echo '# CAPE-INetSim-AutoDeploy state; shell-quoted values; root-readable only.'
     printf 'STATE_SCHEMA=%q\n' "2"
@@ -35,6 +39,11 @@ state_write_atomic() {
     printf 'DEPLOYMENT_PHASE=%q\n' "${DEPLOYMENT_PHASE:-discovered}"
     printf 'CAPE_ROOT=%q\n' "${CAPE_ROOT:-}"
     printf 'CAPE_COMMIT=%q\n' "${CAPE_COMMIT:-}"
+    printf 'RELEASE_TAG=%q\n' "${RELEASE_TAG:-}"
+    printf 'RELEASE_SOURCE_BUNDLE=%q\n' "${RELEASE_SOURCE_BUNDLE:-}"
+    printf 'RELEASE_SOURCE_SHA256=%q\n' "${RELEASE_SOURCE_SHA256:-}"
+    printf 'RELEASE_SOURCE_COMMIT=%q\n' "${RELEASE_SOURCE_COMMIT:-}"
+    printf 'CAPE_DB_BACKEND=%q\n' "${CAPE_DB_BACKEND:-}"
     printf 'CAPE_MACHINE_SECTION=%q\n' "${CAPE_MACHINE_SECTION:-}"
     printf 'CAPE_MACHINE_LABEL=%q\n' "${CAPE_MACHINE_LABEL:-}"
     printf 'CAPE_MACHINE_IP=%q\n' "${CAPE_MACHINE_IP:-}"
@@ -43,6 +52,9 @@ state_write_atomic() {
     printf 'CONTROL_HOST_IP=%q\n' "${CONTROL_HOST_IP:-}"
     printf 'DOMAIN=%q\n' "${DOMAIN:-}"
     printf 'MANAGEMENT_NETWORK_NAME=%q\n' "${MANAGEMENT_NETWORK_NAME:-}"
+    printf 'MANAGEMENT_BRIDGE_NAME=%q\n' "${MANAGEMENT_BRIDGE_NAME:-}"
+    printf 'WINDOWS_MANAGEMENT_MAC=%q\n' "${WINDOWS_MANAGEMENT_MAC:-}"
+    printf 'MANAGEMENT_NWFILTER_AVAILABLE=%q\n' "${MANAGEMENT_NWFILTER_AVAILABLE:-}"
     printf 'ORIGINAL_CAPE_SNAPSHOT=%q\n' "${ORIGINAL_CAPE_SNAPSHOT:-}"
     printf 'ISOLATED_SUBNET=%q\n' "${ISOLATED_SUBNET:-}"
     printf 'BRIDGE_IP=%q\n' "${BRIDGE_IP:-}"
@@ -68,6 +80,11 @@ state_write_atomic() {
     printf 'SAFETY_SNAPSHOT=%q\n' "${SAFETY_SNAPSHOT:-}"
     printf 'WORKING_SNAPSHOT=%q\n' "${WORKING_SNAPSHOT:-}"
     printf 'FINAL_SNAPSHOT=%q\n' "${FINAL_SNAPSHOT:-}"
+    printf 'CAPE_POST_SHA_SNIFFER=%q\n' "${CAPE_POST_SHA_SNIFFER:-}"
+    printf 'CAPE_POST_SHA_AUXILIARY=%q\n' "${CAPE_POST_SHA_AUXILIARY:-}"
+    printf 'CAPE_POST_SHA_KVM=%q\n' "${CAPE_POST_SHA_KVM:-}"
+    printf 'CAPE_POST_SHA_PROCESSING=%q\n' "${CAPE_POST_SHA_PROCESSING:-}"
+    printf 'CAPE_POST_SHA_ROUTING=%q\n' "${CAPE_POST_SHA_ROUTING:-}"
     printf 'STATE_UPDATED_AT=%q\n' "$(date -Is)"
   } >"$tmp"
   chmod 0600 "$tmp"
@@ -115,6 +132,27 @@ state_resource_owned() {
       if (action ~ /^(removed|restored|released|deleted)/) exit 1
       exit 0
     }' "$AD_RESOURCE_LEDGER"
+}
+
+state_resource_intended() {
+  local kind="$1" name="$2"
+  [[ -n "${DEPLOYMENT_ID:-}" && -f "$AD_RESOURCE_LEDGER" ]] || return 1
+  awk -F '\t' -v d="$DEPLOYMENT_ID" -v k="$kind" -v n="$name" '
+    NR>1 && $1==d && $2==k && $3==n {created=$5; action=$4; seen=1}
+    END {
+      if (!seen) exit 1
+      if (created!="no") exit 1
+      if (action !~ /^(planned|creating|defining|attaching|applying)$/) exit 1
+      exit 0
+    }' "$AD_RESOURCE_LEDGER"
+}
+
+state_record_intent() {
+  local kind="$1" name="$2" action="${3:-planned}" detail="${4:-}"
+  if state_resource_owned "$kind" "$name" || state_resource_intended "$kind" "$name"; then
+    return 0
+  fi
+  state_record_resource "$kind" "$name" "$action" no "$detail"
 }
 
 state_has_owned_kind() {

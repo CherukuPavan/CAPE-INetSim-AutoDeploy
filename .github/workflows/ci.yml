@@ -1,17 +1,23 @@
 name: AutoDeploy CI
 
 on:
-  push:
   pull_request:
+  push:
+    branches:
+      - main
 
 permissions:
   contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   shell-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Syntax
         run: bash tests/syntax.sh
       - name: Python syntax
@@ -19,18 +25,32 @@ jobs:
           python3 -m py_compile tools/*.py
       - name: Universal discovery logic
         run: bash tests/universal_logic.sh
+      - name: Live host preflight discovery
+        run: bash tests/live_host_preflight.sh
+      - name: Modular nwfilter runtime lifecycle
+        run: bash tests/nwfilter_runtime.sh
+      - name: Collector redaction safety
+        run: bash tests/collector_redaction.sh
       - name: State ownership logic
         run: bash tests/state_logic.sh
       - name: Transaction backup logic
         run: bash tests/transaction_logic.sh
+      - name: Rollback safety ordering
+        run: bash tests/rollback_logic.sh
       - name: Isolated network XML safety
         run: bash tests/network_xml.sh
+      - name: Host fake-Internet firewall safety
+        run: bash tests/firewall_logic.sh
       - name: Appliance manifest gates
         run: bash tests/appliance_manifest.sh
+      - name: Appliance build pin/generalization
+        run: bash tests/appliance_build_static.sh
       - name: Appliance domain logic
         run: bash tests/inetsim_vm_logic.sh
       - name: Windows VM logic
         run: bash tests/windows_vm_logic.sh
+      - name: Windows management hypervisor guard
+        run: bash tests/windows_network_guard.sh
       - name: Windows management backend
         run: bash tests/windows_backend.sh
       - name: Windows controller
@@ -43,3 +63,11 @@ jobs:
         run: bash tests/maintenance_tool.sh
       - name: Frozen extension constants
         run: bash tests/extension_logic.sh
+      - name: Real-task acceptance logic
+        run: bash tests/acceptance_logic.sh
+      - name: Recovery validation
+        run: bash tests/recovery_validation.sh
+      - name: Release packaging policy
+        run: bash tests/release_logic.sh
+      - name: Workflow notification policy
+        run: bash tests/workflow_policy.sh

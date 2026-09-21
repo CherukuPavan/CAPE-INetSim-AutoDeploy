@@ -36,3 +36,154 @@ plan_isolated_subnet
 [[ -n "$BRIDGE_IP" && -n "$INETSIM_IP" && -n "$WINDOWS_FAKE_IP" ]]
 
 echo "[PASS] universal machine selection and subnet fallback"
+
+# Reused management IPs must never cause "first domain wins" selection.
+virsh() {
+  if [[ "$1" == domifaddr ]]; then
+    cat <<'EOF'
+ Name       MAC address          Protocol     Address
+-------------------------------------------------------------------------------
+ vnet0      52:54:00:00:00:01    ipv4         192.0.2.44/24
+EOF
+    return 0
+  fi
+  return 1
+}
+LIBVIRT_DOMAINS=(domain-a domain-b)
+ambiguous='{"section":"not-a-domain","label":"also-not-a-domain","ip":"192.0.2.44","snapshot":"s"}'
+[[ -z "$(record_matches_domain "$ambiguous" 2>/dev/null || true)" ]]
+
+TMP_CAPE="$(mktemp -d)"
+mkdir -p "$TMP_CAPE/conf"
+cat >"$TMP_CAPE/conf/kvm.conf" <<'EOF'
+[win]
+label = win
+ip = 192.0.2.10
+platform = windows
+snapshot = s1
+
+[linux]
+label = linux
+ip = 192.0.2.20
+platform = linux
+snapshot = s2
+EOF
+CAPE_ROOT="$TMP_CAPE"
+DISCOVERY_ERRORS=()
+discover_cape_machine_records
+[[ "${#CAPE_MACHINE_RECORDS[@]}" -eq 1 ]]
+[[ "$(record_field "${CAPE_MACHINE_RECORDS[0]}" section)" == win ]]
+rm -rf "$TMP_CAPE"
+
+TMP_DB="$(mktemp -d)"
+mkdir -p "$TMP_DB/conf"
+cat >"$TMP_DB/conf/cuckoo.conf" <<'EOF'
+[database]
+connection = postgresql+psycopg2://cape:do-not-print@db.internal/cape
+EOF
+CAPE_ROOT="$TMP_DB"
+discover_cape_database_backend
+[[ "$CAPE_DB_BACKEND" == postgresql ]]
+cat >"$TMP_DB/conf/cuckoo.conf" <<'EOF'
+[database]
+connection =
+EOF
+discover_cape_database_backend
+[[ "$CAPE_DB_BACKEND" == sqlite ]]
+rm -rf "$TMP_DB"
+
+grep -Fq 'automated live cutover currently requires CAPE PostgreSQL' "$ROOT/lib/deploy.sh"
+
+grep -Fq 'COMPAT_STATUS:-blocked}" != "plan-compatible"' "$ROOT/lib/plan.sh"
+grep -Fq 'CAPE LAYOUT NOT APPROVED FOR MUTATION -- SAFE STOP' "$ROOT/lib/plan.sh"
+
+TMP_SNAP="$(mktemp -d)"
+trap 'rm -rf "$TMP_SNAP"' EXIT
+touch "$TMP_SNAP/windows.qcow2"
+mkdir -p "$TMP_SNAP/bin"
+cat >"$TMP_SNAP/bin/qemu-img" <<'EOF'
+#!/usr/bin/env bash
+printf '{"format":"qcow2"}\n'
+EOF
+chmod +x "$TMP_SNAP/bin/qemu-img"
+OLD_PATH="$PATH"
+PATH="$TMP_SNAP/bin:$PATH"
+DOMAIN=testvm
+DOMAIN_XML="<domain><devices><disk type='file' device='disk'><driver name='qemu' type='qcow2'/><source file='$TMP_SNAP/windows.qcow2'/></disk></devices></domain>"
+DISCOVERY_ERRORS=()
+discover_windows_snapshot_capability
+[[ "$WINDOWS_INTERNAL_SNAPSHOT_CAPABLE" == yes ]]
+[[ "${#DISCOVERY_ERRORS[@]}" -eq 0 ]]
+
+DOMAIN_XML="<domain><devices><disk type='file' device='disk'><driver name='qemu' type='raw'/><source file='$TMP_SNAP/windows.qcow2'/></disk></devices></domain>"
+DISCOVERY_ERRORS=()
+discover_windows_snapshot_capability
+[[ "$WINDOWS_INTERNAL_SNAPSHOT_CAPABLE" == no ]]
+[[ "${#DISCOVERY_ERRORS[@]}" -eq 1 ]]
+grep -Fq 'Windows disk driver is not declared qcow2' <<<"${DISCOVERY_ERRORS[0]}"
+
+DOMAIN_XML="<domain><devices><disk type='file' device='disk' snapshot='no'><driver name='qemu' type='qcow2'/><source file='$TMP_SNAP/windows.qcow2'/></disk></devices></domain>"
+DISCOVERY_ERRORS=()
+discover_windows_snapshot_capability
+[[ "$WINDOWS_INTERNAL_SNAPSHOT_CAPABLE" == no ]]
+[[ "${#DISCOVERY_ERRORS[@]}" -eq 1 ]]
+grep -Fq 'excluded from snapshots' <<<"${DISCOVERY_ERRORS[0]}"
+PATH="$OLD_PATH"
+
+grep -Fq 'discover_windows_snapshot_capability' "$ROOT/lib/plan.sh"
+grep -Fq 'internal snapshot capable:' "$ROOT/lib/plan.sh"
+echo "[PASS] Windows internal-snapshot capability safe-stop preflight"
+
+grep -Fq 'WINDOWS_INTERNAL_SNAPSHOT_CAPABLE:-no}" == yes' "$ROOT/lib/deploy.sh"
+
+# The configured CAPE snapshot itself must be a running internal-memory
+# baseline and must carry the same proven management NIC identity.
+DOMAIN=testvm
+CAPE_MACHINE_SNAPSHOT=s1
+MANAGEMENT_NETWORK_NAME=default
+WINDOWS_MANAGEMENT_MAC=52:54:00:11:22:33
+virsh() {
+  if [[ "$1" == snapshot-dumpxml ]]; then
+    cat <<'XML'
+<domainsnapshot>
+  <name>s1</name><state>running</state><memory snapshot='internal'/>
+  <domain><name>testvm</name><devices>
+    <interface type='network'><mac address='52:54:00:11:22:33'/><source network='default'/><model type='e1000e'/></interface>
+  </devices></domain>
+</domainsnapshot>
+XML
+    return 0
+  fi
+  return 1
+}
+DISCOVERY_ERRORS=()
+discover_cape_analysis_snapshot
+[[ "$CAPE_ANALYSIS_SNAPSHOT_STATUS" == proven ]]
+[[ "$CAPE_ANALYSIS_SNAPSHOT_STATE" == running ]]
+[[ "$CAPE_ANALYSIS_SNAPSHOT_MEMORY" == internal ]]
+[[ "${#DISCOVERY_ERRORS[@]}" -eq 0 ]]
+
+virsh() {
+  if [[ "$1" == snapshot-dumpxml ]]; then
+    cat <<'XML'
+<domainsnapshot>
+  <name>s1</name><state>shutoff</state><memory snapshot='no'/>
+  <domain><name>testvm</name><devices>
+    <interface type='network'><mac address='52:54:00:11:22:33'/><source network='default'/><model type='e1000e'/></interface>
+  </devices></domain>
+</domainsnapshot>
+XML
+    return 0
+  fi
+  return 1
+}
+DISCOVERY_ERRORS=()
+discover_cape_analysis_snapshot
+[[ "$CAPE_ANALYSIS_SNAPSHOT_STATUS" == unproven ]]
+[[ "${#DISCOVERY_ERRORS[@]}" -eq 1 ]]
+grep -Fq 'not a running-state internal-memory analysis baseline' <<<"${DISCOVERY_ERRORS[0]}"
+
+grep -Fq 'discover_cape_analysis_snapshot' "$ROOT/lib/plan.sh"
+grep -Fq 'CAPE snapshot proof:' "$ROOT/lib/plan.sh"
+grep -Fq 'CAPE_ANALYSIS_SNAPSHOT_STATUS:-unproven}" == proven' "$ROOT/lib/deploy.sh"
+echo "[PASS] configured CAPE analysis snapshot identity/state preflight"

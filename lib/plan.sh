@@ -4,6 +4,7 @@ run_discovery() {
   DISCOVERY_ERRORS=(); COMPAT_NOTES=(); REQUESTED_MACHINE="${REQUESTED_MACHINE:-}"
   discover_cape_root
   discover_cape_git
+  discover_cape_database_backend
   discover_cape_services
   discover_cape_machine_records
   discover_libvirt
@@ -11,7 +12,11 @@ run_discovery() {
   discover_resultserver
   match_selected_domain
   discover_domain_details
+  discover_windows_snapshot_capability
   discover_management_network
+  discover_management_network_details
+  discover_cape_analysis_snapshot
+  discover_hypervisor_safety_features
   discover_windows_backends
   plan_isolated_subnet
   discover_busy_state
@@ -36,6 +41,7 @@ print_plan() {
   kv "CAPE commit:" "${CAPE_COMMIT:-unknown}"
   kv "CAPE branch:" "${CAPE_BRANCH:-unknown}"
   kv "CAPE working tree dirty:" "${CAPE_DIRTY:-unknown}"
+  kv "CAPE database backend:" "${CAPE_DB_BACKEND:-unknown}"
   kv "libvirt URI:" "${LIBVIRT_URI:-unknown}"
   kv "CAPE machine section:" "${CAPE_MACHINE_SECTION:-ambiguous}"
   kv "CAPE machine label:" "${CAPE_MACHINE_LABEL:-ambiguous}"
@@ -43,18 +49,25 @@ print_plan() {
   kv "ResultServer IP:" "${CAPE_RESULTSERVER_IP:-unknown}"
   kv "ResultServer port:" "${CAPE_RESULTSERVER_PORT:-unknown}"
   kv "host control IP:" "${CONTROL_HOST_IP:-unknown}"
-  kv "current CAPE snapshot:" "${CAPE_MACHINE_SNAPSHOT:-unknown}"
+  kv "configured CAPE snapshot:" "${CAPE_MACHINE_SNAPSHOT:-unknown}"
+  kv "CAPE snapshot proof:" "${CAPE_ANALYSIS_SNAPSHOT_STATUS:-unknown}"
+  kv "CAPE snapshot state/memory:" "${CAPE_ANALYSIS_SNAPSHOT_STATE:-unknown}/${CAPE_ANALYSIS_SNAPSHOT_MEMORY:-unknown}"
   kv "current CAPE interface:" "${CAPE_MACHINE_INTERFACE:-unknown}"
   kv "libvirt domain:" "${DOMAIN:-ambiguous}"
   kv "management libvirt network:" "${MANAGEMENT_NETWORK_NAME:-unknown}"
+  kv "management bridge:" "${MANAGEMENT_BRIDGE_NAME:-unknown}"
+  kv "Windows management MAC:" "${WINDOWS_MANAGEMENT_MAC:-unknown}"
+  kv "libvirt clean-traffic nwfilter:" "${MANAGEMENT_NWFILTER_AVAILABLE:-unknown}"
+  kv "nwfilter runtime mode:" "${NWFILTER_RUNTIME_MODE:-unknown}"
   kv "domain state:" "${DOMAIN_STATE:-unknown}"
   kv "NIC count:" "${DOMAIN_NIC_COUNT:-unknown}"
   kv "NIC model(s):" "${DOMAIN_NIC_MODELS:-unknown}"
+  kv "internal snapshot capable:" "${WINDOWS_INTERNAL_SNAPSHOT_CAPABLE:-unknown}"
 
   echo; echo "Windows control"
   kv "QEMU Guest Agent:" "${QGA_AVAILABLE:-unknown}"
   kv "WinRM reachable:" "${WINRM_AVAILABLE:-unknown}"
-  kv "CAPE agent :8000 reachable:" "${CAPE_AGENT_REACHABLE:-unknown}"
+  kv "CAPE agent :8000 reachable (diagnostic only):" "${CAPE_AGENT_REACHABLE:-unknown}"
   kv "selected/fallback backend:" "${WINDOWS_BACKEND:-unknown}"
 
   echo; echo "Network plan"
@@ -70,8 +83,11 @@ print_plan() {
   kv "busy reason:" "${BUSY_REASON:-unknown}"
   kv "compatibility state:" "${COMPAT_STATUS:-unknown}"
   kv "compatibility notes:" "$(IFS=,; echo "${COMPAT_NOTES[*]:-none}")"
-  kv "host RAM KiB:" "${HOST_MEM_KIB:-unknown}"
-  kv "libvirt image free KiB:" "${LIBVIRT_FREE_KIB:-unknown}"
+  kv "host RAM total KiB:" "${HOST_MEM_KIB:-unknown}"
+  kv "host RAM available KiB:" "${HOST_MEM_AVAILABLE_KIB:-unknown}"
+  kv "selected libvirt storage pool:" "${LIBVIRT_STORAGE_POOL:-unknown}"
+  kv "selected libvirt storage path:" "${LIBVIRT_STORAGE_PATH:-unknown}"
+  kv "selected pool free KiB:" "${LIBVIRT_FREE_KIB:-unknown}"
 
   echo; echo "Future deployment will create/configure"
   echo "  - generalized Ubuntu INetSim appliance"
@@ -87,10 +103,10 @@ print_plan() {
   if ((${#DISCOVERY_ERRORS[@]})); then
     echo "Blocking/ambiguous findings"; printf '  - %s\n' "${DISCOVERY_ERRORS[@]}"; echo
     echo "RESULT: PLAN INCOMPLETE -- SAFE STOP"
-  elif [[ "${COMPAT_STATUS:-blocked}" == "blocked" ]]; then
-    echo "RESULT: UNSUPPORTED ENVIRONMENT -- SAFE STOP"
+  elif [[ "${COMPAT_STATUS:-blocked}" != "plan-compatible" ]]; then
+    echo "RESULT: CAPE LAYOUT NOT APPROVED FOR MUTATION -- SAFE STOP"
   else
-    echo "RESULT: DEPLOYMENT PLAN DISCOVERED"
+    echo "RESULT: DEPLOYMENT PLAN DISCOVERED AND COMPATIBLE"
     [[ "${CAPE_BUSY:-unknown}" == "yes" ]] && echo "CUTOVER: must wait for a task-aware safe idle point"
   fi
   echo "NO SYSTEM CONFIGURATION WAS CHANGED"

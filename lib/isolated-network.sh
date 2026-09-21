@@ -90,9 +90,20 @@ isolated_network_apply() {
   state_init_paths
 
   if isolated_network_exists "$ISOLATED_NETWORK_NAME"; then
-    if state_resource_owned "libvirt-network" "$ISOLATED_NETWORK_NAME" &&        verify_isolated_network_definition "$ISOLATED_NETWORK_NAME" "$ISOLATED_BRIDGE_NAME" "$ISOLATED_SUBNET" "$BRIDGE_IP"; then
-      pass "Isolated libvirt network already exists and matches owned state"
-      return 0
+    if verify_isolated_network_definition "$ISOLATED_NETWORK_NAME" "$ISOLATED_BRIDGE_NAME" "$ISOLATED_SUBNET" "$BRIDGE_IP"; then
+      if state_resource_owned "libvirt-network" "$ISOLATED_NETWORK_NAME"; then
+        virsh net-info "$ISOLATED_NETWORK_NAME" | grep -Eq '^Active:[[:space:]]+yes' || virsh net-start "$ISOLATED_NETWORK_NAME" >/dev/null
+        virsh net-autostart "$ISOLATED_NETWORK_NAME" >/dev/null
+        pass "Isolated libvirt network already exists and matches owned state"
+        return 0
+      fi
+      if state_resource_intended "libvirt-network" "$ISOLATED_NETWORK_NAME"; then
+        virsh net-autostart "$ISOLATED_NETWORK_NAME" >/dev/null
+        virsh net-info "$ISOLATED_NETWORK_NAME" | grep -Eq '^Active:[[:space:]]+yes' || virsh net-start "$ISOLATED_NETWORK_NAME" >/dev/null
+        state_record_resource "libvirt-network" "$ISOLATED_NETWORK_NAME" "recovered-created" yes "bridge=$ISOLATED_BRIDGE_NAME cidr=$ISOLATED_SUBNET"
+        pass "Recovered deployment-owned isolated libvirt network after interrupted create"
+        return 0
+      fi
     fi
     fail "Libvirt network '$ISOLATED_NETWORK_NAME' already exists but is not a matching AutoDeploy-owned resource"
     return 1
@@ -101,22 +112,26 @@ isolated_network_apply() {
   local xmlfile="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-isolated-network.xml"
   render_isolated_network_xml "$ISOLATED_NETWORK_NAME" "$ISOLATED_BRIDGE_NAME" "$ISOLATED_SUBNET" "$BRIDGE_IP" >"$xmlfile"
   chmod 0600 "$xmlfile"
+  state_record_intent "libvirt-network" "$ISOLATED_NETWORK_NAME" defining "bridge=$ISOLATED_BRIDGE_NAME cidr=$ISOLATED_SUBNET"
 
-  virsh net-define "$xmlfile" >/dev/null
-  state_record_resource "libvirt-network" "$ISOLATED_NETWORK_NAME" "defined" "yes" "bridge=$ISOLATED_BRIDGE_NAME cidr=$ISOLATED_SUBNET"
-
+  if ! virsh net-define "$xmlfile" >/dev/null; then
+    return 1
+  fi
   if ! virsh net-autostart "$ISOLATED_NETWORK_NAME" >/dev/null; then
     virsh net-undefine "$ISOLATED_NETWORK_NAME" >/dev/null 2>&1 || true
+    state_record_resource "libvirt-network" "$ISOLATED_NETWORK_NAME" "removed-after-failure" no ""
     return 1
   fi
   if ! virsh net-start "$ISOLATED_NETWORK_NAME" >/dev/null; then
     virsh net-autostart "$ISOLATED_NETWORK_NAME" --disable >/dev/null 2>&1 || true
     virsh net-undefine "$ISOLATED_NETWORK_NAME" >/dev/null 2>&1 || true
+    state_record_resource "libvirt-network" "$ISOLATED_NETWORK_NAME" "removed-after-failure" no ""
     return 1
   fi
 
   verify_isolated_network_definition "$ISOLATED_NETWORK_NAME" "$ISOLATED_BRIDGE_NAME" "$ISOLATED_SUBNET" "$BRIDGE_IP"
   virsh net-info "$ISOLATED_NETWORK_NAME" | grep -Eq '^Active:[[:space:]]+yes'
+  state_record_resource "libvirt-network" "$ISOLATED_NETWORK_NAME" "created" yes "bridge=$ISOLATED_BRIDGE_NAME cidr=$ISOLATED_SUBNET"
   pass "Created isolated libvirt network '$ISOLATED_NETWORK_NAME' on '$ISOLATED_BRIDGE_NAME'"
 }
 
@@ -124,8 +139,13 @@ isolated_network_rollback() {
   isolated_network_defaults
   if ! isolated_network_exists "$ISOLATED_NETWORK_NAME"; then return 0; fi
   if ! state_resource_owned "libvirt-network" "$ISOLATED_NETWORK_NAME"; then
-    fail "Refusing to remove non-owned libvirt network '$ISOLATED_NETWORK_NAME'"
-    return 1
+    if state_resource_intended "libvirt-network" "$ISOLATED_NETWORK_NAME" &&
+       verify_isolated_network_definition "$ISOLATED_NETWORK_NAME" "$ISOLATED_BRIDGE_NAME" "$ISOLATED_SUBNET" "$BRIDGE_IP"; then
+      state_record_resource "libvirt-network" "$ISOLATED_NETWORK_NAME" recovered-created yes "rollback-adoption"
+    else
+      fail "Refusing to remove non-owned libvirt network '$ISOLATED_NETWORK_NAME'"
+      return 1
+    fi
   fi
   virsh net-destroy "$ISOLATED_NETWORK_NAME" >/dev/null 2>&1 || true
   virsh net-autostart "$ISOLATED_NETWORK_NAME" --disable >/dev/null 2>&1 || true

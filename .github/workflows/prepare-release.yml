@@ -184,11 +184,11 @@ jobs:
           SOURCE_SHA256="$(sha256sum "$DIST/$SOURCE_NAME" | awk '{print $1}')"
           printf '%s  %s\n' "$SOURCE_SHA256" "$SOURCE_NAME" >"$DIST/$SOURCE_NAME.sha256"
 
-          python3 - tooling/release/bootstrap-template.sh "$DIST/install" "$RELEASE_TAG" "$SOURCE_NAME" "$SOURCE_SHA256" "$SOURCE_SHA" <<'PY'
+          python3 - tooling/release/bootstrap-template.sh "$DIST/install" "$GITHUB_REPOSITORY" "$RELEASE_TAG" "$SOURCE_NAME" "$SOURCE_SHA256" "$SOURCE_SHA" <<'PY'
           import pathlib,sys
-          template,out,tag,name,sha,commit=sys.argv[1:]
+          template,out,repo,tag,name,sha,commit=sys.argv[1:]
           s=pathlib.Path(template).read_text()
-          s=s.replace("@@TAG@@",tag).replace("@@SOURCE_NAME@@",name).replace("@@SOURCE_SHA256@@",sha).replace("@@SOURCE_COMMIT@@",commit)
+          s=s.replace("@@REPO@@",repo).replace("@@TAG@@",tag).replace("@@SOURCE_NAME@@",name).replace("@@SOURCE_SHA256@@",sha).replace("@@SOURCE_COMMIT@@",commit)
           if "@@" in s:
               raise SystemExit("unexpanded bootstrap placeholder")
           pathlib.Path(out).write_text(s)

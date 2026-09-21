@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# When executed from a checkout, use the checkout directly. When piped with
-# "curl .../install | sudo bash", bootstrap the repository bundle first.
+# This file is the source-bundle entry point. Network bootstrap is handled only
+# by the checksum-pinned versioned GitHub Release 'install' asset.
 SCRIPT_SOURCE="${BASH_SOURCE[0]:-}"
 SCRIPT_DIR=""
 if [[ -n "$SCRIPT_SOURCE" && -e "$SCRIPT_SOURCE" ]]; then
@@ -10,32 +10,12 @@ if [[ -n "$SCRIPT_SOURCE" && -e "$SCRIPT_SOURCE" ]]; then
 fi
 
 if [[ -z "$SCRIPT_DIR" || ! -f "$SCRIPT_DIR/lib/common.sh" ]]; then
-  [[ "${CAPE_INETSIM_BOOTSTRAPPED:-0}" != 1 ]] || { echo "[FAIL] AutoDeploy bootstrap loop detected" >&2; exit 2; }
-  command -v curl >/dev/null 2>&1 || { echo "[FAIL] curl is required for bootstrap" >&2; exit 2; }
-  command -v tar >/dev/null 2>&1 || { echo "[FAIL] tar is required for bootstrap" >&2; exit 2; }
-
-  BOOT_REF="${CAPE_INETSIM_AUTODEPLOY_REF:-main}"
-  BOOT_TMP="$(mktemp -d /tmp/cape-inetsim-autodeploy.XXXXXX)"
-  case "$BOOT_REF" in
-    main)
-      BOOT_URL="https://github.com/CherukuPavan/CAPE-INetSim-AutoDeploy/archive/refs/heads/main.tar.gz"
-      ;;
-    v*)
-      BOOT_URL="https://github.com/CherukuPavan/CAPE-INetSim-AutoDeploy/archive/refs/tags/$BOOT_REF.tar.gz"
-      ;;
-    *)
-      echo "[FAIL] Unsupported bootstrap ref: $BOOT_REF" >&2
-      exit 2
-      ;;
-  esac
-
-  curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 "$BOOT_URL" -o "$BOOT_TMP/source.tar.gz"
-  tar -xzf "$BOOT_TMP/source.tar.gz" -C "$BOOT_TMP"
-  BOOT_ROOT="$(find "$BOOT_TMP" -mindepth 1 -maxdepth 1 -type d -name 'CAPE-INetSim-AutoDeploy-*' | head -1)"
-  [[ -x "$BOOT_ROOT/install" || -f "$BOOT_ROOT/install" ]] || { echo "[FAIL] Bootstrapped repository layout is invalid" >&2; exit 2; }
-  chmod +x "$BOOT_ROOT/install" "$BOOT_ROOT"/bin/* "$BOOT_ROOT"/tests/*.sh 2>/dev/null || true
-  export CAPE_INETSIM_BOOTSTRAPPED=1
-  exec "$BOOT_ROOT/install" "$@"
+  cat >&2 <<'EOF'
+[FAIL] This repository entry point is not a trusted network bootstrap.
+Use the versioned GitHub Release 'install' asset, which checksum-verifies an
+immutable source bundle before executing this installer.
+EOF
+  exit 2
 fi
 
 AUTODEPLOY_ROOT="$SCRIPT_DIR"
@@ -48,15 +28,18 @@ source "$AUTODEPLOY_ROOT/lib/cape.sh"
 source "$AUTODEPLOY_ROOT/lib/libvirt.sh"
 source "$AUTODEPLOY_ROOT/lib/windows.sh"
 source "$AUTODEPLOY_ROOT/lib/qga.sh"
+source "$AUTODEPLOY_ROOT/lib/windows-winrm.sh"
 source "$AUTODEPLOY_ROOT/lib/windows-cape-agent.sh"
 source "$AUTODEPLOY_ROOT/lib/windows-qga.sh"
 source "$AUTODEPLOY_ROOT/lib/windows-control.sh"
+source "$AUTODEPLOY_ROOT/lib/windows-network-guard.sh"
 source "$AUTODEPLOY_ROOT/lib/windows-vm.sh"
 source "$AUTODEPLOY_ROOT/lib/network.sh"
 source "$AUTODEPLOY_ROOT/lib/compat.sh"
 source "$AUTODEPLOY_ROOT/lib/plan.sh"
 source "$AUTODEPLOY_ROOT/lib/appliance.sh"
 source "$AUTODEPLOY_ROOT/lib/isolated-network.sh"
+source "$AUTODEPLOY_ROOT/lib/firewall.sh"
 source "$AUTODEPLOY_ROOT/lib/inetsim-vm.sh"
 source "$AUTODEPLOY_ROOT/lib/cape-configure.sh"
 source "$AUTODEPLOY_ROOT/lib/extension.sh"
@@ -69,6 +52,8 @@ source "$AUTODEPLOY_ROOT/lib/deploy.sh"
 MODE="deploy"
 REQUESTED_MACHINE=""
 ROLLBACK_APPLY=no
+ACCEPT_POSITIVE_TASK=""
+ACCEPT_NEGATIVE_TASK=""
 
 usage(){
   cat <<EOF
@@ -80,6 +65,8 @@ Usage:
   sudo ./install --verify
   sudo ./install --repair
   sudo ./install --status
+  sudo ./install --collect
+  sudo ./install --acceptance [--positive-task ID] [--negative-task ID]
   sudo ./install --rollback [--apply]
 
 With no mode argument, AutoDeploy performs --deploy.
@@ -88,6 +75,8 @@ Safety:
   --plan       read-only discovery; changes nothing.
   --deploy     transactional deployment; stops on unknown CAPE layouts and
                rolls back project-owned changes on failure.
+  --collect    create one comprehensive read-only diagnostic .tar.gz for support/research.
+  --acceptance validate real completed positive/negative route=none task evidence read-only.
   --rollback   dry-run recovery plan unless --apply is also supplied.
 
 The malware-analysis Windows guest is never given a real/default Internet route.
@@ -101,6 +90,14 @@ while (($#)); do
     --verify) MODE=verify; shift ;;
     --repair) MODE=repair; shift ;;
     --status) MODE=status; shift ;;
+    --collect) MODE=collect; shift ;;
+    --acceptance) MODE=acceptance; shift ;;
+    --positive-task)
+      [[ $# -ge 2 && "$2" =~ ^[0-9]+$ ]] || { echo "--positive-task requires an integer" >&2; exit 2; }
+      ACCEPT_POSITIVE_TASK="$2"; shift 2 ;;
+    --negative-task)
+      [[ $# -ge 2 && "$2" =~ ^[0-9]+$ ]] || { echo "--negative-task requires an integer" >&2; exit 2; }
+      ACCEPT_NEGATIVE_TASK="$2"; shift 2 ;;
     --rollback) MODE=rollback; shift ;;
     --apply) ROLLBACK_APPLY=yes; shift ;;
     --machine)
@@ -139,6 +136,15 @@ case "$MODE" in
   status)
     require_root
     exec "$AUTODEPLOY_ROOT/bin/cape-inetsim-status"
+    ;;
+  collect)
+    exec bash "$AUTODEPLOY_ROOT/bin/cape-inetsim-collect"
+    ;;
+  acceptance)
+    args=()
+    [[ -n "$ACCEPT_POSITIVE_TASK" ]] && args+=(--positive-task "$ACCEPT_POSITIVE_TASK")
+    [[ -n "$ACCEPT_NEGATIVE_TASK" ]] && args+=(--negative-task "$ACCEPT_NEGATIVE_TASK")
+    exec bash "$AUTODEPLOY_ROOT/bin/cape-inetsim-acceptance" "${args[@]}"
     ;;
   rollback)
     require_root

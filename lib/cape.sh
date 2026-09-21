@@ -84,6 +84,24 @@ discover_cape_git() {
   fi
 }
 
+discover_cape_database_backend() {
+  CAPE_DB_BACKEND="unknown"
+  [[ -n "${CAPE_ROOT:-}" && -f "$CAPE_ROOT/conf/cuckoo.conf" ]] || return 0
+  CAPE_DB_BACKEND="$(python3 - "$CAPE_ROOT/conf/cuckoo.conf" <<'PY'
+import configparser,sys,urllib.parse
+c=configparser.ConfigParser(interpolation=None,strict=False)
+c.read(sys.argv[1])
+value=c.get("database","connection",fallback="").strip()
+if not value:
+    print("sqlite")
+else:
+    scheme=urllib.parse.urlsplit(value).scheme.lower()
+    base=scheme.split("+",1)[0]
+    print(base or "unknown")
+PY
+)"
+}
+
 discover_cape_services() {
   CAPE_SERVICES=()
   local s
@@ -109,6 +127,9 @@ for sec in cfg.sections():
     d={k.lower():v.strip() for k,v in cfg.items(sec)}
     if not any(k in d for k in ('ip','label','snapshot','platform','interface')): continue
     if d.get('enabled','yes').lower() in ('no','false','0'): continue
+    platform=d.get('platform','').strip().lower()
+    if platform and not platform.startswith('windows'):
+        continue
     print(json.dumps({
         'section':sec,
         'label':d.get('label',sec),
@@ -167,7 +188,13 @@ PY
 
   CAPE_RESULTSERVER_IP="${CAPE_MACHINE_RESULTSERVER_IP:-}"
   if [[ -z "$CAPE_RESULTSERVER_IP" || "$CAPE_RESULTSERVER_IP" == "0.0.0.0" ]]; then
-    if [[ -n "$global_ip" && "$global_ip" != "0.0.0.0" ]]; then
+    if [[ -n "$global_ip" && "$global_ip" != "0.0.0.0" ]] &&
+       python3 - "$global_ip" <<'PY' >/dev/null 2>&1
+import ipaddress,sys
+ip=ipaddress.ip_address(sys.argv[1])
+raise SystemExit(0 if ip.version==4 and not ip.is_loopback and not ip.is_unspecified else 1)
+PY
+    then
       CAPE_RESULTSERVER_IP="$global_ip"
     else
       CAPE_RESULTSERVER_IP="$CONTROL_HOST_IP"
@@ -178,4 +205,14 @@ PY
 
   [[ -n "$CAPE_RESULTSERVER_IP" ]] || add_error "Could not derive a guest-reachable CAPE ResultServer IP"
   [[ "$CAPE_RESULTSERVER_PORT" =~ ^[0-9]+$ ]] || add_error "Invalid ResultServer port: $CAPE_RESULTSERVER_PORT"
+
+  if [[ -n "$CAPE_RESULTSERVER_IP" ]]; then
+    local resultserver_local=no addr
+    while IFS= read -r addr; do
+      [[ "$addr" == "$CAPE_RESULTSERVER_IP" ]] && { resultserver_local=yes; break; }
+    done < <(ip -o -4 addr show 2>/dev/null | awk '{split($4,a,"/"); print a[1]}')
+    if [[ "$resultserver_local" != yes ]]; then
+      add_error "CAPE ResultServer IP $CAPE_RESULTSERVER_IP is not host-local; v1 refuses a routed ResultServer path that could weaken the Windows egress guard"
+    fi
+  fi
 }

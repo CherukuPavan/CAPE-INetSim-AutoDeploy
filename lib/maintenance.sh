@@ -25,38 +25,68 @@ cape_maintenance_tool() {
   discover_cape_runtime
   install -d -m 0700 "$AD_STATE_ROOT"
   if [[ "$CAPE_SERVICE_USER" == root ]]; then
-    (cd "$CAPE_ROOT" && env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" "$action" --label "$CAPE_MACHINE_LABEL" --guard-file "$CAPE_MAINTENANCE_GUARD_FILE")
+    (cd "$CAPE_ROOT" && env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" "$action" --label "$CAPE_MACHINE_LABEL" --deployment-id "$DEPLOYMENT_ID" --guard-file "$CAPE_MAINTENANCE_GUARD_FILE")
   else
-    # The guard directory/file is root-owned, so the helper writes through a
-    # temporary CAPE-user path for acquire and root moves it into place.
-    local user_guard="/tmp/cape-inetsim-guard-$$.json"
+    # Use a stable CAPE-user staging path so a process crash cannot orphan the
+    # DB lock between commit and the root-owned guard copy.
+    local user_dir="/tmp/cape-inetsim-autodeploy-$DEPLOYMENT_ID"
+    [[ ! -L "$user_dir" ]] || { fail "Unsafe CAPE maintenance staging symlink: $user_dir"; return 1; }
+    install -d -m 0700 -o "$CAPE_SERVICE_USER" "$user_dir"
+    local user_guard="$user_dir/guard.json"
+
     if [[ "$action" == acquire ]]; then
-      runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" "$action" --label "$CAPE_MACHINE_LABEL" --guard-file "$user_guard"
+      if [[ -f "$user_guard" ]]; then
+        if runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" verify --label "$CAPE_MACHINE_LABEL" --deployment-id "$DEPLOYMENT_ID" --guard-file "$user_guard" >/dev/null 2>&1; then
+          install -m 0600 -o root -g root "$user_guard" "$CAPE_MAINTENANCE_GUARD_FILE"
+          rm -f "$user_guard" "$user_guard.pending"
+          rmdir "$user_dir" 2>/dev/null || true
+          return 0
+        fi
+      fi
+
+      runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" "$action" --label "$CAPE_MACHINE_LABEL" --deployment-id "$DEPLOYMENT_ID" --guard-file "$user_guard"
       if ! install -m 0600 -o root -g root "$user_guard" "$CAPE_MAINTENANCE_GUARD_FILE"; then
         # The DB locks are already committed. Immediately release them using
         # the CAPE-user guard rather than leaving machines orphan-locked.
-        runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" release --label "$CAPE_MACHINE_LABEL" --guard-file "$user_guard" >/dev/null 2>&1 || true
-        rm -f "$user_guard"
+        runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" release --label "$CAPE_MACHINE_LABEL" --deployment-id "$DEPLOYMENT_ID" --guard-file "$user_guard" >/dev/null 2>&1 || true
+        rm -f "$user_guard" "$user_guard.pending"
+        rmdir "$user_dir" 2>/dev/null || true
         fail "Could not persist CAPE maintenance guard; locks were released"
         return 1
       fi
-      rm -f "$user_guard"
+      rm -f "$user_guard" "$user_guard.pending"
+      rmdir "$user_dir" 2>/dev/null || true
     elif [[ "$action" == release ]]; then
-      local copy="/tmp/cape-inetsim-guard-$$.json"
-      install -m 0600 -o "$CAPE_SERVICE_USER" "$CAPE_MAINTENANCE_GUARD_FILE" "$copy" 2>/dev/null || true
+      install -m 0600 -o "$CAPE_SERVICE_USER" "$CAPE_MAINTENANCE_GUARD_FILE" "$user_guard" 2>/dev/null || {
+        fail "Could not stage CAPE maintenance guard for release"
+        return 1
+      }
       set +e
-      runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" "$action" --label "$CAPE_MACHINE_LABEL" --guard-file "$copy"
+      runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" "$action" --label "$CAPE_MACHINE_LABEL" --deployment-id "$DEPLOYMENT_ID" --guard-file "$user_guard"
       local rc=$?
       set -e
-      rm -f "$copy"
-      if [[ "$rc" -eq 0 || "$rc" -eq 3 ]]; then
+      rm -f "$user_guard" "$user_guard.pending"
+      rmdir "$user_dir" 2>/dev/null || true
+      if [[ "$rc" -eq 0 ]]; then
         rm -f "$CAPE_MAINTENANCE_GUARD_FILE"
       else
-        warn "CAPE maintenance release failed; preserving recovery guard $CAPE_MAINTENANCE_GUARD_FILE"
+        warn "CAPE maintenance release was incomplete; preserving recovery guard $CAPE_MAINTENANCE_GUARD_FILE"
       fi
       return "$rc"
+    elif [[ "$action" == verify ]]; then
+      install -m 0600 -o "$CAPE_SERVICE_USER" "$CAPE_MAINTENANCE_GUARD_FILE" "$user_guard" 2>/dev/null || {
+        fail "Could not stage CAPE maintenance guard for verification"
+        return 1
+      }
+      set +e
+      runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" "$action" --label "$CAPE_MACHINE_LABEL" --deployment-id "$DEPLOYMENT_ID" --guard-file "$user_guard"
+      local rc=$?
+      set -e
+      rm -f "$user_guard" "$user_guard.pending"
+      rmdir "$user_dir" 2>/dev/null || true
+      return "$rc"
     else
-      runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" "$action" --label "$CAPE_MACHINE_LABEL" --guard-file "$user_guard"
+      runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" "$action" --label "$CAPE_MACHINE_LABEL" --deployment-id "$DEPLOYMENT_ID" --guard-file "$user_guard"
     fi
   fi
 }
@@ -88,6 +118,19 @@ cape_release_maintenance() {
   cape_maintenance_tool release
   local rc=$?
   set -e
-  state_record_resource cape-maintenance all-machines released yes ""
-  [[ "$rc" -eq 0 || "$rc" -eq 3 ]]
+  if [[ "$rc" -eq 0 ]]; then
+    state_record_resource cape-maintenance all-machines released yes ""
+    return 0
+  fi
+  state_record_resource cape-maintenance all-machines release-incomplete yes "rc=$rc guard=$CAPE_MAINTENANCE_GUARD_FILE"
+  fail "CAPE maintenance release incomplete; guard preserved for safe recovery"
+  return "$rc"
+}
+
+cape_verify_maintenance_guard() {
+  [[ -f "$CAPE_MAINTENANCE_GUARD_FILE" ]] || {
+    fail "CAPE maintenance guard is missing"
+    return 1
+  }
+  cape_maintenance_tool verify >/dev/null
 }

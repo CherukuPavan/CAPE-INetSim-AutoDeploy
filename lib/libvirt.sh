@@ -17,9 +17,19 @@ record_matches_domain() {
     if [[ "$d" == "$section" || "$d" == "$label" ]]; then printf '%s\n' "$d"; return 0; fi
   done
   if [[ -n "$ip" ]]; then
+    local -a ip_matches=()
     for d in "${LIBVIRT_DOMAINS[@]}"; do
-      if virsh domifaddr "$d" --source agent 2>/dev/null | grep -Fq "$ip" || virsh domifaddr "$d" --source lease 2>/dev/null | grep -Fq "$ip"; then printf '%s\n' "$d"; return 0; fi
+      if virsh domifaddr "$d" --source agent 2>/dev/null | awk -v ip="$ip" '{split($4,a,"/"); if(a[1]==ip) found=1} END{exit !found}' ||
+         virsh domifaddr "$d" --source lease 2>/dev/null | awk -v ip="$ip" '{split($4,a,"/"); if(a[1]==ip) found=1} END{exit !found}'; then
+        ip_matches+=("$d")
+      fi
     done
+    if ((${#ip_matches[@]} == 1)); then
+      printf '%s\n' "${ip_matches[0]}"
+      return 0
+    fi
+    # Zero or multiple IP matches are deliberately non-matches. The caller
+    # safe-stops rather than selecting the first domain with a reused address.
   fi
   return 1
 }
@@ -73,10 +83,185 @@ print(len(ifs), ",".join(sorted(set(models))) or "unknown")
 }
 
 
+qemu_img_detect_format_readonly() {
+  local path="$1" info=""
+
+  # qemu-img normally refuses to inspect an image that a running QEMU process
+  # holds with an exclusive write lock. First use the ordinary read-only path;
+  # if that is blocked for a live guest, retry with QEMU's explicit shared
+  # read-only inspection mode. Never run qemu-img check/convert against a live
+  # Windows analysis disk here.
+  info="$(qemu-img info --output=json "$path" 2>/dev/null || true)"
+  if [[ -z "$info" && "${DOMAIN_STATE:-unknown}" != "shut off" ]]; then
+    info="$(qemu-img info --force-share --output=json "$path" 2>/dev/null || true)"
+  fi
+
+  python3 -c '
+import json,sys
+try:
+    print(json.load(sys.stdin).get("format",""))
+except Exception:
+    pass
+' <<<"$info"
+}
+
+discover_windows_snapshot_capability() {
+  WINDOWS_INTERNAL_SNAPSHOT_CAPABLE=no
+  [[ -n "${DOMAIN_XML:-}" && -n "${DOMAIN:-}" ]] || return 0
+
+  local disk_records
+  disk_records="$(python3 -c '
+import sys,xml.etree.ElementTree as ET
+try: root=ET.fromstring(sys.stdin.read())
+except Exception: raise SystemExit
+for d in root.findall("./devices/disk"):
+    if d.get("device")!="disk":
+        continue
+    src=d.find("source"); drv=d.find("driver")
+    if src is None:
+        continue
+    path=src.get("file") or ""
+    typ=(drv.get("type") if drv is not None else "") or ""
+    snap=d.get("snapshot") or "default"
+    readonly=d.find("readonly") is not None
+    if not readonly:
+        print(path+"|"+typ+"|"+snap)
+' <<<"$DOMAIN_XML")"
+
+  local -a records=()
+  mapfile -t records < <(printf '%s\n' "$disk_records" | sed '/^$/d')
+  if ((${#records[@]} == 0)); then
+    add_error "Selected Windows domain has no writable file-backed disk eligible for the required internal snapshots"
+    return 0
+  fi
+
+  local rec path declared snap detected
+  for rec in "${records[@]}"; do
+    IFS='|' read -r path declared snap <<<"$rec"
+    if [[ "$snap" == no ]]; then
+      add_error "Windows writable disk is excluded from snapshots; refusing an incomplete analysis/safety snapshot: ${path:-unknown}"
+      return 0
+    fi
+    if [[ -z "$path" || ! -f "$path" ]]; then
+      add_error "Windows snapshot preflight requires writable file-backed disks; unsupported disk source detected"
+      return 0
+    fi
+    if ! have qemu-img; then
+      add_error "qemu-img is required to prove Windows internal-snapshot capability"
+      return 0
+    fi
+    if [[ "$declared" != qcow2 ]]; then
+      add_error "Windows disk driver is not declared qcow2; required shutoff/running internal snapshots are not safely supported: $path"
+      return 0
+    fi
+    detected="$(qemu_img_detect_format_readonly "$path")"
+    if [[ -z "$detected" ]]; then
+      add_error "Could not safely inspect Windows disk format while proving internal-snapshot capability: $path"
+      return 0
+    fi
+    if [[ "$detected" != qcow2 ]]; then
+      add_error "Windows disk is not qcow2; required shutoff/running internal snapshots are not safely supported: $path"
+      return 0
+    fi
+  done
+
+  WINDOWS_INTERNAL_SNAPSHOT_CAPABLE=yes
+}
+
+discover_cape_analysis_snapshot() {
+  CAPE_ANALYSIS_SNAPSHOT_STATUS="unproven"
+  CAPE_ANALYSIS_SNAPSHOT_STATE=""
+  CAPE_ANALYSIS_SNAPSHOT_MEMORY=""
+  [[ -n "${DOMAIN:-}" && -n "${CAPE_MACHINE_SNAPSHOT:-}" ]] || {
+    add_error "CAPE machine does not define an analysis snapshot"
+    return 0
+  }
+  [[ -n "${MANAGEMENT_NETWORK_NAME:-}" && -n "${WINDOWS_MANAGEMENT_MAC:-}" ]] || return 0
+
+  local xml facts
+  xml="$(virsh snapshot-dumpxml "$DOMAIN" "$CAPE_MACHINE_SNAPSHOT" 2>/dev/null || true)"
+  [[ -n "$xml" ]] || {
+    add_error "Configured CAPE analysis snapshot '$CAPE_MACHINE_SNAPSHOT' does not exist for domain '$DOMAIN'"
+    return 0
+  }
+
+  facts="$(python3 -c '
+import sys,xml.etree.ElementTree as ET
+domain,net,mac=sys.argv[1:]
+try:
+    r=ET.fromstring(sys.stdin.read())
+except Exception:
+    raise SystemExit(2)
+state=(r.findtext("state") or "").strip()
+m=r.find("memory")
+memory=(m.get("snapshot") if m is not None else "") or ""
+d=r.find("domain")
+dname=(d.findtext("name") or "").strip() if d is not None else ""
+matches=0
+if d is not None:
+    for i in d.findall("./devices/interface"):
+        src=i.find("source"); ma=i.find("mac")
+        if src is not None and ma is not None and src.get("network")==net and (ma.get("address") or "").lower()==mac.lower():
+            matches += 1
+print(state, memory, dname, matches, sep="|")
+' "$DOMAIN" "$MANAGEMENT_NETWORK_NAME" "$WINDOWS_MANAGEMENT_MAC" <<<"$xml" 2>/dev/null || true)"
+
+  local snap_state snap_memory snap_domain mgmt_matches
+  IFS='|' read -r snap_state snap_memory snap_domain mgmt_matches <<<"$facts"
+  CAPE_ANALYSIS_SNAPSHOT_STATE="$snap_state"
+  CAPE_ANALYSIS_SNAPSHOT_MEMORY="$snap_memory"
+
+  [[ "$snap_domain" == "$DOMAIN" ]] || {
+    add_error "Configured CAPE snapshot '$CAPE_MACHINE_SNAPSHOT' does not embed the selected domain identity"
+    return 0
+  }
+  [[ "$snap_state" == running && "$snap_memory" == internal ]] || {
+    add_error "Configured CAPE snapshot '$CAPE_MACHINE_SNAPSHOT' is not a running-state internal-memory analysis baseline (found state=${snap_state:-unknown} memory=${snap_memory:-unknown})"
+    return 0
+  }
+  [[ "$mgmt_matches" == 1 ]] || {
+    add_error "Configured CAPE snapshot '$CAPE_MACHINE_SNAPSHOT' does not contain the proven management NIC identity ($MANAGEMENT_NETWORK_NAME / $WINDOWS_MANAGEMENT_MAC)"
+    return 0
+  }
+
+  CAPE_ANALYSIS_SNAPSHOT_STATUS="proven"
+}
+
 discover_management_network() {
   MANAGEMENT_NETWORK_NAME=""
-  [[ -n "${DOMAIN_XML:-}" && -n "${CAPE_MACHINE_IP:-}" ]] || return 0
+  [[ -n "${DOMAIN_XML:-}" && -n "${CAPE_MACHINE_IP:-}" && -n "${DOMAIN:-}" ]] || return 0
 
+  # First preference: map the management IP reported by libvirt to the exact
+  # interface MAC, then map that MAC back to its source network in domain XML.
+  local addr_text mgmt_mac
+  addr_text="$(
+    { virsh domifaddr "$DOMAIN" --source agent 2>/dev/null || true
+      virsh domifaddr "$DOMAIN" --source lease 2>/dev/null || true; } |
+    awk -v ip="$CAPE_MACHINE_IP" '{split($4,a,"/"); if(a[1]==ip) print tolower($2)}' | sed '/^$/d' | sort -u
+  )"
+  mapfile -t _mgmt_macs < <(printf '%s\n' "$addr_text" | sed '/^$/d')
+  if ((${#_mgmt_macs[@]} == 1)); then
+    mgmt_mac="${_mgmt_macs[0]}"
+    MANAGEMENT_NETWORK_NAME="$(python3 -c '
+import sys,xml.etree.ElementTree as ET
+mac=sys.argv[1].lower()
+try: root=ET.fromstring(sys.stdin.read())
+except Exception: raise SystemExit
+nets=[]
+for i in root.findall("./devices/interface"):
+    m=i.find("mac"); s=i.find("source")
+    if m is not None and s is not None and (m.get("address") or "").lower()==mac and s.get("network"):
+        nets.append(s.get("network"))
+if len(set(nets))==1: print(nets[0])
+' "$mgmt_mac" <<<"$DOMAIN_XML")"
+    [[ -n "$MANAGEMENT_NETWORK_NAME" ]] && return 0
+  elif ((${#_mgmt_macs[@]} > 1)); then
+    add_error "Multiple libvirt interfaces report CAPE management IP $CAPE_MACHINE_IP"
+    return 0
+  fi
+
+  # Fallback for guests without QGA/lease visibility: require exactly one
+  # attached libvirt network whose declared subnet contains the CAPE IP.
   local candidates
   candidates="$(python3 -c '
 import sys,xml.etree.ElementTree as ET
@@ -86,12 +271,9 @@ for i in root.findall("./devices/interface"):
     if src is not None and src.get("network"): print(src.get("network"))
 ' <<<"$DOMAIN_XML")"
   mapfile -t _mgmt_candidates < <(printf '%s\n' "$candidates" | sed '/^$/d' | sort -u)
-  if ((${#_mgmt_candidates[@]} == 1)); then
-    MANAGEMENT_NETWORK_NAME="${_mgmt_candidates[0]}"
-    return 0
-  fi
 
   local n netxml match
+  local -a subnet_matches=()
   for n in "${_mgmt_candidates[@]}"; do
     netxml="$(virsh net-dumpxml "$n" 2>/dev/null || true)"
     match="$(python3 -c '
@@ -108,14 +290,85 @@ for x in root.findall("ip"):
         print("yes")
         break
 ' "$CAPE_MACHINE_IP" <<<"$netxml")"
-    if [[ "$match" == yes ]]; then
-      if [[ -n "$MANAGEMENT_NETWORK_NAME" ]]; then
-        add_error "Multiple libvirt networks contain CAPE management IP $CAPE_MACHINE_IP"
-        MANAGEMENT_NETWORK_NAME=""
-        return 0
-      fi
-      MANAGEMENT_NETWORK_NAME="$n"
-    fi
+    [[ "$match" == yes ]] && subnet_matches+=("$n")
   done
-  [[ -n "$MANAGEMENT_NETWORK_NAME" ]] || add_error "Could not discover libvirt management network for $CAPE_MACHINE_IP"
+
+  if ((${#subnet_matches[@]} == 1)); then
+    MANAGEMENT_NETWORK_NAME="${subnet_matches[0]}"
+  elif ((${#subnet_matches[@]} > 1)); then
+    add_error "Multiple attached libvirt networks contain CAPE management IP $CAPE_MACHINE_IP"
+  else
+    add_error "Could not prove the libvirt management network for $CAPE_MACHINE_IP"
+  fi
+}
+discover_management_network_details() {
+  MANAGEMENT_BRIDGE_NAME=""
+  WINDOWS_MANAGEMENT_MAC=""
+  [[ -n "${MANAGEMENT_NETWORK_NAME:-}" && -n "${DOMAIN_XML:-}" ]] || return 0
+
+  local netxml
+  netxml="$(virsh net-dumpxml "$MANAGEMENT_NETWORK_NAME" 2>/dev/null || true)"
+  MANAGEMENT_BRIDGE_NAME="$(python3 -c '
+import sys,xml.etree.ElementTree as ET
+try: r=ET.fromstring(sys.stdin.read())
+except Exception: raise SystemExit
+b=r.find("bridge")
+print((b.get("name") or "") if b is not None else "")
+' <<<"$netxml")"
+
+  WINDOWS_MANAGEMENT_MAC="$(python3 -c '
+import sys,xml.etree.ElementTree as ET
+net=sys.argv[1]
+try: r=ET.fromstring(sys.stdin.read())
+except Exception: raise SystemExit
+macs=[]
+for i in r.findall("./devices/interface"):
+    src=i.find("source"); mac=i.find("mac")
+    if src is not None and src.get("network")==net and mac is not None and mac.get("address"):
+        macs.append(mac.get("address").lower())
+if len(macs)==1: print(macs[0])
+' "$MANAGEMENT_NETWORK_NAME" <<<"$DOMAIN_XML")"
+
+  [[ -n "$MANAGEMENT_BRIDGE_NAME" ]] || add_error "Could not derive bridge name for management libvirt network $MANAGEMENT_NETWORK_NAME"
+  [[ -n "$WINDOWS_MANAGEMENT_MAC" ]] || add_error "Could not uniquely derive Windows management NIC MAC on $MANAGEMENT_NETWORK_NAME"
+}
+
+NWFILTER_DEFINITION_ROOT="${NWFILTER_DEFINITION_ROOT:-/etc/libvirt/nwfilter}"
+
+nwfilter_clean_traffic_definition_present() {
+  local definition="$NWFILTER_DEFINITION_ROOT/clean-traffic.xml"
+  [[ -r "$definition" ]] || return 1
+  python3 - "$definition" <<'PY'
+import sys,xml.etree.ElementTree as ET
+try:
+    root=ET.parse(sys.argv[1]).getroot()
+except Exception:
+    raise SystemExit(1)
+raise SystemExit(0 if root.tag == "filter" and root.get("name") == "clean-traffic" else 1)
+PY
+}
+
+discover_hypervisor_safety_features() {
+  MANAGEMENT_NWFILTER_AVAILABLE=no
+  NWFILTER_RUNTIME_MODE=unavailable
+
+  if virsh nwfilter-info clean-traffic >/dev/null 2>&1; then
+    MANAGEMENT_NWFILTER_AVAILABLE=yes
+    NWFILTER_RUNTIME_MODE=ready
+    return 0
+  fi
+
+  # Modern libvirt can run nwfilter as a modular socket-activated daemon.
+  # A powered-down virtnwfilterd must not make a read-only plan falsely claim
+  # that clean-traffic is missing when the validated definition and socket unit
+  # are already installed. Deployment activates it transactionally before any
+  # Windows/CAPE cutover.
+  if nwfilter_clean_traffic_definition_present &&
+     [[ "$(systemctl show -p LoadState --value virtnwfilterd.socket 2>/dev/null || true)" == loaded ]]; then
+    MANAGEMENT_NWFILTER_AVAILABLE=activatable
+    NWFILTER_RUNTIME_MODE=modular-socket
+    return 0
+  fi
+
+  add_error "libvirt nwfilter 'clean-traffic' is unavailable and no activatable standard virtnwfilterd configuration was proven; hypervisor anti-spoofing cannot be guaranteed"
 }

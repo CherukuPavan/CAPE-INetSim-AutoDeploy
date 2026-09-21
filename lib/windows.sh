@@ -28,15 +28,23 @@ discover_windows_backends() {
 
   if [[ -n "${CAPE_MACHINE_IP:-}" ]] && { probe_tcp "$CAPE_MACHINE_IP" 5985 || probe_tcp "$CAPE_MACHINE_IP" 5986; }; then
     WINRM_AVAILABLE="yes"
-    WINDOWS_BACKEND="winrm"
-    return 0
+    WINDOWS_BACKEND="winrm-candidate"
   fi
 
-  if [[ -n "${CAPE_MACHINE_IP:-}" ]] && probe_tcp "$CAPE_MACHINE_IP" 8000; then
+  # CAPE Agent is accepted only when its runtime identity reports the execpy
+  # feature and Administrator context. The deploy path uses only /store,
+  # /execpy and /retrieve with a fixed AutoDeploy runner; it never uses the
+  # unrestricted command endpoint.
+  if [[ -n "${CAPE_MACHINE_IP:-}" ]] && declare -F cape_agent_probe >/dev/null 2>&1 &&
+     cape_agent_probe "$CAPE_MACHINE_IP" >/dev/null 2>&1; then
     CAPE_AGENT_REACHABLE="yes"
-    WINDOWS_BACKEND="cape-agent-candidate"
-    return 0
+    [[ "$WINDOWS_BACKEND" == winrm-candidate ]] || WINDOWS_BACKEND="cape-agent-execpy-candidate"
+  elif [[ -n "${CAPE_MACHINE_IP:-}" ]] && probe_tcp "$CAPE_MACHINE_IP" 8000; then
+    CAPE_AGENT_REACHABLE="reachable-unverified"
   fi
 
-  WINDOWS_BACKEND="manual-powershell-fallback"
+  case "$WINDOWS_BACKEND" in
+    winrm-candidate|cape-agent-execpy-candidate) ;;
+    *) WINDOWS_BACKEND="manual-powershell-fallback" ;;
+  esac
 }
