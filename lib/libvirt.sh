@@ -172,10 +172,18 @@ discover_cape_analysis_snapshot() {
   CAPE_ANALYSIS_SNAPSHOT_STATUS="unproven"
   CAPE_ANALYSIS_SNAPSHOT_STATE=""
   CAPE_ANALYSIS_SNAPSHOT_MEMORY=""
-  [[ -n "${DOMAIN:-}" && -n "${CAPE_MACHINE_SNAPSHOT:-}" ]] || {
-    add_error "CAPE machine does not define an analysis snapshot"
+  [[ -n "${DOMAIN:-}" ]] || return 0
+
+  # A CAPE machine is allowed to have no preconfigured snapshot. AutoDeploy
+  # acquires CAPE-wide maintenance ownership, powers the guest off safely,
+  # captures its own pre-change safety snapshot, configures the isolated NIC,
+  # and finally creates a new running-state CAPE analysis snapshot. Requiring an
+  # old snapshot here would make fresh/legacy CAPE machines impossible to adopt.
+  if [[ -z "${CAPE_MACHINE_SNAPSHOT:-}" ]]; then
+    CAPE_ANALYSIS_SNAPSHOT_STATUS="not-configured"
     return 0
-  }
+  fi
+
   [[ -n "${MANAGEMENT_NETWORK_NAME:-}" && -n "${WINDOWS_MANAGEMENT_MAC:-}" ]] || return 0
 
   local xml facts

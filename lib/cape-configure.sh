@@ -77,16 +77,31 @@ cape_backup_integration_files() {
 cape_configure_inetsim() {
   local edit="$AUTODEPLOY_ROOT/tools/ini_edit.py"
   [[ -x "$edit" || -f "$edit" ]] || { fail "INI editor missing"; return 1; }
-  [[ -n "${FINAL_SNAPSHOT:-}" ]] || { fail "Final running snapshot is not set"; return 1; }
   [[ -n "${ISOLATED_BRIDGE_NAME:-}" ]] || { fail "Isolated bridge name is not set"; return 1; }
-  [[ -n "${WINDOWS_FAKE_IP:-}" ]] || { fail "Windows fake-Internet IP is not set"; return 1; }
+  [[ "${CAPE_TARGETS_COUNT:-0}" -gt 0 ]] || { fail "No CAPE analysis targets are available for configuration"; return 1; }
 
   cape_backup_integration_files
   patch_sniffer_capture_override "$CAPE_ROOT/modules/auxiliary/sniffer.py"
 
-  python3 "$edit" "$CAPE_ROOT/conf/auxiliary.conf" sniffer "capture_host_${CAPE_MACHINE_LABEL}" "$WINDOWS_FAKE_IP"
-  python3 "$edit" "$CAPE_ROOT/conf/kvm.conf" "$CAPE_MACHINE_SECTION" snapshot "$FINAL_SNAPSHOT"
-  python3 "$edit" "$CAPE_ROOT/conf/kvm.conf" "$CAPE_MACHINE_SECTION" interface "$ISOLATED_BRIDGE_NAME"
+  local saved="${TARGET_INDEX:-}" i
+  CAPE_TARGETS_COUNT="$(targets_count)"
+  for ((i=0;i<CAPE_TARGETS_COUNT;i++)); do
+    targets_bind "$i"
+    [[ -n "${FINAL_SNAPSHOT:-}" ]] || { fail "Final running snapshot is not set for $CAPE_MACHINE_SECTION"; return 1; }
+    [[ -n "${WINDOWS_FAKE_IP:-}" ]] || { fail "Windows fake-Internet IP is not set for $CAPE_MACHINE_SECTION"; return 1; }
+
+    python3 "$edit" "$CAPE_ROOT/conf/auxiliary.conf" sniffer "capture_host_${CAPE_MACHINE_LABEL}" "$WINDOWS_FAKE_IP"
+    python3 "$edit" "$CAPE_ROOT/conf/kvm.conf" "$CAPE_MACHINE_SECTION" snapshot "$FINAL_SNAPSHOT"
+    python3 "$edit" "$CAPE_ROOT/conf/kvm.conf" "$CAPE_MACHINE_SECTION" interface "$ISOLATED_BRIDGE_NAME"
+
+    grep -Fq "capture_host_${CAPE_MACHINE_LABEL} = $WINDOWS_FAKE_IP" "$CAPE_ROOT/conf/auxiliary.conf"
+    grep -A160 -F "[$CAPE_MACHINE_SECTION]" "$CAPE_ROOT/conf/kvm.conf" | grep -m1 -Fq "snapshot = $FINAL_SNAPSHOT"
+    grep -A160 -F "[$CAPE_MACHINE_SECTION]" "$CAPE_ROOT/conf/kvm.conf" | grep -m1 -Fq "interface = $ISOLATED_BRIDGE_NAME"
+
+    TARGET_PHASE=cape-configured
+    targets_capture_bound "$i"
+  done
+
   python3 "$edit" "$CAPE_ROOT/conf/processing.conf" network dnswhitelist no
   python3 "$edit" "$CAPE_ROOT/conf/processing.conf" network ipwhitelist no
   python3 "$edit" "$CAPE_ROOT/conf/routing.conf" routing route none
@@ -96,19 +111,16 @@ cape_configure_inetsim() {
   py="$(cape_runtime_python)"
   "$py" -m py_compile "$CAPE_ROOT/modules/auxiliary/sniffer.py"
 
-  grep -Fq "capture_host_${CAPE_MACHINE_LABEL} = $WINDOWS_FAKE_IP" "$CAPE_ROOT/conf/auxiliary.conf"
-  grep -A120 -F "[$CAPE_MACHINE_SECTION]" "$CAPE_ROOT/conf/kvm.conf" | grep -m1 -Fq "snapshot = $FINAL_SNAPSHOT"
-  grep -A120 -F "[$CAPE_MACHINE_SECTION]" "$CAPE_ROOT/conf/kvm.conf" | grep -m1 -Fq "interface = $ISOLATED_BRIDGE_NAME"
-
   state_record_resource cape-file "$CAPE_ROOT/modules/auxiliary/sniffer.py" modified yes "capture-host-override"
-  state_record_resource cape-file "$CAPE_ROOT/conf/auxiliary.conf" modified yes "capture_host_${CAPE_MACHINE_LABEL}=$WINDOWS_FAKE_IP"
-  state_record_resource cape-file "$CAPE_ROOT/conf/kvm.conf" modified yes "snapshot=$FINAL_SNAPSHOT interface=$ISOLATED_BRIDGE_NAME"
+  state_record_resource cape-file "$CAPE_ROOT/conf/auxiliary.conf" modified yes "per-machine-capture-hosts=${CAPE_TARGETS_COUNT}"
+  state_record_resource cape-file "$CAPE_ROOT/conf/kvm.conf" modified yes "managed-machines=${CAPE_TARGETS_COUNT} snapshot+interface"
   state_record_resource cape-file "$CAPE_ROOT/conf/processing.conf" modified yes "dnswhitelist=no ipwhitelist=no"
   state_record_resource cape-file "$CAPE_ROOT/conf/routing.conf" modified yes "route=none enable_pcap=yes"
   cape_capture_post_hashes
   state_set_phase cape-configured
-}
 
+  if [[ "$saved" =~ ^[0-9]+$ ]]; then targets_bind "$saved"; else targets_bind 0; fi
+}
 cape_restore_integration_files() {
   local rel expected current backup backup_sha failures=0
   for rel in modules/auxiliary/sniffer.py conf/auxiliary.conf conf/kvm.conf conf/processing.conf conf/routing.conf; do

@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - dev/v1-orchestrator-hardening
 
 permissions:
   contents: read
@@ -25,6 +26,8 @@ jobs:
           python3 -m py_compile tools/*.py
       - name: Universal discovery logic
         run: bash tests/universal_logic.sh
+      - name: Multi-machine CAPE target-set logic
+        run: bash tests/multi_target_logic.sh
       - name: Live host preflight discovery
         run: bash tests/live_host_preflight.sh
       - name: Modular nwfilter runtime lifecycle

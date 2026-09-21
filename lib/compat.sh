@@ -17,16 +17,8 @@ discover_busy_state() {
     return 0
   fi
 
-  case "${DOMAIN_STATE:-unknown}" in
-    "shut off"|shutoff|crashed)
-      CAPE_BUSY="unknown"
-      BUSY_REASON="selected domain is not running, but other CAPE work is not inferred idle without the task-aware cutover guard"
-      ;;
-    running|paused|blocked|pmsuspended)
-      CAPE_BUSY="unknown"
-      BUSY_REASON="selected analysis domain is '${DOMAIN_STATE}', which alone does not prove an active task; cutover will query/lock CAPE atomically"
-      ;;
-  esac
+  CAPE_BUSY="unknown"
+  BUSY_REASON="per-VM power state does not prove CAPE idleness; cutover locks the complete CAPE machine set atomically"
 }
 
 check_cape_layout() {
@@ -37,9 +29,9 @@ check_cape_layout() {
   if ((${#missing[@]})); then add_note "missing:${missing[*]}"; return 0; fi
 
   local config_layout
-  config_layout="$(python3 - "$CAPE_ROOT" "${CAPE_MACHINE_SECTION:-}" <<'PY'
-import configparser,sys
-root,machine=sys.argv[1:]
+  config_layout="$(python3 - "$CAPE_ROOT" "${CAPE_TARGETS_JSON:-[]}" <<'PY'
+import configparser,json,sys
+root,targets_json=sys.argv[1:]
 checks=[
     ("auxiliary","sniffer"),
     ("processing","network"),
@@ -54,8 +46,16 @@ for name,section in checks:
         problems.append(f"{name}.conf:[{section}]")
 k=configparser.ConfigParser(interpolation=None,strict=False)
 k.read(f"{root}/conf/kvm.conf")
-if not machine or not k.has_section(machine):
-    problems.append(f"kvm.conf:[{machine or 'selected-machine-missing'}]")
+try:
+    targets=json.loads(targets_json)
+except Exception:
+    targets=[]
+if not targets:
+    problems.append("kvm.conf:[no-managed-machines]")
+for d in targets:
+    machine=str(d.get("section") or "")
+    if not machine or not k.has_section(machine):
+        problems.append(f"kvm.conf:[{machine or 'managed-machine-missing'}]")
 print("OK" if not problems else "missing-sections:"+",".join(problems))
 PY
 )"

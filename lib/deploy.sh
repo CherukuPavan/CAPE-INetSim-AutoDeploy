@@ -13,7 +13,7 @@ deploy_phase_rank() {
     windows-nic-attached) echo 70 ;;
     windows-configured) echo 80 ;;
     windows-running-snapshot|windows-working-snapshot) echo 90 ;;
-    windows-snapshots-ready) echo 100 ;;
+    windows-snapshots-ready|windows-all-ready) echo 100 ;;
     cape-configured) echo 110 ;;
     extension-installed) echo 120 ;;
     handoff-complete) echo 130 ;;
@@ -65,16 +65,28 @@ deploy_assert_supported_environment() {
     fail "v1.0 automated live cutover currently requires CAPE PostgreSQL for atomic scheduler maintenance locking (found: ${CAPE_DB_BACKEND:-unknown}); safe stop, no mutation."
     return 1
   }
-  [[ "${CAPE_MACHINE_PLATFORM,,}" == windows* ]] || {
-    fail "Selected CAPE machine is not a Windows analysis VM: ${CAPE_MACHINE_PLATFORM:-unknown}"
+  [[ "${CAPE_TARGETS_COUNT:-0}" =~ ^[0-9]+$ && "${CAPE_TARGETS_COUNT:-0}" -gt 0 ]] || {
+    fail "No CAPE Windows analysis targets were discovered"
     return 1
   }
-  [[ "${WINDOWS_INTERNAL_SNAPSHOT_CAPABLE:-no}" == yes ]] || {
-    fail "Selected Windows analysis VM is not proven capable of the required qcow2 internal safety/running snapshots"
-    return 1
-  }
-  [[ "${CAPE_ANALYSIS_SNAPSHOT_STATUS:-unproven}" == proven ]] || {
-    fail "Configured CAPE analysis snapshot is not proven as a running internal-memory baseline with the selected management NIC"
+  python3 - "${CAPE_TARGETS_JSON:-[]}" <<'PY' || {
+import json,sys
+a=json.loads(sys.argv[1])
+assert a, "empty target set"
+for d in a:
+    platform=str(d.get("platform") or "windows-unspecified").lower()
+    assert platform.startswith("windows"), f"{d.get('section','?')}: not a Windows CAPE analysis machine"
+    assert d.get("domain"), f"{d.get('section','?')}: no libvirt domain"
+    assert d.get("snapshot_capable")=="yes", f"{d.get('section','?')}: qcow2 internal snapshots not proven"
+    assert d.get("analysis_snapshot_status") in ("proven","not-configured"), f"{d.get('section','?')}: existing CAPE snapshot is not safe/proven"
+    assert d.get("management_network"), f"{d.get('section','?')}: management network unknown"
+    assert d.get("management_bridge"), f"{d.get('section','?')}: management bridge unknown"
+    assert d.get("management_mac"), f"{d.get('section','?')}: management MAC unknown"
+    assert d.get("resultserver_ip"), f"{d.get('section','?')}: ResultServer IP unknown"
+    assert str(d.get("resultserver_port","")).isdigit(), f"{d.get('section','?')}: ResultServer port invalid"
+    assert d.get("fake_ip"), f"{d.get('section','?')}: fake-Internet IP was not planned"
+PY
+    fail "One or more CAPE analysis VMs failed the multi-machine safety preflight"
     return 1
   }
   case "${MANAGEMENT_NWFILTER_AVAILABLE:-no}" in
@@ -144,13 +156,11 @@ deploy_reset_resource_state() {
 }
 
 deploy_initialize_or_resume_state() {
-  local d_root="$CAPE_ROOT" d_commit="$CAPE_COMMIT" d_db="$CAPE_DB_BACKEND" d_section="$CAPE_MACHINE_SECTION"
-  local d_label="$CAPE_MACHINE_LABEL" d_ip="$CAPE_MACHINE_IP" d_domain="$DOMAIN"
-  local d_mgmt_net="$MANAGEMENT_NETWORK_NAME" d_mgmt_bridge="$MANAGEMENT_BRIDGE_NAME" d_mgmt_mac="$WINDOWS_MANAGEMENT_MAC"
-  local d_rs_ip="$CAPE_RESULTSERVER_IP"
-  local d_rs_port="$CAPE_RESULTSERVER_PORT" d_control="$CONTROL_HOST_IP"
-  local d_snapshot="$CAPE_MACHINE_SNAPSHOT" d_subnet="$ISOLATED_SUBNET"
-  local d_bridge_ip="$BRIDGE_IP" d_inetsim_ip="$INETSIM_IP" d_fake="$WINDOWS_FAKE_IP"
+  local d_root="$CAPE_ROOT" d_commit="$CAPE_COMMIT" d_db="$CAPE_DB_BACKEND"
+  local d_targets_json="${CAPE_TARGETS_JSON:-[]}"
+  local d_targets_identity
+  d_targets_identity="$(targets_identity_sha256)"
+  local d_subnet="$ISOLATED_SUBNET" d_bridge_ip="$BRIDGE_IP" d_inetsim_ip="$INETSIM_IP"
   local d_storage_pool="${LIBVIRT_STORAGE_POOL:-}" d_storage_path="${LIBVIRT_STORAGE_PATH:-}"
 
   if [[ -f "$AD_STATE_FILE" ]]; then
@@ -161,29 +171,36 @@ deploy_initialize_or_resume_state() {
         return 1
       }
       [[ "$CAPE_ROOT" == "$d_root" ]] || { fail "Existing deployment state belongs to a different CAPE root"; return 1; }
-      [[ "$CAPE_MACHINE_SECTION" == "$d_section" ]] || { fail "Existing deployment state belongs to a different CAPE machine"; return 1; }
-      [[ "$DOMAIN" == "$d_domain" ]] || { fail "Existing deployment state belongs to a different libvirt domain"; return 1; }
       [[ "$CAPE_COMMIT" == "$d_commit" ]] || { fail "CAPE commit changed during/after deployment; use verify/repair compatibility flow"; return 1; }
       [[ "$CAPE_DB_BACKEND" == "$d_db" ]] || { fail "CAPE database backend changed during/after deployment; refusing resume"; return 1; }
+      [[ "${CAPE_TARGETS_IDENTITY_SHA256:-}" == "$d_targets_identity" ]] || {
+        fail "Enabled CAPE analysis-machine identity changed during/after deployment; refusing unsafe resume"
+        return 1
+      }
+      CAPE_TARGETS_COUNT="$(targets_count)"
+      ((CAPE_TARGETS_COUNT > 0)) || { fail "Deployment state contains no CAPE analysis targets"; return 1; }
+      targets_bind 0
       if deploy_phase_at_least cape-configured; then
         cape_assert_owned_files_unchanged || return 1
       fi
-      CAPE_MACHINE_SNAPSHOT="${ORIGINAL_CAPE_SNAPSHOT:-}"
-      pass "Resuming deployment state $DEPLOYMENT_ID at phase ${DEPLOYMENT_PHASE:-unknown}"
+      pass "Resuming deployment state $DEPLOYMENT_ID at phase ${DEPLOYMENT_PHASE:-unknown} for $CAPE_TARGETS_COUNT CAPE machine(s)"
       return 0
     fi
   fi
 
-  CAPE_ROOT="$d_root"; CAPE_COMMIT="$d_commit"; CAPE_DB_BACKEND="$d_db"; CAPE_MACHINE_SECTION="$d_section"
-  CAPE_MACHINE_LABEL="$d_label"; CAPE_MACHINE_IP="$d_ip"; DOMAIN="$d_domain"
-  MANAGEMENT_NETWORK_NAME="$d_mgmt_net"; MANAGEMENT_BRIDGE_NAME="$d_mgmt_bridge"; WINDOWS_MANAGEMENT_MAC="$d_mgmt_mac"
-  CAPE_RESULTSERVER_IP="$d_rs_ip"
-  CAPE_RESULTSERVER_PORT="$d_rs_port"; CONTROL_HOST_IP="$d_control"
-  CAPE_MACHINE_SNAPSHOT="$d_snapshot"; ORIGINAL_CAPE_SNAPSHOT="$d_snapshot"
-  ISOLATED_SUBNET="$d_subnet"; BRIDGE_IP="$d_bridge_ip"; INETSIM_IP="$d_inetsim_ip"; WINDOWS_FAKE_IP="$d_fake"
+  CAPE_ROOT="$d_root"
+  CAPE_COMMIT="$d_commit"
+  CAPE_DB_BACKEND="$d_db"
+  CAPE_TARGETS_JSON="$d_targets_json"
+  CAPE_TARGETS_COUNT="$(targets_count)"
+  CAPE_TARGETS_IDENTITY_SHA256="$d_targets_identity"
+  ISOLATED_SUBNET="$d_subnet"
+  BRIDGE_IP="$d_bridge_ip"
+  INETSIM_IP="$d_inetsim_ip"
   deploy_reset_resource_state
-  LIBVIRT_STORAGE_POOL="$d_storage_pool"; LIBVIRT_STORAGE_PATH="$d_storage_path"
-  ORIGINAL_CAPE_SNAPSHOT="$d_snapshot"
+  LIBVIRT_STORAGE_POOL="$d_storage_pool"
+  LIBVIRT_STORAGE_PATH="$d_storage_path"
+  targets_bind 0
 
   state_init_paths
   state_new_deployment_id
@@ -192,7 +209,7 @@ deploy_initialize_or_resume_state() {
   choose_isolated_bridge_name
   state_write_atomic
   services_capture_original_state
-  pass "Initialized deployment transaction $DEPLOYMENT_ID"
+  pass "Initialized deployment transaction $DEPLOYMENT_ID for $CAPE_TARGETS_COUNT CAPE analysis machine(s)"
 }
 
 deploy_stage_non_disruptive() {
@@ -277,87 +294,102 @@ deploy_verify_safety_snapshot() {
 
 deploy_finish_windows_snapshots() {
   local state
-  state="$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)"
-
-  if [[ "${WINDOWS_BACKEND_USED:-}" == manual-powershell ]]; then
-    if [[ -z "${FINAL_SNAPSHOT:-}" ]] || ! windows_snapshot_exists "$FINAL_SNAPSHOT"; then
-      [[ "$state" == running ]] || {
-        fail "Manual Windows fallback was completed but the guest is no longer running before its CAPE snapshot was captured"
-        return 1
-      }
-      validate_windows_result_file
-      windows_create_running_snapshot
-      state_set_phase windows-running-snapshot
-    fi
-
+  if [[ -z "${WORKING_SNAPSHOT:-}" ]] || ! windows_snapshot_exists "$WORKING_SNAPSHOT"; then
     state="$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)"
     [[ "$state" == "shut off" ]] || windows_poweroff_selected_backend
     windows_create_working_snapshot
-    state_set_phase windows-working-snapshot
-  else
-    if [[ -z "${WORKING_SNAPSHOT:-}" ]] || ! windows_snapshot_exists "$WORKING_SNAPSHOT"; then
-      state="$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)"
-      [[ "$state" == "shut off" ]] || windows_poweroff_selected_backend
-      windows_create_working_snapshot
-      state_set_phase windows-working-snapshot
-    fi
-
-    if [[ -z "${FINAL_SNAPSHOT:-}" ]] || ! windows_snapshot_exists "$FINAL_SNAPSHOT"; then
-      windows_start_for_cutover
-      windows_select_live_backend
-      windows_verify_selected_backend
-      windows_create_running_snapshot
-      state_set_phase windows-running-snapshot
-    fi
-
-    state="$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)"
-    [[ "$state" == "shut off" ]] || windows_poweroff_selected_backend
   fi
 
+  if [[ -z "${FINAL_SNAPSHOT:-}" ]] || ! windows_snapshot_exists "$FINAL_SNAPSHOT"; then
+    windows_start_for_cutover
+    windows_select_live_backend
+    windows_verify_selected_backend
+    windows_create_running_snapshot
+  fi
+
+  state="$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)"
+  [[ "$state" == "shut off" ]] || windows_poweroff_selected_backend
+
   [[ "$(snapshot_state_memory "$WORKING_SNAPSHOT")" == "shutoff|no" ]] || {
-    fail "Configured rollback snapshot is not a shutoff/no-memory snapshot"
+    fail "Configured rollback snapshot is not a shutoff/no-memory snapshot for $CAPE_MACHINE_SECTION"
     return 1
   }
   [[ "$(snapshot_state_memory "$FINAL_SNAPSHOT")" == "running|internal" ]] || {
-    fail "CAPE analysis snapshot is not running-state with internal memory"
+    fail "CAPE analysis snapshot is not running-state with internal memory for $CAPE_MACHINE_SECTION"
     return 1
   }
-  state_set_phase windows-snapshots-ready
+  target_state_set_phase snapshots-ready
 }
 
-deploy_windows_cutover() {
-  deploy_ensure_maintenance
+deploy_windows_target_cutover() {
+  case "${TARGET_PHASE:-discovered}" in
+    discovered)
+      info "Preparing CAPE analysis VM $CAPE_MACHINE_SECTION ($DOMAIN)"
+      windows_stop_for_cutover
+      windows_create_safety_snapshot
+      windows_management_guard_apply
+      windows_attach_isolated_nic
+      target_state_set_phase nic-attached
+      # Re-render the shared host guard with every target whose management
+      # anti-spoof protection is now active. This preserves previously protected
+      # machines while adding the current one.
+      firewall_enable_windows_management_guard
+      ;;
+    nic-attached|configured|snapshots-ready|cape-configured)
+      deploy_verify_safety_snapshot
+      windows_management_guard_verify
+      deploy_verify_windows_nic
+      firewall_apply
+      ;;
+    *)
+      fail "Unknown per-target deployment phase for $CAPE_MACHINE_SECTION: ${TARGET_PHASE:-missing}"
+      return 1
+      ;;
+  esac
 
-  if ! deploy_phase_at_least windows-nic-attached; then
-    windows_stop_for_cutover
-    windows_create_safety_snapshot
-    windows_management_guard_apply
-    firewall_enable_windows_management_guard
-    windows_attach_isolated_nic
-    state_set_phase windows-nic-attached
-  else
-    deploy_verify_safety_snapshot
-    windows_management_guard_verify
-    firewall_management_guard_matches
-    deploy_verify_windows_nic
-  fi
-
-  if ! deploy_phase_at_least windows-configured; then
+  if [[ "${TARGET_PHASE:-}" == nic-attached ]]; then
     windows_start_for_cutover
     windows_select_live_backend
     windows_configure_selected_backend
     windows_verify_selected_backend
-    state_set_phase windows-configured
-  else
+    target_state_set_phase configured
+  elif [[ "${TARGET_PHASE:-}" == configured || "${TARGET_PHASE:-}" == snapshots-ready || "${TARGET_PHASE:-}" == cape-configured ]]; then
     validate_windows_result_file
   fi
 
-  if ! deploy_phase_at_least windows-snapshots-ready; then
+  if [[ "${TARGET_PHASE:-}" == configured ]]; then
     deploy_finish_windows_snapshots
-  else
+  elif [[ "${TARGET_PHASE:-}" == snapshots-ready || "${TARGET_PHASE:-}" == cape-configured ]]; then
     [[ "$(snapshot_state_memory "$WORKING_SNAPSHOT")" == "shutoff|no" ]]
     [[ "$(snapshot_state_memory "$FINAL_SNAPSHOT")" == "running|internal" ]]
   fi
+
+  pass "CAPE analysis VM prepared: $CAPE_MACHINE_SECTION -> $DOMAIN"
+}
+
+deploy_windows_cutover() {
+  deploy_ensure_maintenance
+  local i
+  CAPE_TARGETS_COUNT="$(targets_count)"
+  for ((i=0;i<CAPE_TARGETS_COUNT;i++)); do
+    targets_bind "$i"
+    deploy_windows_target_cutover
+    targets_capture_bound "$i"
+    state_write_atomic
+  done
+  targets_bind 0
+  state_set_phase windows-all-ready
+}
+
+deploy_validate_all_cape_configuration() {
+  local saved="${TARGET_INDEX:-}" i failures=0
+  CAPE_TARGETS_COUNT="$(targets_count)"
+  for ((i=0;i<CAPE_TARGETS_COUNT;i++)); do
+    targets_bind "$i"
+    validate_cape_configuration || failures=$((failures+1))
+  done
+  [[ "$saved" =~ ^[0-9]+$ ]] && targets_bind "$saved"
+  ((failures == 0))
 }
 
 deploy_cape_cutover() {
@@ -365,7 +397,7 @@ deploy_cape_cutover() {
     deploy_ensure_maintenance
     cape_configure_inetsim
   else
-    validate_cape_configuration
+    deploy_validate_all_cape_configuration
   fi
 
   if ! deploy_phase_at_least extension-installed; then
@@ -376,7 +408,6 @@ deploy_cape_cutover() {
   validate_deployment_structural
 
   if ! deploy_phase_at_least handoff-complete; then
-    # If the guard still exists, no new CAPE task can race this handoff.
     if [[ -f "$CAPE_MAINTENANCE_GUARD_FILE" ]]; then
       cape_verify_maintenance_guard
       services_stop_scheduler_for_handoff
@@ -392,7 +423,6 @@ deploy_cape_cutover() {
 
   validate_deployment_services
 }
-
 deploy_rollback_after_error() {
   local rc="$1"
   trap - ERR INT TERM
@@ -434,8 +464,15 @@ deploy_run() {
     deploy_validate_staged_resources
   fi
 
-  if ! deploy_phase_at_least windows-snapshots-ready; then
+  if ! deploy_phase_at_least windows-all-ready; then
     deploy_windows_cutover
+  else
+    local i
+    for ((i=0;i<CAPE_TARGETS_COUNT;i++)); do
+      targets_bind "$i"
+      deploy_windows_target_cutover
+    done
+    targets_bind 0
   fi
 
   if ! deploy_phase_at_least handoff-complete; then
@@ -449,10 +486,10 @@ deploy_run() {
   trap - ERR INT TERM
   echo
   pass "CAPE-INetSim-AutoDeploy deployment committed"
-  kv "CAPE machine:" "$CAPE_MACHINE_SECTION"
+  kv "managed CAPE machines:" "${CAPE_TARGETS_COUNT:-0}"
   kv "INetSim server:" "$INETSIM_IP"
-  kv "Windows fake IP:" "$WINDOWS_FAKE_IP"
   kv "isolated network:" "$ISOLATED_NETWORK_NAME"
   kv "capture bridge:" "$ISOLATED_BRIDGE_NAME"
-  kv "running snapshot:" "$FINAL_SNAPSHOT"
+  echo "Managed analysis VMs:"
+  targets_summary_lines | sed 's/^/  /'
 }

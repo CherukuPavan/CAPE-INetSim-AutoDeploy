@@ -6,6 +6,7 @@ AUTODEPLOY_ROOT="$ROOT"
 export AUTODEPLOY_ROOT
 
 source "$ROOT/lib/common.sh"
+source "$ROOT/lib/targets.sh"
 source "$ROOT/lib/state.sh"
 source "$ROOT/lib/transaction.sh"
 source "$ROOT/lib/cape.sh"
@@ -27,6 +28,9 @@ source "$ROOT/lib/validate.sh"
 require_root
 transaction_lock_acquire
 state_load || { fail "No deployment state exists"; exit 1; }
+CAPE_TARGETS_COUNT="$(targets_count)"
+((CAPE_TARGETS_COUNT > 0)) || { fail "Deployment state contains no managed CAPE analysis machines"; exit 1; }
+targets_bind 0
 if git -C "$CAPE_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   CURRENT_CAPE_COMMIT="$(git -C "$CAPE_ROOT" rev-parse HEAD 2>/dev/null || true)"
   [[ -z "${CAPE_COMMIT:-}" || "$CAPE_COMMIT" == unknown || "$CURRENT_CAPE_COMMIT" == "$CAPE_COMMIT" ]] || {
@@ -74,10 +78,14 @@ repair_restore_runtime() {
 trap 'rc=$?; repair_restore_runtime "$rc"; exit "$rc"' ERR
 trap 'repair_restore_runtime 130; exit 130' INT TERM
 
-[[ -n "${FINAL_SNAPSHOT:-}" ]] && virsh snapshot-info "$DOMAIN" "$FINAL_SNAPSHOT" >/dev/null 2>&1 || {
-  fail "CAPE-ready Windows snapshot is missing; repair will not invent or recreate the security baseline."
-  exit 20
-}
+for ((i=0;i<CAPE_TARGETS_COUNT;i++)); do
+  targets_bind "$i"
+  [[ -n "${FINAL_SNAPSHOT:-}" ]] && virsh snapshot-info "$DOMAIN" "$FINAL_SNAPSHOT" >/dev/null 2>&1 || {
+    fail "CAPE-ready Windows snapshot is missing for $CAPE_MACHINE_SECTION/$DOMAIN; repair will not invent or recreate the security baseline."
+    exit 20
+  }
+done
+targets_bind 0
 
 DISCOVERY_ERRORS=()
 COMPAT_NOTES=()
@@ -98,8 +106,8 @@ if ! virsh net-info "$ISOLATED_NETWORK_NAME" >/dev/null 2>&1; then
   isolated_network_apply
 fi
 
-windows_management_guard_verify || {
-  fail "Windows management anti-spoof guard is missing or changed; repair will not mutate the analysis VM security baseline."
+firewall_validate_management_antispof_all || {
+  fail "A Windows management anti-spoof guard is missing or changed; repair will not mutate the analysis VM security baseline."
   exit 24
 }
 firewall_apply

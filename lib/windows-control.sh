@@ -40,9 +40,9 @@ windows_select_live_backend() {
     pass "Windows control backend: constrained CAPE Agent execpy"
     return 0
   fi
-  WINDOWS_BACKEND_USED=manual-powershell
-  warn "No supported zero-touch Windows management channel is available; one Administrator PowerShell command will be requested."
-  return 0
+  WINDOWS_BACKEND_USED=""
+  fail "No supported zero-touch Windows control channel is available for $CAPE_MACHINE_SECTION/$DOMAIN (QGA, approved WinRM, or CAPE Agent execpy/admin required)"
+  return 40
 }
 
 windows_configure_selected_backend() {
@@ -112,9 +112,9 @@ windows_configure_via_manual_callback() {
   local token ready result server_log port base_url command server_pid rc
   [[ -n "$bind_ip" ]] || { fail "Cannot create Windows fallback callback without a CAPE-host control IP"; return 40; }
   token="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
-  ready="$AD_LOG_ROOT/${DEPLOYMENT_ID}-windows-callback.ready"
-  result="$AD_LOG_ROOT/${DEPLOYMENT_ID}-windows-verify.json"
-  server_log="$AD_LOG_ROOT/${DEPLOYMENT_ID}-windows-callback.log"
+  ready="$AD_LOG_ROOT/${DEPLOYMENT_ID}-$(ad_safe_token "$DOMAIN")-windows-callback.ready"
+  result="$AD_LOG_ROOT/${DEPLOYMENT_ID}-$(ad_safe_token "$DOMAIN")-windows-verify.json"
+  server_log="$AD_LOG_ROOT/${DEPLOYMENT_ID}-$(ad_safe_token "$DOMAIN")-windows-callback.log"
   rm -f "$ready" "$result"
 
   python3 "$AUTODEPLOY_ROOT/tools/windows_callback.py"     --bind "$bind_ip" --client "$CAPE_MACHINE_IP" --port 0 --token "$token"     --script "$AUTODEPLOY_ROOT/windows/configure-inetsim.ps1"     --result "$result" --ready "$ready" --timeout "${WINDOWS_FALLBACK_TIMEOUT:-900}"     >"$server_log" 2>&1 &
@@ -132,8 +132,8 @@ windows_configure_via_manual_callback() {
   [[ "$port" =~ ^[0-9]+$ ]] || { kill "$server_pid" 2>/dev/null || true; return 40; }
   base_url="http://$bind_ip:$port"
   command="$(windows_manual_callback_command "$base_url" "$token")"
-  printf '%s\n' "$command" >"$AD_LOG_ROOT/${DEPLOYMENT_ID}-windows-fallback-command.txt"
-  chmod 0600 "$AD_LOG_ROOT/${DEPLOYMENT_ID}-windows-fallback-command.txt"
+  printf '%s\n' "$command" >"$AD_LOG_ROOT/${DEPLOYMENT_ID}-$(ad_safe_token "$DOMAIN")-windows-fallback-command.txt"
+  chmod 0600 "$AD_LOG_ROOT/${DEPLOYMENT_ID}-$(ad_safe_token "$DOMAIN")-windows-fallback-command.txt"
 
   echo
   echo "================================================================"

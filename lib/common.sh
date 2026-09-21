@@ -27,3 +27,7 @@ require_root_for_plan() {
 
 add_error(){ DISCOVERY_ERRORS+=("$*"); }
 add_note(){ COMPAT_NOTES+=("$*"); }
+
+ad_safe_token() {
+  printf '%s' "$1" | tr -cs 'A-Za-z0-9._-' '_'
+}

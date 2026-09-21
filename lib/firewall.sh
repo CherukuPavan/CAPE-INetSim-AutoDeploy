@@ -6,9 +6,25 @@ FIREWALL_DIR="/etc/cape-inetsim-autodeploy"
 FIREWALL_RULES="$FIREWALL_DIR/firewall.nft"
 FIREWALL_UNIT="/etc/systemd/system/cape-inetsim-autodeploy-firewall.service"
 
+firewall_management_records() {
+  python3 - "${CAPE_TARGETS_JSON:-[]}" <<'PY'
+import json,sys
+order={"discovered":0,"nic-attached":10,"configured":20,"snapshots-ready":30,"cape-configured":40}
+try: a=json.loads(sys.argv[1])
+except Exception: a=[]
+for d in a:
+    if order.get(d.get("phase","discovered"),0) < order["nic-attached"]:
+        continue
+    vals=[str(d.get(k,"")) for k in ("management_bridge","management_mac","ip","domain")]
+    if all(vals):
+        print("|".join(vals))
+PY
+}
+
 firewall_render_rules() {
-  local isolated_bridge="$1"
-  local management_bridge="${2:-}" management_mac="${3:-}" management_ip="${4:-}"
+  local isolated_bridge="$1" include_management="${2:-no}"
+  local records=""
+  [[ "$include_management" == yes ]] && records="$(firewall_management_records)"
 
   cat <<EOF
 # CAPE-INetSim-AutoDeploy managed rules. Do not edit while deployment is active.
@@ -24,35 +40,38 @@ table inet $FIREWALL_TABLE {
     iifname "$isolated_bridge" drop
     oifname "$isolated_bridge" drop
 EOF
-  if [[ -n "$management_bridge" && -n "$management_mac" && -n "$management_ip" ]]; then
-    cat <<EOF
-    # The Windows management NIC may live on a NAT-capable libvirt network.
-    # ResultServer traffic is host-local and does not traverse this forward
-    # hook. Any routed traffic from the protected source identity is dropped.
-    iifname "$management_bridge" ether saddr $management_mac drop
-    iifname "$management_bridge" ip saddr $management_ip drop
-EOF
+  if [[ -n "$records" ]]; then
+    echo "    # Block routed/lateral egress from every protected CAPE analysis management NIC."
+    local bridge mac ip domain
+    while IFS='|' read -r bridge mac ip domain; do
+      [[ -n "$bridge" && -n "$mac" && -n "$ip" ]] || continue
+      printf '    iifname "%s" ether saddr %s drop\n' "$bridge" "$mac"
+      printf '    iifname "%s" ip saddr %s drop\n' "$bridge" "$ip"
+    done <<<"$records"
   fi
   cat <<'EOF'
   }
 }
 EOF
 
-  if [[ -n "$management_bridge" && -n "$management_mac" && -n "$management_ip" ]]; then
+  if [[ -n "$records" ]]; then
     cat <<EOF
 
 table bridge $FIREWALL_BRIDGE_TABLE {
   chain forward_guard {
     type filter hook forward priority -50; policy accept;
-    # Prevent the protected analysis NIC from talking laterally to another
-    # bridge port. Host-local CAPE management traffic remains available.
-    ether saddr $management_mac drop
+EOF
+    local bridge mac ip domain
+    while IFS='|' read -r bridge mac ip domain; do
+      [[ -n "$mac" ]] || continue
+      printf '    ether saddr %s drop\n' "$mac"
+    done <<<"$records"
+    cat <<'EOF'
   }
 }
 EOF
   fi
 }
-
 firewall_render_unit() {
   cat <<EOF
 # CAPE-INetSim-AutoDeploy managed unit.
@@ -98,24 +117,50 @@ firewall_file_matches_base() {
     grep -Fq "oifname \"$ISOLATED_BRIDGE_NAME\"" "$FIREWALL_RULES"
 }
 
-firewall_management_guard_matches() {
-  [[ -n "${MANAGEMENT_BRIDGE_NAME:-}" && -n "${WINDOWS_MANAGEMENT_MAC:-}" && -n "${CAPE_MACHINE_IP:-}" ]] || return 1
-  local inet_text bridge_text
+firewall_validate_management_antispof_all() {
+  local saved="${TARGET_INDEX:-}" i phase
+  CAPE_TARGETS_COUNT="$(targets_count)"
+  for ((i=0;i<CAPE_TARGETS_COUNT;i++)); do
+    phase="$(targets_get "$i" phase)"
+    case "$phase" in
+      nic-attached|configured|snapshots-ready|cape-configured)
+        targets_bind "$i"
+        windows_management_guard_verify || {
+          [[ "$saved" =~ ^[0-9]+$ ]] && targets_bind "$saved"
+          return 1
+        }
+        ;;
+    esac
+  done
+  if [[ "$saved" =~ ^[0-9]+$ ]]; then targets_bind "$saved"; fi
+  return 0
+}
+
+firewall_management_guards_match_all() {
+  local records inet_text bridge_text bridge mac ip domain
+  records="$(firewall_management_records)"
+  [[ -n "$records" ]] || return 1
   inet_text="$(nft list table inet "$FIREWALL_TABLE" 2>/dev/null)" || return 1
   bridge_text="$(nft list table bridge "$FIREWALL_BRIDGE_TABLE" 2>/dev/null)" || return 1
-  grep -Fq "iifname \"$MANAGEMENT_BRIDGE_NAME\" ether saddr $WINDOWS_MANAGEMENT_MAC drop" <<<"$inet_text" || return 1
-  grep -Fq "iifname \"$MANAGEMENT_BRIDGE_NAME\" ip saddr $CAPE_MACHINE_IP drop" <<<"$inet_text" || return 1
-  grep -Fq "ether saddr $WINDOWS_MANAGEMENT_MAC drop" <<<"$bridge_text" || return 1
+  while IFS='|' read -r bridge mac ip domain; do
+    grep -Fq "iifname \"$bridge\" ether saddr $mac drop" <<<"$inet_text" || return 1
+    grep -Fq "iifname \"$bridge\" ip saddr $ip drop" <<<"$inet_text" || return 1
+    grep -Fq "ether saddr $mac drop" <<<"$bridge_text" || return 1
+  done <<<"$records"
 }
 
-firewall_file_has_management_guard() {
+firewall_file_has_management_guards_all() {
   [[ -f "$FIREWALL_RULES" ]] || return 1
-  grep -Fq "iifname \"$MANAGEMENT_BRIDGE_NAME\" ether saddr $WINDOWS_MANAGEMENT_MAC drop" "$FIREWALL_RULES" &&
-    grep -Fq "iifname \"$MANAGEMENT_BRIDGE_NAME\" ip saddr $CAPE_MACHINE_IP drop" "$FIREWALL_RULES" &&
-    grep -Fq "table bridge $FIREWALL_BRIDGE_TABLE" "$FIREWALL_RULES" &&
-    grep -Fq "ether saddr $WINDOWS_MANAGEMENT_MAC drop" "$FIREWALL_RULES"
+  local records bridge mac ip domain
+  records="$(firewall_management_records)"
+  [[ -n "$records" ]] || return 1
+  grep -Fq "table bridge $FIREWALL_BRIDGE_TABLE" "$FIREWALL_RULES" || return 1
+  while IFS='|' read -r bridge mac ip domain; do
+    grep -Fq "iifname \"$bridge\" ether saddr $mac drop" "$FIREWALL_RULES" || return 1
+    grep -Fq "iifname \"$bridge\" ip saddr $ip drop" "$FIREWALL_RULES" || return 1
+    grep -Fq "ether saddr $mac drop" "$FIREWALL_RULES" || return 1
+  done <<<"$records"
 }
-
 firewall_unit_matches_project() {
   [[ -f "$FIREWALL_UNIT" ]] &&
     grep -Fq 'CAPE-INetSim-AutoDeploy managed unit' "$FIREWALL_UNIT" &&
@@ -127,21 +172,13 @@ firewall_apply() {
   have nft || { fail "nftables command 'nft' is required for fake-Internet egress guard"; return 1; }
   [[ -n "${ISOLATED_BRIDGE_NAME:-}" ]] || { fail "Isolated bridge is unknown"; return 1; }
 
-  local want_management=no management_id=""
-  if [[ -n "${DOMAIN:-}" && -n "${WINDOWS_MANAGEMENT_MAC:-}" ]]; then
-    management_id="$DOMAIN:$WINDOWS_MANAGEMENT_MAC"
-    if state_resource_owned firewall-management-guard "$management_id" ||
-       state_resource_intended firewall-management-guard "$management_id"; then
-      want_management=yes
-      [[ -n "${MANAGEMENT_BRIDGE_NAME:-}" && -n "${CAPE_MACHINE_IP:-}" ]] || {
-        fail "Deployment state requires the Windows management egress guard but its bridge/IP identity is incomplete"
-        return 1
-      }
-      windows_management_guard_verify || {
-        fail "Deployment state requires the Windows management egress guard but hypervisor anti-spoofing is not active"
-        return 1
-      }
-    fi
+  local want_management=no
+  if [[ -n "$(firewall_management_records)" ]]; then
+    want_management=yes
+    firewall_validate_management_antispof_all || {
+      fail "One or more CAPE analysis management NIC anti-spoof guards are not active"
+      return 1
+    }
   fi
 
   if [[ -e "$FIREWALL_RULES" ]] &&
@@ -171,7 +208,7 @@ firewall_apply() {
      firewall_file_matches_base && firewall_unit_matches_project &&
      firewall_table_matches_base &&
      systemctl is-active --quiet cape-inetsim-autodeploy-firewall.service; then
-    if [[ "$want_management" == no ]] || { firewall_file_has_management_guard && firewall_management_guard_matches; }; then
+    if [[ "$want_management" == no ]] || { firewall_file_has_management_guards_all && firewall_management_guards_match_all; }; then
       pass "Host network safety firewall guard already active"
       return 0
     fi
@@ -180,11 +217,7 @@ firewall_apply() {
   install -d -m 0755 "$FIREWALL_DIR"
   local tmp_rules="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-firewall.nft"
   local tmp_unit="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-firewall.service"
-  if [[ "$want_management" == yes ]]; then
-    firewall_render_rules "$ISOLATED_BRIDGE_NAME" "$MANAGEMENT_BRIDGE_NAME" "$WINDOWS_MANAGEMENT_MAC" "$CAPE_MACHINE_IP" >"$tmp_rules"
-  else
-    firewall_render_rules "$ISOLATED_BRIDGE_NAME" >"$tmp_rules"
-  fi
+  firewall_render_rules "$ISOLATED_BRIDGE_NAME" "$want_management" >"$tmp_rules"
   firewall_render_unit >"$tmp_unit"
   chmod 0600 "$tmp_rules" "$tmp_unit"
 
@@ -204,11 +237,14 @@ firewall_apply() {
   firewall_table_matches_base || { fail "Active nftables egress guard does not match isolated bridge"; return 1; }
   systemctl is-active --quiet cape-inetsim-autodeploy-firewall.service
   if [[ "$want_management" == yes ]]; then
-    firewall_file_has_management_guard && firewall_management_guard_matches || {
-      fail "Restored firewall is missing the Windows management egress guard"
+    firewall_file_has_management_guards_all && firewall_management_guards_match_all || {
+      fail "Restored firewall is missing one or more Windows management egress guards"
       return 1
     }
-    state_record_resource firewall-management-guard "$management_id" active yes "bridge=$MANAGEMENT_BRIDGE_NAME ip=$CAPE_MACHINE_IP"
+    local bridge mac ip domain
+    while IFS='|' read -r bridge mac ip domain; do
+      state_record_resource firewall-management-guard "$domain:$mac" active yes "bridge=$bridge ip=$ip"
+    done < <(firewall_management_records)
   fi
 
   state_record_resource firewall-file "$FIREWALL_RULES" created yes "bridge=$ISOLATED_BRIDGE_NAME"
@@ -228,38 +264,25 @@ firewall_enable_windows_management_guard() {
     return 1
   }
 
-  if firewall_file_has_management_guard && firewall_management_guard_matches; then
-    state_record_resource firewall-management-guard "$DOMAIN:$WINDOWS_MANAGEMENT_MAC" active yes "bridge=$MANAGEMENT_BRIDGE_NAME ip=$CAPE_MACHINE_IP"
-    pass "Windows management forwarding guard already active"
-    return 0
-  fi
-
-  local tmp="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-firewall-full.nft"
-  firewall_render_rules "$ISOLATED_BRIDGE_NAME" "$MANAGEMENT_BRIDGE_NAME" "$WINDOWS_MANAGEMENT_MAC" "$CAPE_MACHINE_IP" >"$tmp"
-  chmod 0600 "$tmp"
-  nft -c -f "$tmp"
-
   state_record_intent firewall-management-guard "$DOMAIN:$WINDOWS_MANAGEMENT_MAC" applying "bridge=$MANAGEMENT_BRIDGE_NAME ip=$CAPE_MACHINE_IP"
-  install -m 0644 "$tmp" "$FIREWALL_RULES"
-  systemctl restart cape-inetsim-autodeploy-firewall.service
-  firewall_file_has_management_guard && firewall_management_guard_matches || {
-    fail "Windows management forwarding guard did not become active"
+  firewall_apply
+  firewall_file_has_management_guards_all && firewall_management_guards_match_all || {
+    fail "Windows management forwarding guard did not become active for the complete protected target set"
     return 1
   }
-  state_record_resource firewall-management-guard "$DOMAIN:$WINDOWS_MANAGEMENT_MAC" active yes "bridge=$MANAGEMENT_BRIDGE_NAME ip=$CAPE_MACHINE_IP"
   state_write_atomic
-  pass "Blocked routed/lateral egress from Windows management NIC while preserving host-local CAPE traffic"
+  pass "Blocked routed/lateral egress from protected CAPE analysis management NICs"
 }
 
 firewall_verify() {
   firewall_file_matches_base || return 1
   firewall_unit_matches_project || return 1
   firewall_table_matches_base || return 1
-  firewall_file_has_management_guard || return 1
-  firewall_management_guard_matches || return 1
+  firewall_validate_management_antispof_all || return 1
+  firewall_file_has_management_guards_all || return 1
+  firewall_management_guards_match_all || return 1
   systemctl is-active --quiet cape-inetsim-autodeploy-firewall.service
 }
-
 firewall_rollback() {
   local can_remove=no
 
@@ -292,7 +315,10 @@ firewall_rollback() {
   rmdir "$FIREWALL_DIR" >/dev/null 2>&1 || true
   systemctl daemon-reload
 
-  state_record_resource firewall-management-guard "$DOMAIN:${WINDOWS_MANAGEMENT_MAC:-unknown}" removed-by-rollback yes ""
+  local bridge mac ip domain
+  while IFS='|' read -r bridge mac ip domain; do
+    state_record_resource firewall-management-guard "$domain:$mac" removed-by-rollback yes ""
+  done < <(firewall_management_records)
   state_record_resource firewall-table "$FIREWALL_TABLE" removed-by-rollback yes ""
   state_record_resource firewall-unit "$FIREWALL_UNIT" removed-by-rollback yes ""
   state_record_resource firewall-file "$FIREWALL_RULES" removed-by-rollback yes ""

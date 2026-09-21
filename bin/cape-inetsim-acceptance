@@ -7,6 +7,7 @@ AUTODEPLOY_ROOT="$ROOT"
 export AUTODEPLOY_ROOT
 
 source "$ROOT/lib/common.sh"
+source "$ROOT/lib/targets.sh"
 source "$ROOT/lib/state.sh"
 
 POSITIVE_TASK=""

@@ -90,8 +90,8 @@ cape_agent_run_powershell() {
   local remote_runner="C:\\Windows\\Temp\\${stem}.py"
   local remote_cfg="C:\\Windows\\Temp\\${stem}.json"
   local remote_result="C:\\Windows\\Temp\\${stem}-result.json"
-  local cfg="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-${stem}.json"
-  local log="$AD_LOG_ROOT/${DEPLOYMENT_ID}-${stem}-cape-agent-execpy.json"
+  local cfg="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-$(ad_safe_token "$DOMAIN")-${stem}.json"
+  local log="$AD_LOG_ROOT/${DEPLOYMENT_ID}-$(ad_safe_token "$DOMAIN")-${stem}-cape-agent-execpy.json"
 
   cape_agent_write_runner_config "$cfg" "$remote_ps" "$@" -ResultPath "$remote_result"
 
@@ -121,7 +121,7 @@ cape_agent_run_powershell() {
 
 windows_configure_via_cape_agent() {
   local guest_ip="$1" isolated_mac="$2" fake_ip="$3" prefix="$4" dns_ip="$5" result_ip="$6" result_port="$7" control_host_ip="$8"
-  local local_result="$AD_LOG_ROOT/${DEPLOYMENT_ID}-windows-result.json"
+  local local_result="$AD_LOG_ROOT/${DEPLOYMENT_ID}-$(ad_safe_token "$DOMAIN")-windows-result.json"
   cape_agent_wait "$guest_ip" 60 || { fail "CAPE Agent execpy/admin channel did not become available on $guest_ip"; return 1; }
   cape_agent_run_powershell     "$guest_ip" "$AUTODEPLOY_ROOT/windows/configure-inetsim.ps1" "cape-inetsim-autodeploy" "$local_result"     -ManagementIP "$guest_ip"     -IsolatedMac "$isolated_mac"     -FakeIP "$fake_ip"     -PrefixLength "$prefix"     -DnsIP "$dns_ip"     -ResultServerIP "$result_ip"     -ResultServerPort "$result_port"     -ControlHostIP "$control_host_ip"
   validate_windows_result_path "$local_result"
@@ -132,7 +132,7 @@ windows_configure_via_cape_agent() {
 
 windows_verify_via_cape_agent() {
   local guest_ip="$1" isolated_mac="$2" fake_ip="$3" dns_ip="$4" result_ip="$5" result_port="$6"
-  local local_result="$AD_LOG_ROOT/${DEPLOYMENT_ID}-windows-verify.json"
+  local local_result="$AD_LOG_ROOT/${DEPLOYMENT_ID}-$(ad_safe_token "$DOMAIN")-windows-verify.json"
   cape_agent_wait "$guest_ip" 30 || { fail "CAPE Agent unavailable for Windows safety verification"; return 1; }
   cape_agent_run_powershell     "$guest_ip" "$AUTODEPLOY_ROOT/windows/verify-inetsim.ps1" "cape-inetsim-autodeploy-verify" "$local_result"     -ManagementIP "$guest_ip"     -IsolatedMac "$isolated_mac"     -FakeIP "$fake_ip"     -DnsIP "$dns_ip"     -ResultServerIP "$result_ip"     -ResultServerPort "$result_port"
   validate_windows_result_path "$local_result"

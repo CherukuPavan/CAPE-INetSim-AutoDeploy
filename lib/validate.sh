@@ -61,16 +61,21 @@ validate_recovery_assets() {
     fi
   fi
 
-  [[ -n "${SAFETY_SNAPSHOT:-}" ]] &&
-    state_resource_owned snapshot "$DOMAIN:$SAFETY_SNAPSHOT" &&
-    virsh snapshot-info "$DOMAIN" "$SAFETY_SNAPSHOT" >/dev/null 2>&1 || {
-      fail "Deployment-owned pre-change Windows safety snapshot is missing"
+  local saved="${TARGET_INDEX:-}" i
+  CAPE_TARGETS_COUNT="$(targets_count)"
+  for ((i=0;i<CAPE_TARGETS_COUNT;i++)); do
+    targets_bind "$i"
+    if [[ -z "${SAFETY_SNAPSHOT:-}" ]] ||
+       ! state_resource_owned snapshot "$DOMAIN:$SAFETY_SNAPSHOT" ||
+       ! virsh snapshot-info "$DOMAIN" "$SAFETY_SNAPSHOT" >/dev/null 2>&1; then
+      fail "Deployment-owned pre-change Windows safety snapshot is missing for $CAPE_MACHINE_SECTION/$DOMAIN"
       failures=$((failures+1))
-    }
+    fi
+  done
+  [[ "$saved" =~ ^[0-9]+$ ]] && targets_bind "$saved"
 
   ((failures == 0))
 }
-
 validate_windows_result_path() {
   local f="$1"
   [[ -f "$f" ]] || { fail "Windows verification record missing: $f"; return 1; }
@@ -102,7 +107,8 @@ PY
 }
 
 validate_windows_result_file() {
-  validate_windows_result_path "$AD_LOG_ROOT/${DEPLOYMENT_ID}-windows-verify.json"
+  [[ -n "${DOMAIN:-}" ]] || { fail "Windows domain is not bound for verification"; return 1; }
+  validate_windows_result_path "$AD_LOG_ROOT/${DEPLOYMENT_ID}-$(ad_safe_token "$DOMAIN")-windows-verify.json"
 }
 
 validate_final_snapshot_hardware() {
@@ -166,27 +172,67 @@ PY
 validate_resultserver_host() {
   [[ "${CAPE_SERVICE_WAS_ACTIVE:-yes}" == yes ]] || return 0
   timeout 3 bash -c "</dev/tcp/$CAPE_RESULTSERVER_IP/$CAPE_RESULTSERVER_PORT" >/dev/null 2>&1 || {
-    fail "CAPE ResultServer is not reachable at $CAPE_RESULTSERVER_IP:$CAPE_RESULTSERVER_PORT"
+    fail "CAPE ResultServer is not reachable for $CAPE_MACHINE_SECTION at $CAPE_RESULTSERVER_IP:$CAPE_RESULTSERVER_PORT"
     return 1
   }
+}
+
+validate_all_targets_structural() {
+  local saved="${TARGET_INDEX:-}" i failures=0
+  CAPE_TARGETS_COUNT="$(targets_count)"
+  ((CAPE_TARGETS_COUNT > 0)) || { fail "No managed CAPE analysis targets exist in deployment state"; return 1; }
+
+  for ((i=0;i<CAPE_TARGETS_COUNT;i++)); do
+    targets_bind "$i"
+    [[ "${TARGET_PHASE:-}" == cape-configured || "${TARGET_PHASE:-}" == snapshots-ready ]] || {
+      fail "Target $CAPE_MACHINE_SECTION is not in a structurally complete phase: ${TARGET_PHASE:-unknown}"
+      failures=$((failures+1))
+      continue
+    }
+    windows_management_guard_verify || {
+      fail "Windows management anti-spoof guard validation failed for $CAPE_MACHINE_SECTION"
+      failures=$((failures+1))
+    }
+    validate_windows_result_file || failures=$((failures+1))
+    validate_final_snapshot_hardware || {
+      fail "Final snapshot hardware validation failed for $CAPE_MACHINE_SECTION"
+      failures=$((failures+1))
+    }
+    validate_cape_configuration || {
+      fail "CAPE configuration validation failed for $CAPE_MACHINE_SECTION"
+      failures=$((failures+1))
+    }
+  done
+  [[ "$saved" =~ ^[0-9]+$ ]] && targets_bind "$saved"
+  ((failures == 0))
+}
+
+validate_all_resultservers() {
+  [[ "${CAPE_SERVICE_WAS_ACTIVE:-yes}" == yes ]] || return 0
+  local saved="${TARGET_INDEX:-}" i failures=0
+  CAPE_TARGETS_COUNT="$(targets_count)"
+  for ((i=0;i<CAPE_TARGETS_COUNT;i++)); do
+    targets_bind "$i"
+    validate_resultserver_host || failures=$((failures+1))
+  done
+  [[ "$saved" =~ ^[0-9]+$ ]] && targets_bind "$saved"
+  ((failures == 0))
 }
 
 validate_deployment_structural() {
   validate_release_provenance
   verify_isolated_network_definition "$ISOLATED_NETWORK_NAME" "$ISOLATED_BRIDGE_NAME" "$ISOLATED_SUBNET" "$BRIDGE_IP"
   firewall_verify
-  windows_management_guard_verify
   inetsim_verify_host
-  validate_windows_result_file
-  validate_final_snapshot_hardware
-  validate_cape_configuration
+  validate_all_targets_structural
   grep -Rqs 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$CAPE_ROOT/web"
   validate_recovery_assets
-  pass "Structural deployment, release-provenance and recovery gates passed"
+  pass "Structural deployment, release-provenance and recovery gates passed for all CAPE analysis machines"
 }
 
 validate_deployment_services() {
   services_validate_restored_state
-  validate_resultserver_host
-  pass "CAPE service and ResultServer health gates passed"
+  validate_all_resultservers
+  pass "CAPE service and ResultServer health gates passed for all managed analysis machines"
 }
+

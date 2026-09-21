@@ -8,17 +8,15 @@ run_discovery() {
   discover_cape_services
   discover_cape_machine_records
   discover_libvirt
-  auto_select_cape_machine
-  discover_resultserver
-  match_selected_domain
-  discover_domain_details
-  discover_windows_snapshot_capability
-  discover_management_network
-  discover_management_network_details
-  discover_cape_analysis_snapshot
-  discover_hypervisor_safety_features
-  discover_windows_backends
   plan_isolated_subnet
+
+  # Default mode discovers every enabled Windows-compatible CAPE analysis VM.
+  # Each one receives an independently verified management identity and a
+  # unique fake-Internet address on the shared isolated network.
+  targets_discover_all
+  targets_prepare_after_network_plan
+
+  discover_hypervisor_safety_features
   discover_busy_state
   check_cape_layout
   discover_resources
@@ -32,8 +30,9 @@ print_plan() {
   echo
   [[ -n "${CAPE_ROOT:-}" ]] && pass "CAPE installation discovered" || fail "CAPE installation not uniquely discovered"
   [[ -n "${LIBVIRT_URI:-}" ]] && pass "KVM/libvirt discovered" || fail "KVM/libvirt unavailable"
-  [[ -n "${CAPE_MACHINE_SECTION:-}" ]] && pass "CAPE analysis machine auto-selected" || fail "CAPE analysis machine not uniquely selected"
-  [[ -n "${DOMAIN:-}" ]] && pass "Matching libvirt domain discovered" || fail "Matching libvirt domain not discovered"
+  [[ "${CAPE_TARGETS_COUNT:-0}" =~ ^[0-9]+$ && "${CAPE_TARGETS_COUNT:-0}" -gt 0 ]] &&
+    pass "CAPE analysis target set discovered (${CAPE_TARGETS_COUNT} machine(s))" ||
+    fail "No deployable CAPE analysis target set discovered"
   [[ -n "${ISOLATED_SUBNET:-}" ]] && pass "Unused isolated-network candidate selected" || fail "No isolated-network candidate selected"
 
   echo; echo "Discovery"
@@ -43,40 +42,23 @@ print_plan() {
   kv "CAPE working tree dirty:" "${CAPE_DIRTY:-unknown}"
   kv "CAPE database backend:" "${CAPE_DB_BACKEND:-unknown}"
   kv "libvirt URI:" "${LIBVIRT_URI:-unknown}"
-  kv "CAPE machine section:" "${CAPE_MACHINE_SECTION:-ambiguous}"
-  kv "CAPE machine label:" "${CAPE_MACHINE_LABEL:-ambiguous}"
-  kv "management IP:" "${CAPE_MACHINE_IP:-unknown}"
-  kv "ResultServer IP:" "${CAPE_RESULTSERVER_IP:-unknown}"
-  kv "ResultServer port:" "${CAPE_RESULTSERVER_PORT:-unknown}"
-  kv "host control IP:" "${CONTROL_HOST_IP:-unknown}"
-  kv "configured CAPE snapshot:" "${CAPE_MACHINE_SNAPSHOT:-unknown}"
-  kv "CAPE snapshot proof:" "${CAPE_ANALYSIS_SNAPSHOT_STATUS:-unknown}"
-  kv "CAPE snapshot state/memory:" "${CAPE_ANALYSIS_SNAPSHOT_STATE:-unknown}/${CAPE_ANALYSIS_SNAPSHOT_MEMORY:-unknown}"
-  kv "current CAPE interface:" "${CAPE_MACHINE_INTERFACE:-unknown}"
-  kv "libvirt domain:" "${DOMAIN:-ambiguous}"
-  kv "management libvirt network:" "${MANAGEMENT_NETWORK_NAME:-unknown}"
-  kv "management bridge:" "${MANAGEMENT_BRIDGE_NAME:-unknown}"
-  kv "Windows management MAC:" "${WINDOWS_MANAGEMENT_MAC:-unknown}"
+  kv "CAPE analysis target count:" "${CAPE_TARGETS_COUNT:-0}"
+  echo "  Analysis targets:"
+  targets_summary_lines | sed 's/^/    /'
   kv "libvirt clean-traffic nwfilter:" "${MANAGEMENT_NWFILTER_AVAILABLE:-unknown}"
   kv "nwfilter runtime mode:" "${NWFILTER_RUNTIME_MODE:-unknown}"
-  kv "domain state:" "${DOMAIN_STATE:-unknown}"
-  kv "NIC count:" "${DOMAIN_NIC_COUNT:-unknown}"
-  kv "NIC model(s):" "${DOMAIN_NIC_MODELS:-unknown}"
-  kv "internal snapshot capable:" "${WINDOWS_INTERNAL_SNAPSHOT_CAPABLE:-unknown}"
 
   echo; echo "Windows control"
-  kv "QEMU Guest Agent:" "${QGA_AVAILABLE:-unknown}"
-  kv "WinRM reachable:" "${WINRM_AVAILABLE:-unknown}"
-  kv "CAPE agent :8000 reachable (diagnostic only):" "${CAPE_AGENT_REACHABLE:-unknown}"
-  kv "selected/fallback backend:" "${WINDOWS_BACKEND:-unknown}"
+  echo "  Backend discovery is recorded independently for every CAPE analysis VM."
+  echo "  Powered-off guests are probed again automatically during safe cutover."
 
   echo; echo "Network plan"
   kv "isolated subnet:" "${ISOLATED_SUBNET:-unavailable}"
   kv "bridge address:" "${BRIDGE_IP:-unavailable}"
   kv "INetSim address:" "${INETSIM_IP:-unavailable}"
-  kv "Windows fake-Internet IP:" "${WINDOWS_FAKE_IP:-unavailable}"
+  kv "Windows fake-Internet range:" "unique .10+ address per analysis target"
   kv "Windows DNS:" "${INETSIM_IP:-unavailable}"
-  kv "CAPE capture address:" "${WINDOWS_FAKE_IP:-unavailable}"
+  kv "CAPE capture:" "per-machine fake IP on ${ISOLATED_BRIDGE_NAME:-planned isolated bridge}"
 
   echo; echo "Safety / compatibility"
   kv "CAPE busy signal:" "${CAPE_BUSY:-unknown}"
@@ -92,9 +74,9 @@ print_plan() {
   echo; echo "Future deployment will create/configure"
   echo "  - generalized Ubuntu INetSim appliance"
   echo "  - isolated libvirt network with no NAT/default gateway"
-  echo "  - secondary NIC on the selected Windows analysis VM"
-  echo "  - Windows fake-Internet IP/DNS while preserving CAPE management"
-  echo "  - CAPE-compatible running-state analysis snapshot"
+  echo "  - secondary NIC on every enabled Windows-compatible CAPE analysis VM"
+  echo "  - unique Windows fake-Internet IP/DNS per VM while preserving CAPE management"
+  echo "  - CAPE-compatible running-state analysis snapshot for every target VM"
   echo "  - per-machine CAPE capture on the isolated network"
   echo "  - Network Analysis visibility for simulated traffic"
   echo "  - CAPE-INetSim-VM-Extension integration"

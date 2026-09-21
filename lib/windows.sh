@@ -45,6 +45,6 @@ discover_windows_backends() {
 
   case "$WINDOWS_BACKEND" in
     winrm-candidate|cape-agent-execpy-candidate) ;;
-    *) WINDOWS_BACKEND="manual-powershell-fallback" ;;
+    *) WINDOWS_BACKEND="zero-touch-unavailable" ;;
   esac
 }

@@ -3,6 +3,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AUTODEPLOY_ROOT="$ROOT"
 source "$ROOT/lib/common.sh"
+source "$ROOT/lib/targets.sh"
 AD_STATE_ROOT=/tmp/unused
 APPLIANCE_CACHE_ROOT=/tmp/unused-cache
 source "$ROOT/lib/extension.sh"
@@ -12,24 +13,25 @@ source "$ROOT/lib/extension.sh"
 (cd "$EXTENSION_BUNDLED_ROOT" && sha256sum -c RUNTIME-SHA256SUMS >/dev/null)
 grep -Fq 'Bundled INetSim extension runtime' "$ROOT/lib/extension.sh"
 ! grep -Fq 'CAPE-INetSim-VM-Extension/releases/download' "$ROOT/lib/extension.sh"
+grep -Fq 'CAPE_DOMAIN=' "$ROOT/vendor/CAPE-INetSim-VM-Extension-v1.0.1/scripts/verify.sh"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 EXTENSION_ROOT="$TMP/ext"
 mkdir -p "$EXTENSION_ROOT/src"
 CAPE_ROOT='/opt/CAPE test/$root'
-CAPE_MACHINE_SECTION='win test'
-CAPE_MACHINE_IP='192.0.2.100'
-CAPE_RESULTSERVER_IP='192.0.2.1'
 INETSIM_IP='198.51.100.2'
-WINDOWS_FAKE_IP='198.51.100.10'
 ISOLATED_BRIDGE_NAME='capeisim7'
+CAPE_TARGETS_JSON='[{"section":"win test","label":"win-label","ip":"192.0.2.100","domain":"actual-domain","resultserver_ip":"192.0.2.1","resultserver_port":"2042","control_host_ip":"192.0.2.1","fake_ip":"198.51.100.10"}]'
+CAPE_TARGETS_COUNT=1
+TARGET_INDEX=""
 extension_write_config
-unset CAPE_ROOT CAPE_MACHINE CAPE_GUEST_CONTROL_IP CAPE_RESULTSERVER_IP INETSIM_SERVER_IP ANALYSIS_GUEST_IP CAPTURE_INTERFACE
+unset CAPE_ROOT CAPE_MACHINE CAPE_DOMAIN CAPE_GUEST_CONTROL_IP CAPE_RESULTSERVER_IP INETSIM_SERVER_IP ANALYSIS_GUEST_IP CAPTURE_INTERFACE
 # shellcheck disable=SC1090
 source "$EXTENSION_ROOT/src/inetsim-vm.conf"
 [[ "$CAPE_ROOT" == '/opt/CAPE test/$root' ]]
 [[ "$CAPE_MACHINE" == 'win test' ]]
+[[ "$CAPE_DOMAIN" == 'actual-domain' ]]
 [[ "$CAPE_GUEST_CONTROL_IP" == '192.0.2.100' ]]
 [[ "$CAPE_RESULTSERVER_IP" == '192.0.2.1' ]]
 [[ "$INETSIM_SERVER_IP" == '198.51.100.2' ]]

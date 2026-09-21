@@ -5,6 +5,7 @@ ROOT="${AUTODEPLOY_ROOT:-/usr/local/lib/cape-inetsim-autodeploy}"
 AUTODEPLOY_ROOT="$ROOT"
 export AUTODEPLOY_ROOT
 source "$ROOT/lib/common.sh"
+source "$ROOT/lib/targets.sh"
 source "$ROOT/lib/state.sh"
 
 require_root
@@ -23,12 +24,17 @@ kv "CAPE commit:" "${CAPE_COMMIT:-unknown}"
 kv "release tag:" "${RELEASE_TAG:-development/unknown}"
 kv "release source commit:" "${RELEASE_SOURCE_COMMIT:-development/unknown}"
 kv "release source SHA256:" "${RELEASE_SOURCE_SHA256:-development/unknown}"
-kv "CAPE machine:" "${CAPE_MACHINE_SECTION:-unknown}"
-kv "Windows domain:" "${DOMAIN:-unknown}"
-kv "Windows current state:" "$(domain_state "${DOMAIN:-}")"
-kv "Windows backend used:" "${WINDOWS_BACKEND_USED:-unknown}"
-kv "running snapshot:" "${FINAL_SNAPSHOT:-unknown}"
-kv "running snapshot state:" "$(snapshot_state "${DOMAIN:-}" "${FINAL_SNAPSHOT:-}")"
+kv "managed CAPE machines:" "${CAPE_TARGETS_COUNT:-0}"
+echo "Analysis VM targets:"
+python3 - "${CAPE_TARGETS_JSON:-[]}" <<'PY'
+import json,sys
+try: a=json.loads(sys.argv[1])
+except Exception: a=[]
+for d in a:
+    print("  - {section} -> {domain} | mgmt={ip} | fake={fake} | phase={phase} | final={final}".format(
+        section=d.get("section","?"),domain=d.get("domain","?"),ip=d.get("ip","?"),
+        fake=d.get("fake_ip","?"),phase=d.get("phase","?"),final=d.get("final_snapshot") or "none"))
+PY
 kv "isolated subnet:" "${ISOLATED_SUBNET:-unknown}"
 kv "isolated network:" "${ISOLATED_NETWORK_NAME:-unknown}"
 kv "isolated network active:" "$(network_state "${ISOLATED_NETWORK_NAME:-}")"

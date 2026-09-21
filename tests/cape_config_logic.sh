@@ -3,6 +3,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AUTODEPLOY_ROOT="$ROOT"
 source "$ROOT/lib/common.sh"
+source "$ROOT/lib/targets.sh"
 source "$ROOT/lib/cape-configure.sh"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 cat >"$TMP/sniffer.py" <<'PY'
@@ -71,7 +72,9 @@ route = none
 EOF
 touch "$CAPE_ROOT/web/analysis/views.py"
 cp "$TMP/sniffer.py" "$CAPE_ROOT/modules/auxiliary/sniffer.py"
-CAPE_MACHINE_SECTION=win10
+CAPE_TARGETS_JSON='[{"section":"win10","label":"win10","ip":"192.0.2.10","domain":"win10"}]'
+CAPE_TARGETS_COUNT=1
+targets_bind 0
 COMPAT_NOTES=()
 check_cape_layout
 [[ "$COMPAT_STATUS" == plan-compatible ]]
