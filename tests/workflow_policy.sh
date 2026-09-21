@@ -16,6 +16,8 @@ grep -A10 '^  push:' "$AP" | grep -q 'appliance/\*\*'
 grep -q 'cancel-in-progress: true' "$AP"
 grep -q 'cape-inetsim-appliance-v1.0.0-evidence' "$AP"
 grep -q 'candidate-provenance.json' "$AP"
+grep -Fq '},indent=2)+"\n")' "$AP"
+! grep -Fq '},indent=2)+"\\n")' "$AP"
 [[ "$(grep -Fc 'retention-days: 30' "$AP")" -ge 2 ]]
 grep -q 'No candidate is publishable' "$AP"
 grep -q 'exit 1' "$AP"
