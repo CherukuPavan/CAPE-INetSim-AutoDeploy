@@ -190,7 +190,8 @@ inetsim_configure_guest() {
 inetsim_verify_host() {
   python3 "$AUTODEPLOY_ROOT/tools/dns_probe.py" "$INETSIM_IP" "$INETSIM_IP" >/dev/null
   curl -fsS --max-time 5 "http://$INETSIM_IP/" >/dev/null
-  pass "INetSim DNS and HTTP respond on $INETSIM_IP"
+  curl -kfsS --max-time 5 "https://$INETSIM_IP/" >/dev/null
+  pass "INetSim DNS, HTTP and HTTPS respond on $INETSIM_IP"
 }
 
 inetsim_vm_rollback() {
