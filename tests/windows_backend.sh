@@ -32,5 +32,45 @@ grep -q '2606:4700:4700::1111' "$ROOT/windows/configure-inetsim.ps1"
 grep -q 'Test-NetConnection' "$ROOT/windows/configure-inetsim.ps1"
 grep -q 'Resolve-DnsName' "$ROOT/windows/configure-inetsim.ps1"
 grep -q 'public_ipv6_reachable' "$ROOT/windows/verify-inetsim.ps1"
+grep -q 'inetsim_https_reachable' "$ROOT/windows/configure-inetsim.ps1"
+grep -q 'inetsim_https_reachable' "$ROOT/windows/verify-inetsim.ps1"
+grep -Fq 'validate_windows_result_path "$local_result"' "$ROOT/lib/windows-qga.sh"
+[[ "$(grep -Fc 'validate_windows_result_path "$local_result"' "$ROOT/lib/windows-winrm.sh")" -eq 2 ]]
+
+source "$ROOT/lib/common.sh"
+source "$ROOT/lib/validate.sh"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+WINDOWS_FAKE_IP=192.0.2.10
+INETSIM_IP=192.0.2.2
+cat >"$TMP/result.json" <<'EOF'
+{
+  "ok": true,
+  "default_routes": 0,
+  "ipv4_default_routes": 0,
+  "ipv6_default_routes": 0,
+  "ipv6_bindings_enabled": 0,
+  "unexpected_active_adapters": 0,
+  "resultserver_reachable": true,
+  "inetsim_http_reachable": true,
+  "inetsim_https_reachable": true,
+  "public_ip_reachable": false,
+  "public_ipv6_reachable": false,
+  "fake_ip": "192.0.2.10",
+  "dns": "192.0.2.2"
+}
+EOF
+validate_windows_result_path "$TMP/result.json"
+python3 - "$TMP/result.json" <<'PY'
+import json,sys
+p=sys.argv[1]
+d=json.load(open(p))
+d["inetsim_https_reachable"]=False
+json.dump(d,open(p,"w"))
+PY
+if validate_windows_result_path "$TMP/result.json" >/dev/null 2>&1; then
+  echo 'Windows validator accepted missing HTTPS safety gate' >&2
+  exit 1
+fi
 
 echo '[PASS] QGA -> approved WinRM -> one-command fallback and Windows safety gates'
