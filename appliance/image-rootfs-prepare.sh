@@ -46,6 +46,12 @@ elif ! grep -q 'loop_once(10)' "$DNS_PM"; then
 fi
 
 echo 'net.ipv4.ip_unprivileged_port_start=53' >/etc/sysctl.d/99-inetsim-lowports.conf
+cat >/etc/sysctl.d/99-cape-inetsim-isolation.conf <<'EOF_SYSCTL'
+# Runtime simulator VM must never route the isolated analysis network through
+# its separate management NIC.
+net.ipv4.ip_forward=0
+net.ipv6.conf.all.forwarding=0
+EOF_SYSCTL
 systemctl enable qemu-guest-agent.service
 systemctl disable systemd-networkd-wait-online.service 2>/dev/null || true
 
