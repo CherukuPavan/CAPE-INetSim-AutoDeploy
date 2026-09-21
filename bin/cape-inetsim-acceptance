@@ -114,9 +114,9 @@ grep -Rqs 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$CAPE_ROOT/web" || {
   exit 26
 }
 
-python3 - "$OUTPUT" "$POS_PCAP" "$NEG_PCAP" <<'PY'
+python3 - "$OUTPUT" "$POS_PCAP" "$NEG_PCAP" "${RELEASE_TAG:-}" "${RELEASE_SOURCE_COMMIT:-}" "${RELEASE_SOURCE_SHA256:-}" <<'PY'
 import json,pathlib,sys
-path,pos,neg=sys.argv[1:]
+path,pos,neg,release_tag,release_commit,release_sha=sys.argv[1:]
 p=pathlib.Path(path)
 d=json.loads(p.read_text())
 d["pcap_validation"]={
@@ -124,6 +124,13 @@ d["pcap_validation"]={
     "positive_contains_inetsim_ip":True,
     "negative_capture":neg,
     "negative_contains_inetsim_ip":False,
+}
+d["release_validation"]={
+    "manifest_and_structural_verification":"PASS",
+    "recovery_assets":"PASS",
+    "release_tag":release_tag or None,
+    "release_source_commit":release_commit or None,
+    "release_source_sha256":release_sha or None,
 }
 d["status"]="pass"
 p.write_text(json.dumps(d,indent=2)+"\n")
