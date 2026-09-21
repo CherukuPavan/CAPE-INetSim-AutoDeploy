@@ -33,6 +33,7 @@ state_write_atomic() {
     printf 'CAPE_RESULTSERVER_PORT=%q\n' "${CAPE_RESULTSERVER_PORT:-}"
     printf 'CONTROL_HOST_IP=%q\n' "${CONTROL_HOST_IP:-}"
     printf 'DOMAIN=%q\n' "${DOMAIN:-}"
+    printf 'MANAGEMENT_NETWORK_NAME=%q\n' "${MANAGEMENT_NETWORK_NAME:-}"
     printf 'ORIGINAL_CAPE_SNAPSHOT=%q\n' "${CAPE_MACHINE_SNAPSHOT:-}"
     printf 'ISOLATED_SUBNET=%q\n' "${ISOLATED_SUBNET:-}"
     printf 'BRIDGE_IP=%q\n' "${BRIDGE_IP:-}"
