@@ -127,6 +127,23 @@ firewall_apply() {
   have nft || { fail "nftables command 'nft' is required for fake-Internet egress guard"; return 1; }
   [[ -n "${ISOLATED_BRIDGE_NAME:-}" ]] || { fail "Isolated bridge is unknown"; return 1; }
 
+  local want_management=no management_id=""
+  if [[ -n "${DOMAIN:-}" && -n "${WINDOWS_MANAGEMENT_MAC:-}" ]]; then
+    management_id="$DOMAIN:$WINDOWS_MANAGEMENT_MAC"
+    if state_resource_owned firewall-management-guard "$management_id" ||
+       state_resource_intended firewall-management-guard "$management_id"; then
+      want_management=yes
+      [[ -n "${MANAGEMENT_BRIDGE_NAME:-}" && -n "${CAPE_MACHINE_IP:-}" ]] || {
+        fail "Deployment state requires the Windows management egress guard but its bridge/IP identity is incomplete"
+        return 1
+      }
+      windows_management_guard_verify || {
+        fail "Deployment state requires the Windows management egress guard but hypervisor anti-spoofing is not active"
+        return 1
+      }
+    fi
+  fi
+
   if [[ -e "$FIREWALL_RULES" ]] &&
      ! state_resource_owned firewall-file "$FIREWALL_RULES" &&
      ! state_resource_intended firewall-file "$FIREWALL_RULES"; then
@@ -154,14 +171,20 @@ firewall_apply() {
      firewall_file_matches_base && firewall_unit_matches_project &&
      firewall_table_matches_base &&
      systemctl is-active --quiet cape-inetsim-autodeploy-firewall.service; then
-    pass "Host isolated-network firewall guard already active"
-    return 0
+    if [[ "$want_management" == no ]] || { firewall_file_has_management_guard && firewall_management_guard_matches; }; then
+      pass "Host network safety firewall guard already active"
+      return 0
+    fi
   fi
 
   install -d -m 0755 "$FIREWALL_DIR"
   local tmp_rules="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-firewall.nft"
   local tmp_unit="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-firewall.service"
-  firewall_render_rules "$ISOLATED_BRIDGE_NAME" >"$tmp_rules"
+  if [[ "$want_management" == yes ]]; then
+    firewall_render_rules "$ISOLATED_BRIDGE_NAME" "$MANAGEMENT_BRIDGE_NAME" "$WINDOWS_MANAGEMENT_MAC" "$CAPE_MACHINE_IP" >"$tmp_rules"
+  else
+    firewall_render_rules "$ISOLATED_BRIDGE_NAME" >"$tmp_rules"
+  fi
   firewall_render_unit >"$tmp_unit"
   chmod 0600 "$tmp_rules" "$tmp_unit"
 
@@ -180,6 +203,13 @@ firewall_apply() {
   firewall_unit_matches_project || { fail "Installed firewall service does not match project"; return 1; }
   firewall_table_matches_base || { fail "Active nftables egress guard does not match isolated bridge"; return 1; }
   systemctl is-active --quiet cape-inetsim-autodeploy-firewall.service
+  if [[ "$want_management" == yes ]]; then
+    firewall_file_has_management_guard && firewall_management_guard_matches || {
+      fail "Restored firewall is missing the Windows management egress guard"
+      return 1
+    }
+    state_record_resource firewall-management-guard "$management_id" active yes "bridge=$MANAGEMENT_BRIDGE_NAME ip=$CAPE_MACHINE_IP"
+  fi
 
   state_record_resource firewall-file "$FIREWALL_RULES" created yes "bridge=$ISOLATED_BRIDGE_NAME"
   state_record_resource firewall-unit "$FIREWALL_UNIT" created yes ""
