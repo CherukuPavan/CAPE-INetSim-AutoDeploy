@@ -108,3 +108,10 @@ sed -i '/TASK_DISTRIBUTED_COMPLETED/d' "$CAPE_ROOT/lib/cuckoo/core/data/task.py"
 COMPAT_NOTES=()
 check_cape_layout
 [[ "$COMPAT_STATUS" == plan-only-unknown-cape-layout ]]
+
+python3 - "$ROOT/bin/cape-inetsim-repair" <<'PY'
+import sys
+s=open(sys.argv[1],encoding="utf-8").read()
+assert s.index("check_cape_layout") < s.index("# Non-disruptive recovery first.")
+assert s.index("cape_assert_owned_files_unchanged") < s.index("# Non-disruptive recovery first.")
+PY
