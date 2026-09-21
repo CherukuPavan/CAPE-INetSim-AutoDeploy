@@ -72,22 +72,22 @@ jobs:
           cp "$RUNNER_TEMP/cape-inetsim-appliance-v1.0.0.qcow2.info.txt" "$EVIDENCE/"
           cp "$RUNNER_TEMP/appliance-diag/artifact-verify.log" "$EVIDENCE/"
           cp appliance/build/base-image.json "$EVIDENCE/base-image.json"
-          python3 - "$EVIDENCE" "$SOURCE_SHA" <<'PY'
-import json,pathlib,sys
-root=pathlib.Path(sys.argv[1])
-sha=sys.argv[2]
-base=json.loads((root/"base-image.json").read_text())
-qcow_sha=(root/"cape-inetsim-appliance-v1.0.0.qcow2.sha256").read_text().split()[0]
-(root/"candidate-provenance.json").write_text(json.dumps({
-    "schema":1,
-    "source_commit":sha,
-    "artifact_name":"cape-inetsim-appliance-v1.0.0.qcow2",
-    "qcow2_sha256":qcow_sha,
-    "base_release_build":base["release_build"],
-    "base_sha256":base["sha256"],
-    "independent_verifier":"PASS"
-},indent=2)+"\n")
-PY
+          python3 -c '
+          import json,pathlib,sys
+          root=pathlib.Path(sys.argv[1])
+          source_sha=sys.argv[2]
+          base=json.loads((root/"base-image.json").read_text())
+          qcow_sha=(root/"cape-inetsim-appliance-v1.0.0.qcow2.sha256").read_text().split()[0]
+          (root/"candidate-provenance.json").write_text(json.dumps({
+              "schema":1,
+              "source_commit":source_sha,
+              "artifact_name":"cape-inetsim-appliance-v1.0.0.qcow2",
+              "qcow2_sha256":qcow_sha,
+              "base_release_build":base["release_build"],
+              "base_sha256":base["sha256"],
+              "independent_verifier":"PASS"
+          },indent=2)+"\\n")
+          ' "$EVIDENCE" "$SOURCE_SHA"
 
       - name: Upload candidate verification evidence
         if: steps.appliance_build.outcome == 'success' && steps.appliance_verify.outcome == 'success'
