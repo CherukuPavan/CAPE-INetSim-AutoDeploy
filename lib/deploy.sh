@@ -61,6 +61,10 @@ deploy_assert_supported_environment() {
     fail "AutoDeploy requires the system libvirt instance (found: ${LIBVIRT_URI:-unknown})"
     return 1
   }
+  [[ "${CAPE_DB_BACKEND:-unknown}" == postgresql ]] || {
+    fail "v1.0 automated live cutover currently requires CAPE PostgreSQL for atomic scheduler maintenance locking (found: ${CAPE_DB_BACKEND:-unknown}); safe stop, no mutation."
+    return 1
+  }
   [[ "${CAPE_MACHINE_PLATFORM,,}" == windows* ]] || {
     fail "Selected CAPE machine is not a Windows analysis VM: ${CAPE_MACHINE_PLATFORM:-unknown}"
     return 1
@@ -125,7 +129,7 @@ deploy_reset_resource_state() {
 }
 
 deploy_initialize_or_resume_state() {
-  local d_root="$CAPE_ROOT" d_commit="$CAPE_COMMIT" d_section="$CAPE_MACHINE_SECTION"
+  local d_root="$CAPE_ROOT" d_commit="$CAPE_COMMIT" d_db="$CAPE_DB_BACKEND" d_section="$CAPE_MACHINE_SECTION"
   local d_label="$CAPE_MACHINE_LABEL" d_ip="$CAPE_MACHINE_IP" d_domain="$DOMAIN"
   local d_mgmt_net="$MANAGEMENT_NETWORK_NAME" d_mgmt_bridge="$MANAGEMENT_BRIDGE_NAME" d_mgmt_mac="$WINDOWS_MANAGEMENT_MAC"
   local d_rs_ip="$CAPE_RESULTSERVER_IP"
@@ -144,6 +148,7 @@ deploy_initialize_or_resume_state() {
       [[ "$CAPE_MACHINE_SECTION" == "$d_section" ]] || { fail "Existing deployment state belongs to a different CAPE machine"; return 1; }
       [[ "$DOMAIN" == "$d_domain" ]] || { fail "Existing deployment state belongs to a different libvirt domain"; return 1; }
       [[ "$CAPE_COMMIT" == "$d_commit" ]] || { fail "CAPE commit changed during/after deployment; use verify/repair compatibility flow"; return 1; }
+      [[ "$CAPE_DB_BACKEND" == "$d_db" ]] || { fail "CAPE database backend changed during/after deployment; refusing resume"; return 1; }
       if deploy_phase_at_least cape-configured; then
         cape_assert_owned_files_unchanged || return 1
       fi
@@ -153,7 +158,7 @@ deploy_initialize_or_resume_state() {
     fi
   fi
 
-  CAPE_ROOT="$d_root"; CAPE_COMMIT="$d_commit"; CAPE_MACHINE_SECTION="$d_section"
+  CAPE_ROOT="$d_root"; CAPE_COMMIT="$d_commit"; CAPE_DB_BACKEND="$d_db"; CAPE_MACHINE_SECTION="$d_section"
   CAPE_MACHINE_LABEL="$d_label"; CAPE_MACHINE_IP="$d_ip"; DOMAIN="$d_domain"
   MANAGEMENT_NETWORK_NAME="$d_mgmt_net"; MANAGEMENT_BRIDGE_NAME="$d_mgmt_bridge"; WINDOWS_MANAGEMENT_MAC="$d_mgmt_mac"
   CAPE_RESULTSERVER_IP="$d_rs_ip"
