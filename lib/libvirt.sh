@@ -136,6 +136,65 @@ except Exception: pass' || true)"
   WINDOWS_INTERNAL_SNAPSHOT_CAPABLE=yes
 }
 
+discover_cape_analysis_snapshot() {
+  CAPE_ANALYSIS_SNAPSHOT_STATUS="unproven"
+  CAPE_ANALYSIS_SNAPSHOT_STATE=""
+  CAPE_ANALYSIS_SNAPSHOT_MEMORY=""
+  [[ -n "${DOMAIN:-}" && -n "${CAPE_MACHINE_SNAPSHOT:-}" ]] || {
+    add_error "CAPE machine does not define an analysis snapshot"
+    return 0
+  }
+  [[ -n "${MANAGEMENT_NETWORK_NAME:-}" && -n "${WINDOWS_MANAGEMENT_MAC:-}" ]] || return 0
+
+  local xml facts
+  xml="$(virsh snapshot-dumpxml "$DOMAIN" "$CAPE_MACHINE_SNAPSHOT" 2>/dev/null || true)"
+  [[ -n "$xml" ]] || {
+    add_error "Configured CAPE analysis snapshot '$CAPE_MACHINE_SNAPSHOT' does not exist for domain '$DOMAIN'"
+    return 0
+  }
+
+  facts="$(python3 -c '
+import sys,xml.etree.ElementTree as ET
+domain,net,mac=sys.argv[1:]
+try:
+    r=ET.fromstring(sys.stdin.read())
+except Exception:
+    raise SystemExit(2)
+state=(r.findtext("state") or "").strip()
+m=r.find("memory")
+memory=(m.get("snapshot") if m is not None else "") or ""
+d=r.find("domain")
+dname=(d.findtext("name") or "").strip() if d is not None else ""
+matches=0
+if d is not None:
+    for i in d.findall("./devices/interface"):
+        src=i.find("source"); ma=i.find("mac")
+        if src is not None and ma is not None and src.get("network")==net and (ma.get("address") or "").lower()==mac.lower():
+            matches += 1
+print(state, memory, dname, matches, sep="|")
+' "$DOMAIN" "$MANAGEMENT_NETWORK_NAME" "$WINDOWS_MANAGEMENT_MAC" <<<"$xml" 2>/dev/null || true)"
+
+  local snap_state snap_memory snap_domain mgmt_matches
+  IFS='|' read -r snap_state snap_memory snap_domain mgmt_matches <<<"$facts"
+  CAPE_ANALYSIS_SNAPSHOT_STATE="$snap_state"
+  CAPE_ANALYSIS_SNAPSHOT_MEMORY="$snap_memory"
+
+  [[ "$snap_domain" == "$DOMAIN" ]] || {
+    add_error "Configured CAPE snapshot '$CAPE_MACHINE_SNAPSHOT' does not embed the selected domain identity"
+    return 0
+  }
+  [[ "$snap_state" == running && "$snap_memory" == internal ]] || {
+    add_error "Configured CAPE snapshot '$CAPE_MACHINE_SNAPSHOT' is not a running-state internal-memory analysis baseline (found state=${snap_state:-unknown} memory=${snap_memory:-unknown})"
+    return 0
+  }
+  [[ "$mgmt_matches" == 1 ]] || {
+    add_error "Configured CAPE snapshot '$CAPE_MACHINE_SNAPSHOT' does not contain the proven management NIC identity ($MANAGEMENT_NETWORK_NAME / $WINDOWS_MANAGEMENT_MAC)"
+    return 0
+  }
+
+  CAPE_ANALYSIS_SNAPSHOT_STATUS="proven"
+}
+
 discover_management_network() {
   MANAGEMENT_NETWORK_NAME=""
   [[ -n "${DOMAIN_XML:-}" && -n "${CAPE_MACHINE_IP:-}" && -n "${DOMAIN:-}" ]] || return 0
