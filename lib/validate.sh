@@ -14,14 +14,6 @@ PY
 }
 
 validate_final_snapshot_hardware() {
-  [[ -n "${FINAL_SNAPSHOT:-}" ]] || return 1
-  local xml
-  xml="$(virsh snapshot-dumpxml "$DOMAIN" "$FINAL_SNAPSHOT")"
-  python3 - "$ISOLATED_NETWORK_NAME" "$WINDOWS_ISOLATED_MAC" <<'PY' <<<"$xml"
-PY
-}
-
-validate_final_snapshot_hardware() {
   local xml
   xml="$(virsh snapshot-dumpxml "$DOMAIN" "$FINAL_SNAPSHOT")" || return 1
   python3 -c '
