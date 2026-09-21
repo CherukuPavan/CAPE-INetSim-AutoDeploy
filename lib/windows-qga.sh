@@ -7,7 +7,7 @@ windows_configure_via_qga() {
   local ps1="$AUTODEPLOY_ROOT/windows/configure-inetsim.ps1"
   local remote_ps='C:\Windows\Temp\cape-inetsim-autodeploy.ps1'
   local remote_result='C:\Windows\Temp\cape-inetsim-autodeploy-result.json'
-  local local_result="$AD_LOG_ROOT/${DEPLOYMENT_ID}-windows-result.json"
+  local local_result="$AD_LOG_ROOT/${DEPLOYMENT_ID}-$(ad_safe_token "${DOMAIN:-unknown}")-windows-result.json"
 
   qga_wait "$DOMAIN" 120 || { fail "Windows QEMU Guest Agent did not answer"; return 1; }
   qga_file_write "$DOMAIN" "$ps1" "$remote_ps"
@@ -26,7 +26,7 @@ windows_verify_via_qga() {
   local ps1="$AUTODEPLOY_ROOT/windows/verify-inetsim.ps1"
   local remote_ps='C:\Windows\Temp\cape-inetsim-autodeploy-verify.ps1'
   local remote_result='C:\Windows\Temp\cape-inetsim-autodeploy-verify-result.json'
-  local local_result="$AD_LOG_ROOT/${DEPLOYMENT_ID}-windows-verify.json"
+  local local_result="$AD_LOG_ROOT/${DEPLOYMENT_ID}-$(ad_safe_token "${DOMAIN:-unknown}")-windows-verify.json"
   qga_file_write "$DOMAIN" "$ps1" "$remote_ps"
   qga_exec_wait "$DOMAIN" "$windows_qga_powershell_path" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$remote_ps"     -ManagementIP "$guest_ip" -IsolatedMac "$isolated_mac" -FakeIP "$fake_ip" -DnsIP "$dns_ip"     -ResultServerIP "$result_ip" -ResultServerPort "$result_port" -ResultPath "$remote_result"
   qga_file_read "$DOMAIN" "$remote_result" "$local_result"
