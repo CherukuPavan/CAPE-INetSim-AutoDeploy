@@ -69,6 +69,10 @@ deploy_assert_supported_environment() {
     fail "Selected CAPE machine is not a Windows analysis VM: ${CAPE_MACHINE_PLATFORM:-unknown}"
     return 1
   }
+  [[ "${WINDOWS_INTERNAL_SNAPSHOT_CAPABLE:-no}" == yes ]] || {
+    fail "Selected Windows analysis VM is not proven capable of the required qcow2 internal safety/running snapshots"
+    return 1
+  }
   [[ -n "${MANAGEMENT_NETWORK_NAME:-}" ]] || { fail "Management libvirt network is unknown"; return 1; }
   [[ -n "${CAPE_RESULTSERVER_IP:-}" && "${CAPE_RESULTSERVER_PORT:-}" =~ ^[0-9]+$ ]] || {
     fail "CAPE ResultServer path could not be derived"
