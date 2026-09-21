@@ -84,6 +84,24 @@ discover_cape_git() {
   fi
 }
 
+discover_cape_database_backend() {
+  CAPE_DB_BACKEND="unknown"
+  [[ -n "${CAPE_ROOT:-}" && -f "$CAPE_ROOT/conf/cuckoo.conf" ]] || return 0
+  CAPE_DB_BACKEND="$(python3 - "$CAPE_ROOT/conf/cuckoo.conf" <<'PY'
+import configparser,sys,urllib.parse
+c=configparser.ConfigParser(interpolation=None,strict=False)
+c.read(sys.argv[1])
+value=c.get("database","connection",fallback="").strip()
+if not value:
+    print("sqlite")
+else:
+    scheme=urllib.parse.urlsplit(value).scheme.lower()
+    base=scheme.split("+",1)[0]
+    print(base or "unknown")
+PY
+)"
+}
+
 discover_cape_services() {
   CAPE_SERVICES=()
   local s
