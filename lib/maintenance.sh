@@ -5,6 +5,9 @@ CAPE_MAINTENANCE_GUARD_FILE="${CAPE_MAINTENANCE_GUARD_FILE:-$AD_STATE_ROOT/cape-
 discover_cape_runtime() {
   CAPE_SERVICE_USER="$(systemctl show cape.service -p User --value 2>/dev/null || true)"
   [[ -n "$CAPE_SERVICE_USER" ]] || CAPE_SERVICE_USER=root
+  if [[ -n "${CAPE_RUNTIME_PYTHON:-}" && -x "$CAPE_RUNTIME_PYTHON" ]]; then
+    return 0
+  fi
   local pid
   pid="$(systemctl show cape.service -p MainPID --value 2>/dev/null || true)"
   CAPE_RUNTIME_PYTHON=""
