@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 python3 -m json.tool "$ROOT/appliance/build/base-image.json" >/dev/null
 python3 -m py_compile   "$ROOT/appliance/build/render-manifest.py"   "$ROOT/appliance/build/render-cloud-init.py"
 dash -n "$ROOT/appliance/image-rootfs-prepare.sh"
+bash -n "$ROOT/appliance/build/verify-artifact.sh"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -43,6 +44,11 @@ grep -q 'cape-inetsim-build-ok' "$ROOT/appliance/build/build.sh"
 grep -q 'virt-df' "$ROOT/appliance/build/build.sh"
 grep -q 'APPLIANCE_BASE_CACHE' "$ROOT/appliance/build/build.sh"
 grep -q 'using verified cached Ubuntu base release' "$ROOT/appliance/build/build.sh"
+grep -q 'full-backing-filename' "$ROOT/appliance/build/verify-artifact.sh"
+grep -q 'persistent machine-id' "$ROOT/appliance/build/verify-artifact.sh"
+grep -q 'persistent SSH host private keys' "$ROOT/appliance/build/verify-artifact.sh"
+grep -q 'cloud-init instance state' "$ROOT/appliance/build/verify-artifact.sh"
+grep -q 'appliance_verify.outcome' "$ROOT/.github/workflows/appliance-build.yml"
 grep -q -- '--management-mac' "$ROOT/appliance/guest-configure.sh"
 ! grep -q '192\.168\.200\.' "$ROOT/appliance/guest-configure.sh"
 
