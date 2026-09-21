@@ -24,13 +24,15 @@ echo '[PASS] pinned/generalized appliance build pipeline'
  "$TMP/user-data"
 grep -q 'cape-inetsim-image-rootfs-prepare' "$TMP/user-data"
 grep -q 'cape-inetsim-build-wrapper' "$TMP/user-data"
-grep -q 'poweroff -f' <(base64 -d <<<"$(python3 - "$TMP/user-data" <<'PY'
-import re,sys
+python3 - "$TMP/user-data" <<'PY'
+import base64,re,sys
 s=open(sys.argv[1]).read()
 m=re.search(r'path: /root/cape-inetsim-build-wrapper.*?content: ([A-Za-z0-9+/=]+)',s,re.S)
-print(m.group(1) if m else "")
+assert m, "build wrapper payload missing"
+decoded=base64.b64decode(m.group(1))
+assert b"poweroff -f" in decoded
+assert b"cape-inetsim-build-ok" in decoded
 PY
-)")
 dash -n "$ROOT/appliance/image-rootfs-prepare.sh"
 grep -q 'release-20260801' "$ROOT/appliance/build/base-image.json"
 grep -q '0533b0655c32e68b31d792ecd6ccfca95abdbc536c4446874fe0513bd4140ffe' "$ROOT/appliance/build/base-image.json"
