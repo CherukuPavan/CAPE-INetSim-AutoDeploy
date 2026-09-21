@@ -30,6 +30,8 @@ jobs:
         run: bash tests/multi_target_logic.sh
       - name: Multi-machine transactional cutover
         run: bash tests/multi_target_deploy.sh
+      - name: Multi-machine transactional rollback
+        run: bash tests/multi_target_rollback.sh
       - name: Live host preflight discovery
         run: bash tests/live_host_preflight.sh
       - name: Modular nwfilter runtime lifecycle
