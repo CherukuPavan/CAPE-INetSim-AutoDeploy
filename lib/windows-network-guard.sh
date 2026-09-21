@@ -20,7 +20,9 @@ print(ET.tostring(matches[0],encoding="unicode"))
 }
 
 windows_management_guard_backup_path() {
-  printf '%s/windows-management-interface.xml\n' "$AD_BACKUP_ROOT/$DEPLOYMENT_ID"
+  local slug
+  slug="$(ad_safe_token "${DOMAIN:-unknown}-${WINDOWS_MANAGEMENT_MAC:-unknown}")"
+  printf '%s/windows-management-%s.xml\n' "$AD_BACKUP_ROOT/$DEPLOYMENT_ID" "$slug"
 }
 
 windows_management_guard_filter_facts() {
@@ -223,7 +225,7 @@ windows_management_guard_apply() {
   printf '%s\n' "$original" >"$backup"
   chmod 0600 "$backup"
 
-  guarded="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-windows-management-guard.xml"
+  guarded="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-windows-management-$(ad_safe_token "$DOMAIN-$WINDOWS_MANAGEMENT_MAC").xml"
   python3 - "$WINDOWS_MGMT_FILTER_NAME" "$CAPE_MACHINE_IP" "$backup" >"$guarded" <<'PY'
 import sys,xml.etree.ElementTree as ET
 name,ip,path=sys.argv[1:]
