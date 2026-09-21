@@ -78,7 +78,7 @@ windows_create_safety_snapshot() {
     state_resource_owned snapshot "$DOMAIN:$SAFETY_SNAPSHOT" || { fail "Safety snapshot name already exists but is not owned"; return 1; }
     return 0
   fi
-  virsh snapshot-create-as "$DOMAIN" "$SAFETY_SNAPSHOT" --description "CAPE-INetSim AutoDeploy pre-change snapshot $DEPLOYMENT_ID" >/dev/null
+  virsh snapshot-create-as "$DOMAIN" "$SAFETY_SNAPSHOT" --description "CAPE-INetSim AutoDeploy pre-change snapshot $DEPLOYMENT_ID" --atomic >/dev/null
   state_record_resource snapshot "$DOMAIN:$SAFETY_SNAPSHOT" created yes "state=shutoff purpose=safety"
   state_write_atomic
 }
@@ -94,13 +94,29 @@ print(state+"|"+(m.get("snapshot","") if m is not None else ""))
 '
 }
 
+windows_create_working_snapshot() {
+  [[ "$(virsh domstate "$DOMAIN" | xargs)" == "shut off" ]] || { fail "Configured rollback snapshot requires shut-off Windows domain"; return 1; }
+  if [[ -z "${WORKING_SNAPSHOT:-}" ]]; then WORKING_SNAPSHOT="cape-inetsim-working-${DEPLOYMENT_ID:0:20}"; fi
+  if windows_snapshot_exists "$WORKING_SNAPSHOT"; then
+    state_resource_owned snapshot "$DOMAIN:$WORKING_SNAPSHOT" || { fail "Working snapshot name exists but is not AutoDeploy-owned"; return 1; }
+  else
+    virsh snapshot-create-as "$DOMAIN" "$WORKING_SNAPSHOT" --description "CAPE-INetSim AutoDeploy configured rollback snapshot $DEPLOYMENT_ID" --atomic >/dev/null
+    state_record_resource snapshot "$DOMAIN:$WORKING_SNAPSHOT" created yes "state=shutoff purpose=configured-rollback"
+  fi
+  local facts
+  facts="$(snapshot_state_memory "$WORKING_SNAPSHOT")"
+  [[ "$facts" == "shutoff|no" ]] || { fail "Working snapshot did not capture shutoff/no-memory state: $facts"; return 1; }
+  state_write_atomic
+  pass "Created configured shutoff rollback snapshot $WORKING_SNAPSHOT"
+}
+
 windows_create_running_snapshot() {
   [[ "$(virsh domstate "$DOMAIN" | xargs)" == "running" ]] || { fail "Final CAPE snapshot must be created while Windows is running"; return 1; }
   if [[ -z "${FINAL_SNAPSHOT:-}" ]]; then FINAL_SNAPSHOT="cape-inetsim-ready-${DEPLOYMENT_ID:0:22}"; fi
   if windows_snapshot_exists "$FINAL_SNAPSHOT"; then
     state_resource_owned snapshot "$DOMAIN:$FINAL_SNAPSHOT" || { fail "Final snapshot name already exists but is not owned"; return 1; }
   else
-    virsh snapshot-create-as "$DOMAIN" "$FINAL_SNAPSHOT" --description "CAPE-INetSim AutoDeploy running analysis snapshot $DEPLOYMENT_ID" >/dev/null
+    virsh snapshot-create-as "$DOMAIN" "$FINAL_SNAPSHOT" --description "CAPE-INetSim AutoDeploy running analysis snapshot $DEPLOYMENT_ID" --atomic >/dev/null
     state_record_resource snapshot "$DOMAIN:$FINAL_SNAPSHOT" created yes "state=running purpose=cape-analysis"
   fi
   local facts
