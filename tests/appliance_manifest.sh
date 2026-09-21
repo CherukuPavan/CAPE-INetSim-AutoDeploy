@@ -56,4 +56,20 @@ grep -Fq 'qemu-img check "$file"' "$ROOT/lib/appliance.sh"
 grep -Fq 'gzip -dc "$transport"' "$ROOT/lib/appliance.sh"
 grep -Fq 'transport.sha256' "$ROOT/lib/appliance.sh"
 
-echo '[PASS] appliance manifest/raw/transport checksum gates'
+source "$ROOT/lib/validate.sh"
+APPLIANCE_MANIFEST="$TMP/manifest.json"
+RELEASE_TAG=v1.0.0-rc.9
+RELEASE_SOURCE_BUNDLE=CAPE-INetSim-AutoDeploy-1.0.0-rc.9.tar.gz
+RELEASE_SOURCE_SHA256=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+RELEASE_SOURCE_COMMIT=0123456789abcdef0123456789abcdef01234567
+validate_release_provenance
+unset RELEASE_SOURCE_COMMIT
+if validate_release_provenance >/dev/null 2>&1; then
+  echo 'release provenance accepted an incomplete tuple' >&2
+  exit 1
+fi
+
+grep -Fq 'source "$ROOT/lib/appliance.sh"' "$ROOT/bin/cape-inetsim-verify"
+grep -Fq 'source "$ROOT/lib/extension.sh"' "$ROOT/bin/cape-inetsim-verify"
+
+echo '[PASS] appliance manifest/raw/transport checksum and release-provenance gates'
