@@ -23,5 +23,6 @@ assert "preserving CAPE maintenance ownership and leaving scheduler closed" in f
 PY
 
 grep -Fq 'intentionally left the analysis VM shut off for network safety' "$ROOT/lib/windows-vm.sh"
+grep -Fq 'cape.service || systemctl is-active --quiet cape-processor.service' "$ROOT/lib/rollback.sh"
 
 echo '[PASS] rollback keeps scheduling closed until network teardown is complete'
