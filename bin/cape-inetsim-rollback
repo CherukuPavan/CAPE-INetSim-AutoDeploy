@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="${AUTODEPLOY_ROOT:-/usr/local/lib/cape-inetsim-autodeploy}"
+[[ -f "$ROOT/lib/state.sh" ]] || ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+AUTODEPLOY_ROOT="$ROOT"
+source "$ROOT/lib/common.sh"
+source "$ROOT/lib/state.sh"
+source "$ROOT/lib/transaction.sh"
+source "$ROOT/lib/isolated-network.sh"
+
+MODE="dry-run"
+[[ "${1:-}" == "--apply" ]] && MODE="apply"
+
+state_load || { fail "No deployment state exists"; exit 1; }
+
+echo "Rollback plan for deployment ${DEPLOYMENT_ID:-unknown}"
+echo "  phase: ${DEPLOYMENT_PHASE:-unknown}"
+if state_resource_owned "libvirt-network" "${ISOLATED_NETWORK_NAME:-cape-inetsim-isolated}"; then
+  echo "  - remove AutoDeploy-owned libvirt network: ${ISOLATED_NETWORK_NAME:-cape-inetsim-isolated}"
+fi
+echo "  - later milestones restore CAPE files/snapshots/NICs only when ownership is recorded"
+
+if [[ "$MODE" == dry-run ]]; then
+  echo "DRY RUN ONLY. Re-run with --apply when rollback is intentionally requested."
+  exit 0
+fi
+
+transaction_lock_acquire
+isolated_network_rollback
+state_set_phase "rolled-back"
