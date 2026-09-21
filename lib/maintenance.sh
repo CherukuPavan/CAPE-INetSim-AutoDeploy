@@ -49,10 +49,10 @@ cape_maintenance_tool() {
       local rc=$?
       set -e
       rm -f "$copy"
-      if [[ "$rc" -eq 0 || "$rc" -eq 3 ]]; then
+      if [[ "$rc" -eq 0 ]]; then
         rm -f "$CAPE_MAINTENANCE_GUARD_FILE"
       else
-        warn "CAPE maintenance release failed; preserving recovery guard $CAPE_MAINTENANCE_GUARD_FILE"
+        warn "CAPE maintenance release was incomplete; preserving recovery guard $CAPE_MAINTENANCE_GUARD_FILE"
       fi
       return "$rc"
     else
@@ -88,6 +88,11 @@ cape_release_maintenance() {
   cape_maintenance_tool release
   local rc=$?
   set -e
-  state_record_resource cape-maintenance all-machines released yes ""
-  [[ "$rc" -eq 0 || "$rc" -eq 3 ]]
+  if [[ "$rc" -eq 0 ]]; then
+    state_record_resource cape-maintenance all-machines released yes ""
+    return 0
+  fi
+  state_record_resource cape-maintenance all-machines release-incomplete yes "rc=$rc guard=$CAPE_MAINTENANCE_GUARD_FILE"
+  fail "CAPE maintenance release incomplete; guard preserved for safe recovery"
+  return "$rc"
 }
