@@ -8,7 +8,7 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 need(){ command -v "$1" >/dev/null 2>&1 || { echo "[FAIL] missing build command: $1" >&2; exit 2; }; }
-for x in python3 curl sha256sum qemu-img virt-customize virt-sysprep virt-cat virt-filesystems virt-resize virt-df; do need "$x"; done
+for x in python3 curl sha256sum qemu-img qemu-system-x86_64 cloud-localds virt-sysprep virt-cat virt-filesystems virt-resize virt-df virt-customize timeout; do need "$x"; done
 
 readarray -t BASE < <(python3 - "$BASE_MANIFEST" <<'PY'
 import json,sys
@@ -45,36 +45,58 @@ fi
 
 rm -f "$OUT" "$OUT.part"
 
-# The Ubuntu cloud image root filesystem is on /dev/sda1. Assert that layout
-# before resizing so a future upstream image-layout change stops the build.
+# Assert the pinned image layout before resizing. Ubuntu Noble cloud images use
+# /dev/sda1 as the root partition; an upstream layout change must stop the build.
 mapfile -t PARTITIONS < <(virt-filesystems -a "$BASE_FILE" --partitions 2>/dev/null)
 printf '%s\n' "${PARTITIONS[@]}" | grep -Fxq /dev/sda1 || {
   echo "[FAIL] pinned Ubuntu image no longer exposes expected root partition /dev/sda1" >&2
   exit 5
 }
 
-# Grow both the virtual disk and the guest root filesystem. qemu-img resize
-# alone would leave the guest filesystem at the small cloud-image size.
 qemu-img create -f qcow2 "$OUT.part" 20G >/dev/null
 virt-resize --expand /dev/sda1 "$BASE_FILE" "$OUT.part"
 
-export LIBGUESTFS_BACKEND="${LIBGUESTFS_BACKEND:-direct}"
+# Provision through the cloud image's native boot path instead of depending on
+# libguestfs appliance networking. QEMU user networking is build-time only.
+USER_DATA="$WORK/user-data"
+META_DATA="$WORK/meta-data"
+SEED="$WORK/nocloud-seed.img"
+CONSOLE="$WORK/qemu-console.log"
+python3 "$ROOT/appliance/build/render-cloud-init.py"   --guest-configure "$ROOT/appliance/guest-configure.sh"   --prepare "$ROOT/appliance/image-rootfs-prepare.sh"   --output "$USER_DATA"
+cat >"$META_DATA" <<'EOF_META'
+instance-id: cape-inetsim-appliance-build-v1
+local-hostname: cape-inetsim-build
+EOF_META
+cloud-localds "$SEED" "$USER_DATA" "$META_DATA"
 
-BUILD_DNS_ARGS=()
-if [[ -n "${APPLIANCE_BUILD_DNS:-}" ]]; then
-  python3 - "$APPLIANCE_BUILD_DNS" <<'PY'
-import ipaddress,sys
-ipaddress.ip_address(sys.argv[1])
-PY
-  printf '%s\n' "$APPLIANCE_BUILD_DNS" >"$WORK/build-dns.txt"
-  BUILD_DNS_ARGS=(--upload "$WORK/build-dns.txt:/etc/cape-inetsim-build-dns")
+QEMU_ACCEL=(-accel tcg)
+if [[ -r /dev/kvm && -w /dev/kvm ]]; then
+  QEMU_ACCEL=(-enable-kvm -cpu host)
 fi
 
-virt-customize -a "$OUT.part" --network \
-  --mkdir /usr/local/src \
-  --upload "$ROOT/appliance/guest-configure.sh:/usr/local/src/cape-inetsim-guest-configure" \
-  "${BUILD_DNS_ARGS[@]}" \
-  --run "$ROOT/appliance/image-rootfs-prepare.sh"
+echo "[INFO] booting temporary isolated build VM to install appliance packages"
+set +e
+timeout --signal=TERM --kill-after=30s 1800   qemu-system-x86_64     "${QEMU_ACCEL[@]}"     -name cape-inetsim-appliance-build     -m 2048 -smp 2     -drive "file=$OUT.part,if=virtio,format=qcow2,cache=unsafe"     -drive "file=$SEED,if=virtio,format=raw,readonly=on"     -netdev user,id=buildnet,restrict=off     -device virtio-net-pci,netdev=buildnet     -display none -serial "file:$CONSOLE" -monitor none -no-reboot
+QEMU_RC=$?
+set -e
+
+if [[ "$QEMU_RC" -ne 0 ]]; then
+  echo "[FAIL] temporary appliance build VM exited with status $QEMU_RC" >&2
+  tail -n 200 "$CONSOLE" >&2 || true
+  exit 7
+fi
+
+if ! virt-cat -a "$OUT.part" /var/lib/cape-inetsim-build-ok >/dev/null 2>&1; then
+  echo "[FAIL] appliance provisioning did not complete successfully" >&2
+  echo "----- guest provisioning log -----" >&2
+  virt-cat -a "$OUT.part" /var/log/cape-inetsim-image-build.log >&2 || true
+  echo "----- qemu console tail -----" >&2
+  tail -n 200 "$CONSOLE" >&2 || true
+  exit 8
+fi
+
+# Remove build-only cloud-init state and marker files before generalizing.
+virt-customize -a "$OUT.part"   --run-command 'rm -rf /var/lib/cloud/instances/* /var/lib/cloud/instance /var/lib/cape-inetsim-build-ok /var/lib/cape-inetsim-build-failed /var/log/cape-inetsim-image-build.log /root/cape-inetsim-image-rootfs-prepare /root/cape-inetsim-build-wrapper'
 
 OPS="$(virt-sysprep --list-operations | awk '{print $1}' | tr '\n' ' ')"
 required_ops=(machine-id ssh-hostkeys dhcp-client-state net-hostname)
