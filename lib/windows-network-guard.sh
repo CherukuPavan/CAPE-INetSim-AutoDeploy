@@ -51,6 +51,98 @@ windows_management_guard_available() {
   virsh nwfilter-info "$WINDOWS_MGMT_FILTER_NAME" >/dev/null 2>&1
 }
 
+nwfilter_runtime_prepare() {
+  if windows_management_guard_available; then
+    MANAGEMENT_NWFILTER_AVAILABLE=yes
+    NWFILTER_RUNTIME_MODE=ready
+    return 0
+  fi
+
+  [[ "${MANAGEMENT_NWFILTER_AVAILABLE:-no}" == activatable &&
+     "${NWFILTER_RUNTIME_MODE:-unavailable}" == modular-socket ]] || {
+    fail "libvirt nwfilter runtime is unavailable and was not proven safely activatable"
+    return 1
+  }
+
+  local socket_was_active=no service_was_active=no
+  systemctl is-active --quiet virtnwfilterd.socket && socket_was_active=yes
+  systemctl is-active --quiet virtnwfilterd.service && service_was_active=yes
+
+  if [[ "$socket_was_active" != yes ]]; then
+    state_record_intent libvirt-service virtnwfilterd.socket activating "preexisting=inactive"
+    systemctl start virtnwfilterd.socket
+    systemctl is-active --quiet virtnwfilterd.socket || {
+      fail "Could not activate virtnwfilterd.socket"
+      return 1
+    }
+    state_record_resource libvirt-service virtnwfilterd.socket activated yes "preexisting=inactive"
+    state_write_atomic
+  fi
+
+  # This request intentionally triggers the modular service through its socket
+  # and simultaneously proves that the standard clean-traffic definition is
+  # actually usable by libvirt.
+  windows_management_guard_available || {
+    fail "virtnwfilterd was activated but libvirt still cannot resolve '$WINDOWS_MGMT_FILTER_NAME'"
+    return 1
+  }
+
+  if [[ "$service_was_active" != yes ]] &&
+     systemctl is-active --quiet virtnwfilterd.service &&
+     ! state_resource_owned libvirt-service virtnwfilterd.service; then
+    state_record_resource libvirt-service virtnwfilterd.service activated yes "preexisting=inactive;socket-activated"
+    state_write_atomic
+  fi
+
+  MANAGEMENT_NWFILTER_AVAILABLE=yes
+  NWFILTER_RUNTIME_MODE=ready
+  pass "libvirt nwfilter runtime ready"
+}
+
+nwfilter_runtime_has_bindings() {
+  local out
+  out="$(virsh nwfilter-binding-list --name 2>/dev/null)" || return 2
+  [[ -n "$(printf '%s\n' "$out" | sed '/^[[:space:]]*$/d')" ]]
+}
+
+nwfilter_runtime_rollback() {
+  local owned_socket=no owned_service=no
+  state_resource_owned libvirt-service virtnwfilterd.socket && owned_socket=yes
+  state_resource_owned libvirt-service virtnwfilterd.service && owned_service=yes
+  [[ "$owned_socket" == yes || "$owned_service" == yes ]] || return 0
+
+  # Never trade exact daemon-state restoration for possible disruption of a
+  # filter binding that appeared while AutoDeploy was active. If bindings are
+  # present, or their state cannot be proven, leave the runtime available.
+  local binding_rc=0
+  if nwfilter_runtime_has_bindings; then
+    warn "libvirt nwfilter bindings remain; leaving AutoDeploy-started nwfilter runtime active"
+    [[ "$owned_service" == yes ]] && state_record_resource libvirt-service virtnwfilterd.service released yes "left-active;bindings-present"
+    [[ "$owned_socket" == yes ]] && state_record_resource libvirt-service virtnwfilterd.socket released yes "left-active;bindings-present"
+    state_write_atomic
+    return 0
+  else
+    binding_rc=$?
+  fi
+  if ((binding_rc == 2)); then
+    warn "Could not prove nwfilter binding state; leaving AutoDeploy-started nwfilter runtime active"
+    [[ "$owned_service" == yes ]] && state_record_resource libvirt-service virtnwfilterd.service released yes "left-active;binding-state-unproven"
+    [[ "$owned_socket" == yes ]] && state_record_resource libvirt-service virtnwfilterd.socket released yes "left-active;binding-state-unproven"
+    state_write_atomic
+    return 0
+  fi
+
+  if [[ "$owned_service" == yes ]]; then
+    systemctl stop virtnwfilterd.service
+    state_record_resource libvirt-service virtnwfilterd.service restored yes "restored=inactive"
+  fi
+  if [[ "$owned_socket" == yes ]]; then
+    systemctl stop virtnwfilterd.socket
+    state_record_resource libvirt-service virtnwfilterd.socket restored yes "restored=inactive"
+  fi
+  state_write_atomic
+}
+
 windows_management_guard_apply() {
   [[ "$(virsh domstate "$DOMAIN" 2>/dev/null | xargs)" == "shut off" ]] || {
     fail "Windows management anti-spoof guard must be applied while the analysis VM is shut off"
