@@ -135,3 +135,55 @@ grep -Fq 'internal snapshot capable:' "$ROOT/lib/plan.sh"
 echo "[PASS] Windows internal-snapshot capability safe-stop preflight"
 
 grep -Fq 'WINDOWS_INTERNAL_SNAPSHOT_CAPABLE:-no}" == yes' "$ROOT/lib/deploy.sh"
+
+# The configured CAPE snapshot itself must be a running internal-memory
+# baseline and must carry the same proven management NIC identity.
+DOMAIN=testvm
+CAPE_MACHINE_SNAPSHOT=s1
+MANAGEMENT_NETWORK_NAME=default
+WINDOWS_MANAGEMENT_MAC=52:54:00:11:22:33
+virsh() {
+  if [[ "$1" == snapshot-dumpxml ]]; then
+    cat <<'XML'
+<domainsnapshot>
+  <name>s1</name><state>running</state><memory snapshot='internal'/>
+  <domain><name>testvm</name><devices>
+    <interface type='network'><mac address='52:54:00:11:22:33'/><source network='default'/><model type='e1000e'/></interface>
+  </devices></domain>
+</domainsnapshot>
+XML
+    return 0
+  fi
+  return 1
+}
+DISCOVERY_ERRORS=()
+discover_cape_analysis_snapshot
+[[ "$CAPE_ANALYSIS_SNAPSHOT_STATUS" == proven ]]
+[[ "$CAPE_ANALYSIS_SNAPSHOT_STATE" == running ]]
+[[ "$CAPE_ANALYSIS_SNAPSHOT_MEMORY" == internal ]]
+[[ "${#DISCOVERY_ERRORS[@]}" -eq 0 ]]
+
+virsh() {
+  if [[ "$1" == snapshot-dumpxml ]]; then
+    cat <<'XML'
+<domainsnapshot>
+  <name>s1</name><state>shutoff</state><memory snapshot='no'/>
+  <domain><name>testvm</name><devices>
+    <interface type='network'><mac address='52:54:00:11:22:33'/><source network='default'/><model type='e1000e'/></interface>
+  </devices></domain>
+</domainsnapshot>
+XML
+    return 0
+  fi
+  return 1
+}
+DISCOVERY_ERRORS=()
+discover_cape_analysis_snapshot
+[[ "$CAPE_ANALYSIS_SNAPSHOT_STATUS" == unproven ]]
+[[ "${#DISCOVERY_ERRORS[@]}" -eq 1 ]]
+grep -Fq 'not a running-state internal-memory analysis baseline' <<<"${DISCOVERY_ERRORS[0]}"
+
+grep -Fq 'discover_cape_analysis_snapshot' "$ROOT/lib/plan.sh"
+grep -Fq 'CAPE snapshot proof:' "$ROOT/lib/plan.sh"
+grep -Fq 'CAPE_ANALYSIS_SNAPSHOT_STATUS:-unproven}" == proven' "$ROOT/lib/deploy.sh"
+echo "[PASS] configured CAPE analysis snapshot identity/state preflight"
