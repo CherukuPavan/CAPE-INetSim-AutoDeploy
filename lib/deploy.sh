@@ -139,6 +139,9 @@ deploy_initialize_or_resume_state() {
       [[ "$CAPE_MACHINE_SECTION" == "$d_section" ]] || { fail "Existing deployment state belongs to a different CAPE machine"; return 1; }
       [[ "$DOMAIN" == "$d_domain" ]] || { fail "Existing deployment state belongs to a different libvirt domain"; return 1; }
       [[ "$CAPE_COMMIT" == "$d_commit" ]] || { fail "CAPE commit changed during/after deployment; use verify/repair compatibility flow"; return 1; }
+      if deploy_phase_at_least cape-configured; then
+        cape_assert_owned_files_unchanged || return 1
+      fi
       CAPE_MACHINE_SNAPSHOT="${ORIGINAL_CAPE_SNAPSHOT:-}"
       pass "Resuming deployment state $DEPLOYMENT_ID at phase ${DEPLOYMENT_PHASE:-unknown}"
       return 0
