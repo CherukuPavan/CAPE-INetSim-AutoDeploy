@@ -62,7 +62,7 @@ redact_conf() {
 import re,sys
 src,dst=sys.argv[1:3]
 sensitive=re.compile(r'(?i)(^|[^a-z0-9_])(password|passwd|secret|token|key|api[_-]?key|private[_-]?key|access[_-]?key|client[_-]?secret|proxy[_-]?password)([^a-z0-9_]|$)')
-urlcred=re.compile(r'(https?://)[^/@\s]+@')
+urlcred=re.compile(r'([A-Za-z][A-Za-z0-9+.-]*://)[^/@\s]+@')
 with open(src,'r',errors='replace') as f, open(dst,'w') as o:
     for line in f:
         line=urlcred.sub(r'\1***REDACTED***@', line)
