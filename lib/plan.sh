@@ -12,6 +12,7 @@ run_discovery() {
   discover_resultserver
   match_selected_domain
   discover_domain_details
+  discover_windows_snapshot_capability
   discover_management_network
   discover_management_network_details
   discover_hypervisor_safety_features
@@ -57,6 +58,7 @@ print_plan() {
   kv "domain state:" "${DOMAIN_STATE:-unknown}"
   kv "NIC count:" "${DOMAIN_NIC_COUNT:-unknown}"
   kv "NIC model(s):" "${DOMAIN_NIC_MODELS:-unknown}"
+  kv "internal snapshot capable:" "${WINDOWS_INTERNAL_SNAPSHOT_CAPABLE:-unknown}"
 
   echo; echo "Windows control"
   kv "QEMU Guest Agent:" "${QGA_AVAILABLE:-unknown}"
