@@ -10,4 +10,9 @@ grep -q 'org.qemu.guest_agent.0' <<<"$out"
 [[ "$(grep -o 'org.qemu.guest_agent.0' <<<"$out" | wc -l)" -eq 1 ]]
 out2="$(inject_qga_channel <<<"$out")"
 [[ "$(grep -o 'org.qemu.guest_agent.0' <<<"$out2" | wc -l)" -eq 1 ]]
-echo '[PASS] generalized appliance domain QGA injection is idempotent'
+source "$ROOT/lib/deploy.sh"
+INETSIM_DOMAIN_NAME=temporary-wrong-name
+deploy_reset_resource_state
+[[ "$INETSIM_DOMAIN_NAME" == cape-inetsim-appliance ]]
+
+echo '[PASS] generalized appliance domain QGA injection and fresh-state defaults'
