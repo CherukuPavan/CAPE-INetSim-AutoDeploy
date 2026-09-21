@@ -50,6 +50,7 @@ state_write_atomic() {
     printf 'WINDOWS_ISOLATED_NIC_MODEL=%q\n' "${WINDOWS_ISOLATED_NIC_MODEL:-}"
     printf 'WINDOWS_ISOLATED_MAC=%q\n' "${WINDOWS_ISOLATED_MAC:-}"
     printf 'SAFETY_SNAPSHOT=%q\n' "${SAFETY_SNAPSHOT:-}"
+    printf 'WORKING_SNAPSHOT=%q\n' "${WORKING_SNAPSHOT:-}"
     printf 'FINAL_SNAPSHOT=%q\n' "${FINAL_SNAPSHOT:-}"
     printf 'STATE_UPDATED_AT=%q\n' "$(date -Is)"
   } >"$tmp"
