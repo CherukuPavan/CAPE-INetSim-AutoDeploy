@@ -106,6 +106,14 @@ COMPAT_NOTES=()
 check_cape_layout
 [[ "$COMPAT_STATUS" == plan-compatible ]] || { fail "Current CAPE source layout is not repair-compatible"; exit 23; }
 
+# Repair may recreate missing AutoDeploy-owned infrastructure, but it must not
+# silently overwrite CAPE files changed by an operator or CAPE update after the
+# deployment committed them.
+cape_assert_owned_files_unchanged || {
+  fail "CAPE-managed files drifted after deployment; refusing repair overwrite. Inspect or rollback deliberately."
+  exit 26
+}
+
 # CAPE mutations happen only after CAPE reaches a task-safe point. If the
 # scheduler is already stopped there is no scheduling race to guard.
 if [[ "$REPAIR_CAPE_ACTIVE" == yes ]]; then
