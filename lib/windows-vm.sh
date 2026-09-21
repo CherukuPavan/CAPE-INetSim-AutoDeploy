@@ -367,7 +367,11 @@ windows_rollback_to_safety() {
 
   windows_delete_owned_snapshots_leaf_first
 
+  # Keep the analysis VM powered off after rollback. CAPE can start/revert it
+  # for the next task. AutoDeploy must not re-expose a restored pre-deployment
+  # guest to an unknown management-network routing policy after removing its
+  # deployment-owned egress guards.
   if [[ "${WINDOWS_ORIGINAL_DOMAIN_STATE:-}" == running ]]; then
-    virsh start "$DOMAIN" >/dev/null
+    warn "Rollback restored the pre-deployment Windows snapshot but intentionally left the analysis VM shut off for network safety"
   fi
 }
