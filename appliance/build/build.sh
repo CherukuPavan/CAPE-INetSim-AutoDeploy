@@ -59,7 +59,10 @@ qemu-img create -f qcow2 "$OUT.part" 20G >/dev/null
 virt-resize --expand /dev/sda1 "$BASE_FILE" "$OUT.part"
 
 export LIBGUESTFS_BACKEND="${LIBGUESTFS_BACKEND:-direct}"
-virt-customize -a "$OUT.part" --network   --mkdir /usr/local/src   --upload "$ROOT/appliance/guest-configure.sh:/usr/local/src/cape-inetsim-guest-configure"   --upload "$ROOT/appliance/image-rootfs-prepare.sh:/root/cape-inetsim-image-rootfs-prepare"   --chmod '0755:/root/cape-inetsim-image-rootfs-prepare'   --run /root/cape-inetsim-image-rootfs-prepare   --delete /root/cape-inetsim-image-rootfs-prepare
+virt-customize -a "$OUT.part" --network \
+  --mkdir /usr/local/src \
+  --upload "$ROOT/appliance/guest-configure.sh:/usr/local/src/cape-inetsim-guest-configure" \
+  --run "$ROOT/appliance/image-rootfs-prepare.sh"
 
 OPS="$(virt-sysprep --list-operations | awk '{print $1}' | tr '\n' ' ')"
 required_ops=(machine-id ssh-hostkeys dhcp-client-state net-hostname)
