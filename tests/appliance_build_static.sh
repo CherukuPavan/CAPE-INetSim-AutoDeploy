@@ -22,6 +22,8 @@ assert m, "build wrapper payload missing"
 decoded=base64.b64decode(m.group(1))
 assert b"poweroff -f" in decoded
 assert b"cape-inetsim-build-ok" in decoded
+assert b"/dev/console" in decoded
+assert b"PIPESTATUS" in decoded
 PY
 
 grep -q 'release-20260801' "$ROOT/appliance/build/base-image.json"
@@ -30,6 +32,12 @@ grep -q 'virt-sysprep' "$ROOT/appliance/build/build.sh"
 grep -q 'virt-resize --expand /dev/sda1' "$ROOT/appliance/build/build.sh"
 grep -q 'cloud-localds' "$ROOT/appliance/build/build.sh"
 grep -q 'qemu-system-x86_64' "$ROOT/appliance/build/build.sh"
+grep -q 'type=q35,accel=kvm' "$ROOT/appliance/build/build.sh"
+grep -q -- '-nographic' "$ROOT/appliance/build/build.sh"
+grep -q 'APPLIANCE_DIAG_DIR' "$ROOT/appliance/build/build.sh"
+grep -q 'cloud-init-output.log' "$ROOT/appliance/build/build.sh"
+grep -q 'Acquire::http::Timeout=30' "$ROOT/appliance/image-rootfs-prepare.sh"
+grep -q 'timeout 600 apt-get' "$ROOT/appliance/image-rootfs-prepare.sh"
 grep -q 'render-cloud-init.py' "$ROOT/appliance/build/build.sh"
 grep -q 'cape-inetsim-build-ok' "$ROOT/appliance/build/build.sh"
 grep -q 'virt-df' "$ROOT/appliance/build/build.sh"
