@@ -16,6 +16,7 @@ SOURCE_URL="https://github.com/$REPO/releases/download/$TAG/$SOURCE_NAME"
 command -v curl >/dev/null 2>&1 || { echo "[FAIL] curl is required" >&2; exit 2; }
 command -v tar >/dev/null 2>&1 || { echo "[FAIL] tar is required" >&2; exit 2; }
 command -v sha256sum >/dev/null 2>&1 || { echo "[FAIL] sha256sum is required" >&2; exit 2; }
+command -v python3 >/dev/null 2>&1 || { echo "[FAIL] python3 is required" >&2; exit 2; }
 
 TMP="$(mktemp -d /tmp/cape-inetsim-autodeploy-release.XXXXXX)"
 cleanup(){ rm -rf "$TMP"; }
