@@ -194,12 +194,31 @@ inetsim_verify_host() {
 }
 
 inetsim_vm_rollback() {
-  if virsh dominfo "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1 && state_resource_owned domain "$INETSIM_DOMAIN_NAME"; then
+  if virsh dominfo "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1; then
+    if ! state_resource_owned domain "$INETSIM_DOMAIN_NAME"; then
+      if state_resource_intended domain "$INETSIM_DOMAIN_NAME" && inetsim_domain_matches_plan; then
+        state_record_resource domain "$INETSIM_DOMAIN_NAME" recovered-created yes "rollback-adoption"
+      else
+        fail "Refusing to remove non-owned INetSim domain $INETSIM_DOMAIN_NAME"
+        return 1
+      fi
+    fi
     virsh destroy "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1 || true
     virsh undefine "$INETSIM_DOMAIN_NAME" --nvram >/dev/null 2>&1 || virsh undefine "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1 || true
     state_record_resource domain "$INETSIM_DOMAIN_NAME" removed-by-rollback yes ""
   fi
-  if [[ -n "${INETSIM_DISK_PATH:-}" && -e "$INETSIM_DISK_PATH" ]] && state_resource_owned disk "$INETSIM_DISK_PATH"; then
+
+  rm -f "${INETSIM_DISK_PATH:-}.part" 2>/dev/null || true
+  if [[ -n "${INETSIM_DISK_PATH:-}" && -e "$INETSIM_DISK_PATH" ]]; then
+    if ! state_resource_owned disk "$INETSIM_DISK_PATH"; then
+      if state_resource_intended disk "$INETSIM_DISK_PATH"; then
+        qemu-img check "$INETSIM_DISK_PATH" >/dev/null || { fail "Intended INetSim disk is not a valid qcow2 image"; return 1; }
+        state_record_resource disk "$INETSIM_DISK_PATH" recovered-created yes "rollback-adoption"
+      else
+        fail "Refusing to remove non-owned INetSim disk $INETSIM_DISK_PATH"
+        return 1
+      fi
+    fi
     rm -f "$INETSIM_DISK_PATH"
     state_record_resource disk "$INETSIM_DISK_PATH" removed-by-rollback yes ""
   fi
