@@ -12,8 +12,9 @@ def b64(path):
 
 wrapper=b"""#!/bin/bash
 set +e
-/root/cape-inetsim-image-rootfs-prepare >/var/log/cape-inetsim-image-build.log 2>&1
-rc=$?
+set -o pipefail
+/root/cape-inetsim-image-rootfs-prepare 2>&1 | tee /var/log/cape-inetsim-image-build.log /dev/console
+rc=${PIPESTATUS[0]}
 mkdir -p /var/lib
 if [ "$rc" -eq 0 ]; then
   touch /var/lib/cape-inetsim-build-ok
