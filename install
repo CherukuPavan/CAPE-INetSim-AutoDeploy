@@ -82,6 +82,7 @@ Usage:
   sudo ./install --verify
   sudo ./install --repair
   sudo ./install --status
+  sudo ./install --collect
   sudo ./install --rollback [--apply]
 
 With no mode argument, AutoDeploy performs --deploy.
@@ -90,6 +91,7 @@ Safety:
   --plan       read-only discovery; changes nothing.
   --deploy     transactional deployment; stops on unknown CAPE layouts and
                rolls back project-owned changes on failure.
+  --collect    create one comprehensive read-only diagnostic .tar.gz for support/research.
   --rollback   dry-run recovery plan unless --apply is also supplied.
 
 The malware-analysis Windows guest is never given a real/default Internet route.
@@ -103,6 +105,7 @@ while (($#)); do
     --verify) MODE=verify; shift ;;
     --repair) MODE=repair; shift ;;
     --status) MODE=status; shift ;;
+    --collect) MODE=collect; shift ;;
     --rollback) MODE=rollback; shift ;;
     --apply) ROLLBACK_APPLY=yes; shift ;;
     --machine)
@@ -141,6 +144,9 @@ case "$MODE" in
   status)
     require_root
     exec "$AUTODEPLOY_ROOT/bin/cape-inetsim-status"
+    ;;
+  collect)
+    exec "$AUTODEPLOY_ROOT/bin/cape-inetsim-collect"
     ;;
   rollback)
     require_root
