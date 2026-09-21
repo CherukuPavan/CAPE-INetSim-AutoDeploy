@@ -59,9 +59,21 @@ qemu-img create -f qcow2 "$OUT.part" 20G >/dev/null
 virt-resize --expand /dev/sda1 "$BASE_FILE" "$OUT.part"
 
 export LIBGUESTFS_BACKEND="${LIBGUESTFS_BACKEND:-direct}"
+
+BUILD_DNS_ARGS=()
+if [[ -n "${APPLIANCE_BUILD_DNS:-}" ]]; then
+  python3 - "$APPLIANCE_BUILD_DNS" <<'PY'
+import ipaddress,sys
+ipaddress.ip_address(sys.argv[1])
+PY
+  printf '%s\n' "$APPLIANCE_BUILD_DNS" >"$WORK/build-dns.txt"
+  BUILD_DNS_ARGS=(--upload "$WORK/build-dns.txt:/etc/cape-inetsim-build-dns")
+fi
+
 virt-customize -a "$OUT.part" --network \
   --mkdir /usr/local/src \
   --upload "$ROOT/appliance/guest-configure.sh:/usr/local/src/cape-inetsim-guest-configure" \
+  "${BUILD_DNS_ARGS[@]}" \
   --run "$ROOT/appliance/image-rootfs-prepare.sh"
 
 OPS="$(virt-sysprep --list-operations | awk '{print $1}' | tr '\n' ' ')"
