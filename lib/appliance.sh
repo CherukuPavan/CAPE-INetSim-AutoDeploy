@@ -28,7 +28,7 @@ try:
     with open(p) as f: d=json.load(f)
 except Exception as e:
     print(f"invalid JSON: {e}", file=sys.stderr); raise SystemExit(2)
-required=['schema','appliance_version','status','artifact_name','artifact_url','sha256','format','os','inetsim','guest_management','networking']
+required=['schema','appliance_version','status','artifact_name','artifact_url','sha256','format','os','inetsim','guest_management','networking','transport']
 missing=[k for k in required if k not in d]
 if missing:
     print('missing fields: '+','.join(missing), file=sys.stderr); raise SystemExit(2)
@@ -56,6 +56,17 @@ if (d.get('networking') or {}).get('baked_in_fake_internet_subnet') is not False
     print('appliance must not contain a baked-in fake-Internet subnet', file=sys.stderr); raise SystemExit(2)
 if (d.get('inetsim') or {}).get('unprivileged_port_start') != 53:
     print('appliance low-port safety setting is unexpected', file=sys.stderr); raise SystemExit(2)
+transport=d.get('transport') or {}
+if transport.get('compression') not in ('none','gzip'):
+    print('unsupported appliance transport compression', file=sys.stderr); raise SystemExit(2)
+tname=str(transport.get('artifact_name') or '')
+if not tname or tname != tname.split('/')[-1] or tname in ('.','..'):
+    print('transport artifact_name must be a safe basename', file=sys.stderr); raise SystemExit(2)
+tsha=str(transport.get('sha256') or '').lower()
+if not re.fullmatch(r'[0-9a-f]{64}', tsha):
+    print('transport sha256 must be 64 hex characters', file=sys.stderr); raise SystemExit(2)
+if transport.get('compression')=='gzip' and not tname.endswith('.gz'):
+    print('gzip transport artifact must end in .gz', file=sys.stderr); raise SystemExit(2)
 print('OK')
 PY
 }
@@ -87,25 +98,64 @@ print("OK")
   pass "Appliance artifact checksum verified"
 }
 
+appliance_verify_transport_file() {
+  local file="$1" manifest="${2:-$APPLIANCE_MANIFEST}"
+  [[ -f "$file" ]] || { fail "Appliance transport artifact missing: $file"; return 1; }
+  local expected actual
+  expected="$(appliance_manifest_field transport.sha256 "$manifest")"
+  actual="$(sha256sum "$file" | awk '{print $1}')"
+  [[ "$actual" == "$expected" ]] || {
+    fail "Appliance transport SHA-256 mismatch"
+    return 1
+  }
+}
+
 appliance_fetch() {
   local manifest="${1:-$APPLIANCE_MANIFEST}"
   appliance_manifest_validate "$manifest" >/dev/null
-  local name url cache part
+
+  local name url compression transport_name cache raw_part transport transport_part
   name="$(appliance_manifest_field artifact_name "$manifest")"
   url="$(appliance_manifest_field artifact_url "$manifest")"
+  compression="$(appliance_manifest_field transport.compression "$manifest")"
+  transport_name="$(appliance_manifest_field transport.artifact_name "$manifest")"
+
   install -d -m 0755 "$APPLIANCE_CACHE_ROOT"
   cache="$APPLIANCE_CACHE_ROOT/$name"
-  part="$cache.part"
+  raw_part="$cache.part"
+  transport="$APPLIANCE_CACHE_ROOT/$transport_name"
+  transport_part="$transport.part"
 
   if [[ -f "$cache" ]] && appliance_verify_file "$cache" "$manifest" >/dev/null 2>&1; then
     printf '%s\n' "$cache"
     return 0
   fi
 
-  rm -f "$part"
-  curl --fail --location --proto '=https' --tlsv1.2 --retry 3 --output "$part" "$url"
-  appliance_verify_file "$part" "$manifest" >&2
-  chmod 0644 "$part"
-  mv -f "$part" "$cache"
+  rm -f "$raw_part" "$transport_part"
+  curl --fail --location --proto '=https' --tlsv1.2 --retry 3 --output "$transport_part" "$url"
+  appliance_verify_transport_file "$transport_part" "$manifest" >&2
+  chmod 0644 "$transport_part"
+  mv -f "$transport_part" "$transport"
+
+  case "$compression" in
+    none)
+      cp --reflink=auto "$transport" "$raw_part"
+      ;;
+    gzip)
+      have gzip || { fail "gzip is required to unpack the appliance release"; return 1; }
+      gzip -t "$transport" || { fail "Appliance gzip transport integrity check failed"; return 1; }
+      gzip -dc "$transport" >"$raw_part"
+      ;;
+    *)
+      fail "Unsupported appliance transport compression: $compression"
+      return 1
+      ;;
+  esac
+
+  appliance_verify_file "$raw_part" "$manifest" >&2
+  chmod 0644 "$raw_part"
+  mv -f "$raw_part" "$cache"
+  rm -f "$transport"
   printf '%s\n' "$cache"
 }
+
