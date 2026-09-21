@@ -21,10 +21,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       - name: Cache pinned Ubuntu base image
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: ~/.cache/cape-inetsim-autodeploy/base
           key: ubuntu-noble-20260801-0533b0655c32e68b31d792ecd6ccfca95abdbc536c4446874fe0513bd4140ffe
@@ -123,7 +123,7 @@ jobs:
 
       - name: Upload candidate verification evidence
         if: steps.appliance_build.outcome == 'success' && steps.appliance_verify.outcome == 'success' && steps.appliance_package.outcome == 'success'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: cape-inetsim-appliance-v1.0.0-evidence
           path: ${{ runner.temp }}/appliance-evidence
@@ -131,7 +131,7 @@ jobs:
 
       - name: Upload build candidate
         if: steps.appliance_build.outcome == 'success' && steps.appliance_verify.outcome == 'success' && steps.appliance_package.outcome == 'success'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: cape-inetsim-appliance-v1.0.0-candidate
           path: |
@@ -145,7 +145,7 @@ jobs:
 
       - name: Upload failure diagnostics
         if: steps.appliance_build.outcome != 'success' || steps.appliance_verify.outcome == 'failure' || steps.appliance_package.outcome == 'failure'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: cape-inetsim-appliance-build-diagnostics
           path: ${{ runner.temp }}/appliance-diag
