@@ -28,6 +28,8 @@ jobs:
         run: bash tests/universal_logic.sh
       - name: Multi-machine CAPE target-set logic
         run: bash tests/multi_target_logic.sh
+      - name: Multi-machine transactional cutover
+        run: bash tests/multi_target_deploy.sh
       - name: Live host preflight discovery
         run: bash tests/live_host_preflight.sh
       - name: Modular nwfilter runtime lifecycle
