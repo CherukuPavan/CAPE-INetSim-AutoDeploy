@@ -18,8 +18,9 @@ if [ -f /etc/cape-inetsim-build-dns ]; then
   printf 'nameserver %s\noptions timeout:2 attempts:3\n' "$BUILD_DNS" >/etc/resolv.conf
 fi
 
-apt-get update
-apt-get install -y --no-install-recommends inetsim qemu-guest-agent ca-certificates iproute2 netplan.io
+APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+timeout 300 apt-get $APT_OPTS update
+timeout 600 apt-get $APT_OPTS install -y --no-install-recommends inetsim qemu-guest-agent ca-certificates iproute2 netplan.io
 
 INET_VER="$(dpkg-query -W -f='${Version}' inetsim)"
 case "$INET_VER" in
