@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+ROOT="${AUTODEPLOY_ROOT:-/usr/local/lib/cape-inetsim-autodeploy}"
+[[ -f "$ROOT/lib/state.sh" ]] || ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+AUTODEPLOY_ROOT="$ROOT"
+export AUTODEPLOY_ROOT
+
+source "$ROOT/lib/common.sh"
+source "$ROOT/lib/state.sh"
+source "$ROOT/lib/transaction.sh"
+source "$ROOT/lib/cape.sh"
+source "$ROOT/lib/libvirt.sh"
+source "$ROOT/lib/network.sh"
+source "$ROOT/lib/compat.sh"
+source "$ROOT/lib/appliance.sh"
+source "$ROOT/lib/qga.sh"
+source "$ROOT/lib/isolated-network.sh"
+source "$ROOT/lib/inetsim-vm.sh"
+source "$ROOT/lib/cape-configure.sh"
+source "$ROOT/lib/extension.sh"
+source "$ROOT/lib/services.sh"
+source "$ROOT/lib/validate.sh"
+
+require_root
+transaction_lock_acquire
+state_load || { fail "No deployment state exists"; exit 1; }
+[[ "${DEPLOYMENT_PHASE:-}" == committed ]] || { fail "Repair is allowed only for a committed deployment"; exit 2; }
+
+# Windows baseline is security-critical. Repair never invents/replaces it.
+[[ -n "${FINAL_SNAPSHOT:-}" ]] && virsh snapshot-info "$DOMAIN" "$FINAL_SNAPSHOT" >/dev/null 2>&1 || {
+  fail "CAPE-ready Windows snapshot is missing; repair will not guess or recreate it. Roll back/redeploy at a safe point."
+  exit 20
+}
+
+if ! virsh net-info "$ISOLATED_NETWORK_NAME" >/dev/null 2>&1; then
+  state_resource_owned libvirt-network "$ISOLATED_NETWORK_NAME" || { fail "Missing isolated network is not recorded as AutoDeploy-owned"; exit 21; }
+  isolated_network_apply
+fi
+
+if ! virsh dominfo "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1; then
+  state_resource_owned domain "$INETSIM_DOMAIN_NAME" || { fail "Missing INetSim domain is not recorded as AutoDeploy-owned"; exit 22; }
+  artifact="$(appliance_fetch "$APPLIANCE_MANIFEST")"
+  [[ -e "$INETSIM_DISK_PATH" ]] || inetsim_copy_appliance_disk "$artifact"
+  inetsim_define_domain
+fi
+
+inetsim_configure_guest
+inetsim_verify_host
+
+# Reapply only exact, version-gated CAPE settings. Backups from the original
+# deployment are never overwritten by backup_file_once().
+check_cape_layout
+[[ "$COMPAT_STATUS" == plan-compatible ]] || { fail "Current CAPE source layout is not repair-compatible"; exit 23; }
+cape_configure_inetsim
+
+if ! grep -Rqs 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$CAPE_ROOT/web"; then
+  extension_install
+fi
+
+if [[ "${CAPE_PROCESSOR_WAS_ACTIVE:-no}" == yes ]]; then systemctl restart cape-processor.service; fi
+if [[ "${CAPE_WEB_WAS_ACTIVE:-no}" == yes ]]; then systemctl restart cape-web.service; fi
+if [[ "${CAPE_SERVICE_WAS_ACTIVE:-no}" == yes ]]; then systemctl restart cape.service; fi
+
+validate_deployment_structural
+validate_deployment_services
+state_set_phase committed
+pass "Safe repair completed"
