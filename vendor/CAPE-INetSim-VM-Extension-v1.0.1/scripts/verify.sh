@@ -115,6 +115,11 @@ fi
 # shellcheck disable=SC1090
 source "$CONFIG_FILE"
 
+# CAPE section names and libvirt domain names are allowed to differ.
+# Older extension configurations did not carry CAPE_DOMAIN, so retain a
+# backwards-compatible fallback for standalone use.
+CAPE_DOMAIN="${CAPE_DOMAIN:-${CAPE_MACHINE:-}}"
+
 
 # ------------------------------------------------------------
 # 2. Required configuration variables
@@ -311,12 +316,12 @@ echo "8. Analysis virtual machine"
 
 if command -v virsh >/dev/null 2>&1; then
 
-    if virsh dominfo "${CAPE_MACHINE:-}" >/dev/null 2>&1; then
+    if virsh dominfo "${CAPE_DOMAIN:-}" >/dev/null 2>&1; then
 
-        pass "libvirt domain exists: $CAPE_MACHINE"
+        pass "libvirt domain exists: $CAPE_DOMAIN"
 
         vm_state="$(
-            virsh domstate "$CAPE_MACHINE" 2>/dev/null |
+            virsh domstate "$CAPE_DOMAIN" 2>/dev/null |
             head -1 |
             xargs
         )"
@@ -325,8 +330,8 @@ if command -v virsh >/dev/null 2>&1; then
 
     else
 
-        warn "Could not query libvirt domain '$CAPE_MACHINE' as the current user"
-        info "If the VM exists, check libvirt permissions or run: sudo virsh dominfo $CAPE_MACHINE"
+        warn "Could not query libvirt domain '$CAPE_DOMAIN' as the current user"
+        info "If the VM exists, check libvirt permissions or run: sudo virsh dominfo $CAPE_DOMAIN"
 
     fi
 
