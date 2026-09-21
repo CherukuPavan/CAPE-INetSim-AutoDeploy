@@ -140,7 +140,7 @@ jobs:
             ${{ runner.temp }}/cape-inetsim-appliance-v1.0.0.qcow2.gz.size.txt
             ${{ runner.temp }}/cape-inetsim-appliance-v1.0.0.qcow2.sha256
             ${{ runner.temp }}/cape-inetsim-appliance-v1.0.0.qcow2.info.txt
-          retention-days: 7
+          retention-days: 30
           compression-level: 0
 
       - name: Upload failure diagnostics
