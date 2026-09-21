@@ -8,6 +8,10 @@ on:
     paths:
       - appliance/**
       - .github/workflows/appliance-build.yml
+  pull_request:
+    paths:
+      - appliance/**
+      - .github/workflows/appliance-build.yml
 
 permissions:
   contents: read
@@ -37,6 +41,8 @@ jobs:
           sudo chmod a+r /boot/vmlinuz-* /boot/initrd.img-* 2>/dev/null || true
 
       - name: Build generalized QCOW2
+        id: appliance_build
+        continue-on-error: true
         env:
           LIBGUESTFS_BACKEND: direct
           LIBGUESTFS_MEMSIZE: 1024
@@ -45,6 +51,7 @@ jobs:
           appliance/build/build.sh "$RUNNER_TEMP/cape-inetsim-appliance-v1.0.0.qcow2"
 
       - name: Upload build candidate
+        if: steps.appliance_build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: cape-inetsim-appliance-v1.0.0-candidate
@@ -54,3 +61,11 @@ jobs:
             ${{ runner.temp }}/cape-inetsim-appliance-v1.0.0.qcow2.info.txt
           retention-days: 7
           compression-level: 0
+
+      - name: Diagnostic outcome
+        if: always()
+        run: |
+          echo "appliance_build_outcome=${{ steps.appliance_build.outcome }}"
+          if [[ "${{ steps.appliance_build.outcome }}" != "success" ]]; then
+            echo "::warning::Appliance candidate build failed in non-gating diagnostic mode; inspect this run before publishing any manifest."
+          fi
