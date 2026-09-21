@@ -13,7 +13,7 @@ deploy_phase_rank() {
     windows-nic-attached) echo 70 ;;
     windows-configured) echo 80 ;;
     windows-running-snapshot|windows-working-snapshot) echo 90 ;;
-    windows-snapshots-ready) echo 100 ;;
+    windows-snapshots-ready|windows-all-ready) echo 100 ;;
     cape-configured) echo 110 ;;
     extension-installed) echo 120 ;;
     handoff-complete) echo 130 ;;
@@ -290,87 +290,102 @@ deploy_verify_safety_snapshot() {
 
 deploy_finish_windows_snapshots() {
   local state
-  state="$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)"
-
-  if [[ "${WINDOWS_BACKEND_USED:-}" == manual-powershell ]]; then
-    if [[ -z "${FINAL_SNAPSHOT:-}" ]] || ! windows_snapshot_exists "$FINAL_SNAPSHOT"; then
-      [[ "$state" == running ]] || {
-        fail "Manual Windows fallback was completed but the guest is no longer running before its CAPE snapshot was captured"
-        return 1
-      }
-      validate_windows_result_file
-      windows_create_running_snapshot
-      state_set_phase windows-running-snapshot
-    fi
-
+  if [[ -z "${WORKING_SNAPSHOT:-}" ]] || ! windows_snapshot_exists "$WORKING_SNAPSHOT"; then
     state="$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)"
     [[ "$state" == "shut off" ]] || windows_poweroff_selected_backend
     windows_create_working_snapshot
-    state_set_phase windows-working-snapshot
-  else
-    if [[ -z "${WORKING_SNAPSHOT:-}" ]] || ! windows_snapshot_exists "$WORKING_SNAPSHOT"; then
-      state="$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)"
-      [[ "$state" == "shut off" ]] || windows_poweroff_selected_backend
-      windows_create_working_snapshot
-      state_set_phase windows-working-snapshot
-    fi
-
-    if [[ -z "${FINAL_SNAPSHOT:-}" ]] || ! windows_snapshot_exists "$FINAL_SNAPSHOT"; then
-      windows_start_for_cutover
-      windows_select_live_backend
-      windows_verify_selected_backend
-      windows_create_running_snapshot
-      state_set_phase windows-running-snapshot
-    fi
-
-    state="$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)"
-    [[ "$state" == "shut off" ]] || windows_poweroff_selected_backend
   fi
 
+  if [[ -z "${FINAL_SNAPSHOT:-}" ]] || ! windows_snapshot_exists "$FINAL_SNAPSHOT"; then
+    windows_start_for_cutover
+    windows_select_live_backend
+    windows_verify_selected_backend
+    windows_create_running_snapshot
+  fi
+
+  state="$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)"
+  [[ "$state" == "shut off" ]] || windows_poweroff_selected_backend
+
   [[ "$(snapshot_state_memory "$WORKING_SNAPSHOT")" == "shutoff|no" ]] || {
-    fail "Configured rollback snapshot is not a shutoff/no-memory snapshot"
+    fail "Configured rollback snapshot is not a shutoff/no-memory snapshot for $CAPE_MACHINE_SECTION"
     return 1
   }
   [[ "$(snapshot_state_memory "$FINAL_SNAPSHOT")" == "running|internal" ]] || {
-    fail "CAPE analysis snapshot is not running-state with internal memory"
+    fail "CAPE analysis snapshot is not running-state with internal memory for $CAPE_MACHINE_SECTION"
     return 1
   }
-  state_set_phase windows-snapshots-ready
+  target_state_set_phase snapshots-ready
 }
 
-deploy_windows_cutover() {
-  deploy_ensure_maintenance
+deploy_windows_target_cutover() {
+  case "${TARGET_PHASE:-discovered}" in
+    discovered)
+      info "Preparing CAPE analysis VM $CAPE_MACHINE_SECTION ($DOMAIN)"
+      windows_stop_for_cutover
+      windows_create_safety_snapshot
+      windows_management_guard_apply
+      windows_attach_isolated_nic
+      target_state_set_phase nic-attached
+      # Re-render the shared host guard with every target whose management
+      # anti-spoof protection is now active. This preserves previously protected
+      # machines while adding the current one.
+      firewall_enable_windows_management_guard
+      ;;
+    nic-attached|configured|snapshots-ready|cape-configured)
+      deploy_verify_safety_snapshot
+      windows_management_guard_verify
+      deploy_verify_windows_nic
+      firewall_apply
+      ;;
+    *)
+      fail "Unknown per-target deployment phase for $CAPE_MACHINE_SECTION: ${TARGET_PHASE:-missing}"
+      return 1
+      ;;
+  esac
 
-  if ! deploy_phase_at_least windows-nic-attached; then
-    windows_stop_for_cutover
-    windows_create_safety_snapshot
-    windows_management_guard_apply
-    firewall_enable_windows_management_guard
-    windows_attach_isolated_nic
-    state_set_phase windows-nic-attached
-  else
-    deploy_verify_safety_snapshot
-    windows_management_guard_verify
-    firewall_management_guard_matches
-    deploy_verify_windows_nic
-  fi
-
-  if ! deploy_phase_at_least windows-configured; then
+  if [[ "${TARGET_PHASE:-}" == nic-attached ]]; then
     windows_start_for_cutover
     windows_select_live_backend
     windows_configure_selected_backend
     windows_verify_selected_backend
-    state_set_phase windows-configured
-  else
+    target_state_set_phase configured
+  elif [[ "${TARGET_PHASE:-}" == configured || "${TARGET_PHASE:-}" == snapshots-ready || "${TARGET_PHASE:-}" == cape-configured ]]; then
     validate_windows_result_file
   fi
 
-  if ! deploy_phase_at_least windows-snapshots-ready; then
+  if [[ "${TARGET_PHASE:-}" == configured ]]; then
     deploy_finish_windows_snapshots
-  else
+  elif [[ "${TARGET_PHASE:-}" == snapshots-ready || "${TARGET_PHASE:-}" == cape-configured ]]; then
     [[ "$(snapshot_state_memory "$WORKING_SNAPSHOT")" == "shutoff|no" ]]
     [[ "$(snapshot_state_memory "$FINAL_SNAPSHOT")" == "running|internal" ]]
   fi
+
+  pass "CAPE analysis VM prepared: $CAPE_MACHINE_SECTION -> $DOMAIN"
+}
+
+deploy_windows_cutover() {
+  deploy_ensure_maintenance
+  local i
+  CAPE_TARGETS_COUNT="$(targets_count)"
+  for ((i=0;i<CAPE_TARGETS_COUNT;i++)); do
+    targets_bind "$i"
+    deploy_windows_target_cutover
+    targets_capture_bound "$i"
+    state_write_atomic
+  done
+  targets_bind 0
+  state_set_phase windows-all-ready
+}
+
+deploy_validate_all_cape_configuration() {
+  local saved="${TARGET_INDEX:-}" i failures=0
+  CAPE_TARGETS_COUNT="$(targets_count)"
+  for ((i=0;i<CAPE_TARGETS_COUNT;i++)); do
+    targets_bind "$i"
+    validate_cape_configuration || failures=$((failures+1))
+  done
+  [[ "$saved" =~ ^[0-9]+$ ]] && targets_bind "$saved"
+  ((failures == 0))
 }
 
 deploy_cape_cutover() {
@@ -378,7 +393,7 @@ deploy_cape_cutover() {
     deploy_ensure_maintenance
     cape_configure_inetsim
   else
-    validate_cape_configuration
+    deploy_validate_all_cape_configuration
   fi
 
   if ! deploy_phase_at_least extension-installed; then
@@ -389,7 +404,6 @@ deploy_cape_cutover() {
   validate_deployment_structural
 
   if ! deploy_phase_at_least handoff-complete; then
-    # If the guard still exists, no new CAPE task can race this handoff.
     if [[ -f "$CAPE_MAINTENANCE_GUARD_FILE" ]]; then
       cape_verify_maintenance_guard
       services_stop_scheduler_for_handoff
@@ -405,7 +419,6 @@ deploy_cape_cutover() {
 
   validate_deployment_services
 }
-
 deploy_rollback_after_error() {
   local rc="$1"
   trap - ERR INT TERM
@@ -447,8 +460,15 @@ deploy_run() {
     deploy_validate_staged_resources
   fi
 
-  if ! deploy_phase_at_least windows-snapshots-ready; then
+  if ! deploy_phase_at_least windows-all-ready; then
     deploy_windows_cutover
+  else
+    local i
+    for ((i=0;i<CAPE_TARGETS_COUNT;i++)); do
+      targets_bind "$i"
+      deploy_windows_target_cutover
+    done
+    targets_bind 0
   fi
 
   if ! deploy_phase_at_least handoff-complete; then
@@ -462,10 +482,10 @@ deploy_run() {
   trap - ERR INT TERM
   echo
   pass "CAPE-INetSim-AutoDeploy deployment committed"
-  kv "CAPE machine:" "$CAPE_MACHINE_SECTION"
+  kv "managed CAPE machines:" "${CAPE_TARGETS_COUNT:-0}"
   kv "INetSim server:" "$INETSIM_IP"
-  kv "Windows fake IP:" "$WINDOWS_FAKE_IP"
   kv "isolated network:" "$ISOLATED_NETWORK_NAME"
   kv "capture bridge:" "$ISOLATED_BRIDGE_NAME"
-  kv "running snapshot:" "$FINAL_SNAPSHOT"
+  echo "Managed analysis VMs:"
+  targets_summary_lines | sed 's/^/  /'
 }
