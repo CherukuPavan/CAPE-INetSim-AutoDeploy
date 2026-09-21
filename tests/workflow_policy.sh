@@ -11,7 +11,7 @@ grep -q 'cancel-in-progress: true' "$CI"
 
 grep -q '^  workflow_dispatch:' "$AP"
 grep -A8 '^  push:' "$AP" | grep -q 'dev/v1-orchestrator-hardening'
-grep -A10 '^  push:' "$AP" | grep -q 'appliance/\*\*'
+! grep -A8 '^  push:' "$AP" | grep -q 'paths:'
 ! grep -q '^  pull_request:' "$AP"
 grep -q 'cancel-in-progress: true' "$AP"
 grep -q 'cape-inetsim-appliance-v1.0.0-evidence' "$AP"
@@ -34,4 +34,4 @@ grep -Fq 'chmod a+r /boot/vmlinuz-* /boot/initrd.img-*' "$REL"
 grep -Fq 'LIBGUESTFS_BACKEND: direct' "$REL"
 ! grep -Fq 'cp "$MANIFEST" "$DIST/appliance-manifest.json"' "$REL"
 
-echo '[PASS] workflow policy avoids duplicate/noisy builds and pins third-party action commits'
+echo '[PASS] workflow policy keeps appliance candidates exact-source-bound and pins third-party action commits'
