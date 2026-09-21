@@ -83,6 +83,28 @@ print(len(ifs), ",".join(sorted(set(models))) or "unknown")
 }
 
 
+qemu_img_detect_format_readonly() {
+  local path="$1" info=""
+
+  # qemu-img normally refuses to inspect an image that a running QEMU process
+  # holds with an exclusive write lock. First use the ordinary read-only path;
+  # if that is blocked for a live guest, retry with QEMU's explicit shared
+  # read-only inspection mode. Never run qemu-img check/convert against a live
+  # Windows analysis disk here.
+  info="$(qemu-img info --output=json "$path" 2>/dev/null || true)"
+  if [[ -z "$info" && "${DOMAIN_STATE:-unknown}" != "shut off" ]]; then
+    info="$(qemu-img info --force-share --output=json "$path" 2>/dev/null || true)"
+  fi
+
+  python3 -c '
+import json,sys
+try:
+    print(json.load(sys.stdin).get("format",""))
+except Exception:
+    pass
+' <<<"$info"
+}
+
 discover_windows_snapshot_capability() {
   WINDOWS_INTERNAL_SNAPSHOT_CAPABLE=no
   [[ -n "${DOMAIN_XML:-}" && -n "${DOMAIN:-}" ]] || return 0
@@ -124,10 +146,20 @@ for d in root.findall("./devices/disk"):
       add_error "Windows snapshot preflight requires writable file-backed disks; unsupported disk source detected"
       return 0
     fi
-    detected="$(qemu-img info --output=json "$path" 2>/dev/null | python3 -c 'import json,sys
-try: print(json.load(sys.stdin).get("format",""))
-except Exception: pass' || true)"
-    if [[ "$declared" != qcow2 || "$detected" != qcow2 ]]; then
+    if ! have qemu-img; then
+      add_error "qemu-img is required to prove Windows internal-snapshot capability"
+      return 0
+    fi
+    if [[ "$declared" != qcow2 ]]; then
+      add_error "Windows disk driver is not declared qcow2; required shutoff/running internal snapshots are not safely supported: $path"
+      return 0
+    fi
+    detected="$(qemu_img_detect_format_readonly "$path")"
+    if [[ -z "$detected" ]]; then
+      add_error "Could not safely inspect Windows disk format while proving internal-snapshot capability: $path"
+      return 0
+    fi
+    if [[ "$detected" != qcow2 ]]; then
       add_error "Windows disk is not qcow2; required shutoff/running internal snapshots are not safely supported: $path"
       return 0
     fi
@@ -301,11 +333,42 @@ if len(macs)==1: print(macs[0])
   [[ -n "$WINDOWS_MANAGEMENT_MAC" ]] || add_error "Could not uniquely derive Windows management NIC MAC on $MANAGEMENT_NETWORK_NAME"
 }
 
+NWFILTER_DEFINITION_ROOT="${NWFILTER_DEFINITION_ROOT:-/etc/libvirt/nwfilter}"
+
+nwfilter_clean_traffic_definition_present() {
+  local definition="$NWFILTER_DEFINITION_ROOT/clean-traffic.xml"
+  [[ -r "$definition" ]] || return 1
+  python3 - "$definition" <<'PY'
+import sys,xml.etree.ElementTree as ET
+try:
+    root=ET.parse(sys.argv[1]).getroot()
+except Exception:
+    raise SystemExit(1)
+raise SystemExit(0 if root.tag == "filter" and root.get("name") == "clean-traffic" else 1)
+PY
+}
+
 discover_hypervisor_safety_features() {
   MANAGEMENT_NWFILTER_AVAILABLE=no
+  NWFILTER_RUNTIME_MODE=unavailable
+
   if virsh nwfilter-info clean-traffic >/dev/null 2>&1; then
     MANAGEMENT_NWFILTER_AVAILABLE=yes
-  else
-    add_error "libvirt nwfilter 'clean-traffic' is unavailable; hypervisor anti-spoofing cannot be guaranteed"
+    NWFILTER_RUNTIME_MODE=ready
+    return 0
   fi
+
+  # Modern libvirt can run nwfilter as a modular socket-activated daemon.
+  # A powered-down virtnwfilterd must not make a read-only plan falsely claim
+  # that clean-traffic is missing when the validated definition and socket unit
+  # are already installed. Deployment activates it transactionally before any
+  # Windows/CAPE cutover.
+  if nwfilter_clean_traffic_definition_present &&
+     [[ "$(systemctl show -p LoadState --value virtnwfilterd.socket 2>/dev/null || true)" == loaded ]]; then
+    MANAGEMENT_NWFILTER_AVAILABLE=activatable
+    NWFILTER_RUNTIME_MODE=modular-socket
+    return 0
+  fi
+
+  add_error "libvirt nwfilter 'clean-traffic' is unavailable and no activatable standard virtnwfilterd configuration was proven; hypervisor anti-spoofing cannot be guaranteed"
 }
