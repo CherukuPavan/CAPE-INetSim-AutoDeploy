@@ -37,7 +37,11 @@ PY
 grep -q 'release-20260801' "$ROOT/appliance/build/base-image.json"
 grep -q '0533b0655c32e68b31d792ecd6ccfca95abdbc536c4446874fe0513bd4140ffe' "$ROOT/appliance/build/base-image.json"
 
-grep -q 'virt-sysprep' "$ROOT/appliance/build/build.sh"
+grep -q 'guestfish --rw' "$ROOT/appliance/build/build.sh"
+! grep -q 'virt-customize -a' "$ROOT/appliance/build/build.sh"
+grep -Fq ': >/etc/machine-id' "$ROOT/appliance/image-rootfs-prepare.sh"
+grep -q 'ssh_host_.*_key' "$ROOT/appliance/image-rootfs-prepare.sh"
+grep -Fq "cape-inetsim-appliance' >/etc/hostname" "$ROOT/appliance/image-rootfs-prepare.sh"
 grep -q 'qemu-img convert -p -O qcow2' "$ROOT/appliance/build/build.sh"
 grep -Fq 'qemu-img resize "$OUT.part" 20G' "$ROOT/appliance/build/build.sh"
 ! grep -q 'virt-resize --expand' "$ROOT/appliance/build/build.sh"
