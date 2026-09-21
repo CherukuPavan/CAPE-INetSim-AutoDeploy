@@ -45,7 +45,7 @@ state_write_atomic() {
   RELEASE_SOURCE_COMMIT="${RELEASE_SOURCE_COMMIT:-${CAPE_INETSIM_RELEASE_SOURCE_COMMIT:-}}"
   {
     echo '# CAPE-INetSim-AutoDeploy state; shell-quoted values; root-readable only.'
-    printf 'STATE_SCHEMA=%q\n' "2"
+    printf 'STATE_SCHEMA=%q\n' "3"
     printf 'DEPLOYMENT_ID=%q\n' "${DEPLOYMENT_ID:-}"
     printf 'DEPLOYMENT_PHASE=%q\n' "${DEPLOYMENT_PHASE:-discovered}"
     printf 'CAPE_ROOT=%q\n' "${CAPE_ROOT:-}"
@@ -119,7 +119,7 @@ state_load() {
   # File is created only by AutoDeploy under a root-only directory.
   # shellcheck disable=SC1090
   source "$AD_STATE_FILE"
-  [[ "${STATE_SCHEMA:-}" == "2" ]] || { fail "Unsupported state schema: ${STATE_SCHEMA:-missing}"; return 2; }
+  [[ "${STATE_SCHEMA:-}" == "3" ]] || { fail "Unsupported state schema: ${STATE_SCHEMA:-missing}"; return 2; }
   [[ -n "${DEPLOYMENT_ID:-}" ]] || { fail "State file is missing deployment ID"; return 2; }
 }
 
