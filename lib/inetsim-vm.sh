@@ -56,19 +56,47 @@ for i in r.findall("./devices/interface"):
 
 inetsim_copy_appliance_disk() {
   local artifact="$1"
-  choose_libvirt_storage_pool
-  INETSIM_DISK_PATH="$LIBVIRT_STORAGE_PATH/cape-inetsim-appliance-v1.qcow2"
+
+  if [[ -z "${INETSIM_DISK_PATH:-}" ]]; then
+    choose_libvirt_storage_pool
+    INETSIM_DISK_PATH="$LIBVIRT_STORAGE_PATH/cape-inetsim-appliance-v1.qcow2"
+  else
+    [[ -n "${LIBVIRT_STORAGE_PATH:-}" ]] || LIBVIRT_STORAGE_PATH="$(dirname "$INETSIM_DISK_PATH")"
+    if [[ -z "${LIBVIRT_STORAGE_POOL:-}" ]]; then
+      local p path
+      while IFS= read -r p; do
+        [[ -n "$p" ]] || continue
+        path="$(virsh pool-dumpxml "$p" 2>/dev/null | python3 -c 'import sys,xml.etree.ElementTree as E
+try: r=E.fromstring(sys.stdin.read())
+except Exception: raise SystemExit
+x=r.find("./target/path")
+print(x.text if x is not None else "")' 2>/dev/null || true)"
+        if [[ "$path" == "$LIBVIRT_STORAGE_PATH" ]]; then LIBVIRT_STORAGE_POOL="$p"; break; fi
+      done < <(virsh pool-list --all --name 2>/dev/null)
+    fi
+  fi
+
   if [[ -e "$INETSIM_DISK_PATH" ]]; then
-    if state_resource_owned disk "$INETSIM_DISK_PATH"; then return 0; fi
+    if state_resource_owned disk "$INETSIM_DISK_PATH"; then
+      qemu-img check "$INETSIM_DISK_PATH" >/dev/null
+      return 0
+    fi
     fail "INetSim target disk already exists but is not AutoDeploy-owned: $INETSIM_DISK_PATH"
     return 1
   fi
+
+  [[ -d "$(dirname "$INETSIM_DISK_PATH")" ]] || { fail "INetSim disk directory is unavailable: $(dirname "$INETSIM_DISK_PATH")"; return 1; }
+  local avail
+  avail="$(df -Pk "$(dirname "$INETSIM_DISK_PATH")" | awk 'NR==2{print $4}')"
+  [[ "$avail" =~ ^[0-9]+$ && "$avail" -ge 20971520 ]] || { fail "Less than 20 GiB free for INetSim appliance disk"; return 1; }
+
+  rm -f "$INETSIM_DISK_PATH.part"
   qemu-img convert -p -O qcow2 "$artifact" "$INETSIM_DISK_PATH.part"
   qemu-img check "$INETSIM_DISK_PATH.part" >/dev/null
   mv "$INETSIM_DISK_PATH.part" "$INETSIM_DISK_PATH"
   chmod 0644 "$INETSIM_DISK_PATH"
-  virsh pool-refresh "$LIBVIRT_STORAGE_POOL" >/dev/null 2>&1 || true
-  state_record_resource disk "$INETSIM_DISK_PATH" created yes "pool=$LIBVIRT_STORAGE_POOL"
+  [[ -n "${LIBVIRT_STORAGE_POOL:-}" ]] && virsh pool-refresh "$LIBVIRT_STORAGE_POOL" >/dev/null 2>&1 || true
+  state_record_resource disk "$INETSIM_DISK_PATH" created yes "pool=${LIBVIRT_STORAGE_POOL:-unknown}"
   state_write_atomic
 }
 
