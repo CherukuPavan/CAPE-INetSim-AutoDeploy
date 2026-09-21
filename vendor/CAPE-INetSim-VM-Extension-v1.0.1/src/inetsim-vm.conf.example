@@ -1,0 +1,96 @@
+# ============================================================
+# CAPE Ubuntu-VM INetSim Extension
+# Universal configuration template
+# ============================================================
+#
+# IMPORTANT:
+# This file contains EXAMPLE values only.
+#
+# Do NOT install using these values unchanged.
+#
+# The setup guide explains how to determine every value.
+#
+# Create your local configuration with:
+#
+#   cp src/inetsim-vm.conf.example src/inetsim-vm.conf
+#
+# Then edit:
+#
+#   src/inetsim-vm.conf
+#
+# Do not put spaces around the = sign.
+# ============================================================
+
+
+# ------------------------------------------------------------
+# CAPEv2 installation directory
+# ------------------------------------------------------------
+
+CAPE_ROOT=/opt/CAPEv2
+
+
+# ------------------------------------------------------------
+# CAPE analysis virtual machine
+# ------------------------------------------------------------
+
+# Replace with the exact libvirt/CAPE machine name.
+#
+# Examples:
+#   win10
+#   win11
+#
+CAPE_MACHINE=CHANGE_ME
+
+
+# ------------------------------------------------------------
+# CAPE management network
+# ------------------------------------------------------------
+
+# Windows IP used by the CAPE Agent.
+#
+# EXAMPLE ONLY.
+CAPE_GUEST_CONTROL_IP=192.0.2.100
+
+# CAPE ResultServer address as seen by the Windows guest.
+#
+# EXAMPLE ONLY.
+CAPE_RESULTSERVER_IP=192.0.2.1
+
+
+# ------------------------------------------------------------
+# Isolated Ubuntu-VM INetSim network
+# ------------------------------------------------------------
+
+# IP address of the Ubuntu VM running INetSim.
+#
+# EXAMPLE ONLY.
+INETSIM_SERVER_IP=198.51.100.2
+
+# Secondary isolated-network IP of the Windows analysis VM.
+#
+# EXAMPLE ONLY.
+ANALYSIS_GUEST_IP=198.51.100.10
+
+# Host-side bridge/interface carrying the isolated INetSim
+# traffic.
+#
+# Example names may look like:
+#
+#   virbr2
+#   virbr3
+#
+# Use the interface created on YOUR system.
+CAPTURE_INTERFACE=CHANGE_ME
+
+
+# ------------------------------------------------------------
+# Installation safety behavior
+# ------------------------------------------------------------
+#
+# Backup creation is mandatory and is performed automatically
+# by the production installer before CAPE files are changed.
+#
+# The required cape-web stop/start sequence is also handled
+# automatically by the production installer.
+#
+# These safety operations are intentionally not configurable.
