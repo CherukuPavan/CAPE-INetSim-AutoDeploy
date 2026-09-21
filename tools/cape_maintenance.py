@@ -98,6 +98,45 @@ if a.action=="verify":
 if a.action=="acquire":
     Path(a.guard_file).parent.mkdir(parents=True,exist_ok=True)
     pending=a.guard_file+".pending"
+
+    # Crash recovery for the narrow window between writing the pre-commit
+    # recovery record and atomically publishing the post-commit guard. Because
+    # the DB transaction is atomic, the rows must match either the original
+    # state (commit never happened) or the deployment lock marker (commit did).
+    if not os.path.exists(a.guard_file) and os.path.exists(pending):
+        try:
+            staged=json.load(open(pending))
+        except Exception as exc:
+            output({"acquired":False,"reason":"invalid-pending-guard","error":str(exc)},23)
+        if staged.get("schema") != 2 or staged.get("deployment_id") != a.deployment_id or not staged.get("acquired"):
+            output({"acquired":False,"reason":"pending-guard-identity-mismatch"},23)
+        marker=staged.get("maintenance_locked_changed_on")
+        expected={m.get("label"):m for m in staged.get("machines",[]) if m.get("label")}
+        with session.begin():
+            tasks=task_rows(session)
+            machines=machine_rows(session,lock=True)
+            current={m.label:m for m in machines}
+            if set(current) != set(expected):
+                output({"acquired":False,"reason":"pending-machine-set-mismatch"},23)
+            committed=True
+            original=True
+            for label,old in expected.items():
+                m=current[label]
+                if not (m.locked and dt_dump(m.locked_changed_on)==marker):
+                    committed=False
+                if bool(m.locked) != bool(old.get("locked",False)) or dt_dump(m.locked_changed_on) != old.get("locked_changed_on"):
+                    original=False
+            if tasks:
+                committed=False
+                original=False
+        if committed:
+            os.replace(pending,a.guard_file)
+            output({"acquired":True,"recovered":True,"machine_count":len(expected),"marker":marker})
+        if original:
+            os.unlink(pending)
+        else:
+            output({"acquired":False,"reason":"pending-guard-partial-state"},23)
+
     original=[]
     with session.begin():
         # CAPE selects machine rows FOR UPDATE before assigning work. Taking all
