@@ -27,6 +27,8 @@ jobs:
         run: bash tests/network_xml.sh
       - name: Appliance manifest gates
         run: bash tests/appliance_manifest.sh
+      - name: Appliance build pin/generalization
+        run: bash tests/appliance_build_static.sh
       - name: Appliance domain logic
         run: bash tests/inetsim_vm_logic.sh
       - name: Windows VM logic
