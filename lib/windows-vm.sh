@@ -151,14 +151,56 @@ windows_stop_for_cutover() {
   esac
 }
 
-windows_delete_owned_snapshot() {
-  local snap="$1"
-  [[ -n "$snap" ]] || return 0
-  state_resource_owned snapshot "$DOMAIN:$snap" || return 0
-  if windows_snapshot_exists "$snap"; then
-    virsh snapshot-delete "$DOMAIN" "$snap" >/dev/null
-  fi
-  state_record_resource snapshot "$DOMAIN:$snap" deleted-by-rollback yes ""
+windows_snapshot_has_child() {
+  local candidate="$1" snap parent
+  while IFS= read -r snap; do
+    [[ -n "$snap" && "$snap" != "$candidate" ]] || continue
+    parent="$(virsh snapshot-dumpxml "$DOMAIN" "$snap" 2>/dev/null | python3 -c '
+import sys,xml.etree.ElementTree as ET
+try: r=ET.fromstring(sys.stdin.read())
+except Exception: raise SystemExit
+print(r.findtext("./parent/name") or "")
+' || true)"
+    [[ "$parent" == "$candidate" ]] && return 0
+  done < <(virsh snapshot-list "$DOMAIN" --name 2>/dev/null)
+  return 1
+}
+
+windows_delete_owned_snapshots_leaf_first() {
+  local -a owned=()
+  local snap progress remaining i
+  for snap in "${FINAL_SNAPSHOT:-}" "${WORKING_SNAPSHOT:-}" "${SAFETY_SNAPSHOT:-}"; do
+    [[ -n "$snap" ]] || continue
+    state_resource_owned snapshot "$DOMAIN:$snap" && owned+=("$snap")
+  done
+
+  for ((i=0;i<10;i++)); do
+    progress=no
+    remaining=0
+    for snap in "${owned[@]}"; do
+      state_resource_owned snapshot "$DOMAIN:$snap" || continue
+      if ! windows_snapshot_exists "$snap"; then
+        state_record_resource snapshot "$DOMAIN:$snap" deleted-by-rollback yes "already-absent"
+        progress=yes
+        continue
+      fi
+      remaining=$((remaining+1))
+      if ! windows_snapshot_has_child "$snap"; then
+        virsh snapshot-delete "$DOMAIN" "$snap" >/dev/null
+        state_record_resource snapshot "$DOMAIN:$snap" deleted-by-rollback yes ""
+        progress=yes
+      fi
+    done
+    [[ "$remaining" -eq 0 ]] && return 0
+    [[ "$progress" == yes ]] || break
+  done
+
+  for snap in "${owned[@]}"; do
+    if state_resource_owned snapshot "$DOMAIN:$snap" && windows_snapshot_exists "$snap"; then
+      fail "Refusing to delete owned snapshot '$snap' because it still has a child snapshot (possibly operator-created)"
+      return 1
+    fi
+  done
 }
 
 windows_rollback_to_safety() {
@@ -188,9 +230,7 @@ windows_rollback_to_safety() {
     windows_detach_isolated_nic
   fi
 
-  windows_delete_owned_snapshot "${FINAL_SNAPSHOT:-}"
-  windows_delete_owned_snapshot "${WORKING_SNAPSHOT:-}"
-  windows_delete_owned_snapshot "${SAFETY_SNAPSHOT:-}"
+  windows_delete_owned_snapshots_leaf_first
 
   if [[ "${WINDOWS_ORIGINAL_DOMAIN_STATE:-}" == running ]]; then
     virsh start "$DOMAIN" >/dev/null
