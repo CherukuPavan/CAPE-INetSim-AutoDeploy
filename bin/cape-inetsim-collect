@@ -98,9 +98,18 @@ PY
   git -C "$ROOT" rev-parse HEAD 2>/dev/null || true
 } >"$OUT/README.txt"
 
-# Repo/self-tests and current planner
-run "tests/syntax" bash "$ROOT/tests/syntax.sh"
-run "tests/universal_logic" bash "$ROOT/tests/universal_logic.sh"
+# Development bundles include self-tests; stripped public runtime bundles may
+# intentionally omit them. Planning remains available in both distributions.
+if [[ -x "$ROOT/tests/syntax.sh" ]]; then
+  run "tests/syntax" bash "$ROOT/tests/syntax.sh"
+else
+  printf 'SKIPPED: development self-test not shipped in runtime-only release\n' >"$OUT/tests/syntax.txt"
+fi
+if [[ -x "$ROOT/tests/universal_logic.sh" ]]; then
+  run "tests/universal_logic" bash "$ROOT/tests/universal_logic.sh"
+else
+  printf 'SKIPPED: development self-test not shipped in runtime-only release\n' >"$OUT/tests/universal_logic.txt"
+fi
 {
   set +e
   sudo "$ROOT/install" --plan
