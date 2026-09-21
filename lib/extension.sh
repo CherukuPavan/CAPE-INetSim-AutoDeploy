@@ -55,9 +55,17 @@ extension_fetch_extract() {
 
 extension_write_config() {
   local cfg="$EXTENSION_ROOT/src/inetsim-vm.conf"
+  # The extension modifies one shared CAPE web surface. Its environment
+  # verifier needs one representative managed machine plus the shared INetSim
+  # endpoint; AutoDeploy itself performs the authoritative per-machine checks
+  # across the complete CAPE_TARGETS_JSON set.
+  local saved="${TARGET_INDEX:-}"
+  (( $(targets_count) > 0 )) || { fail "No managed CAPE targets exist for extension configuration"; return 1; }
+  targets_bind 0
   {
     printf 'CAPE_ROOT=%q\n' "$CAPE_ROOT"
     printf 'CAPE_MACHINE=%q\n' "$CAPE_MACHINE_SECTION"
+    printf 'CAPE_DOMAIN=%q\n' "$DOMAIN"
     printf 'CAPE_GUEST_CONTROL_IP=%q\n' "$CAPE_MACHINE_IP"
     printf 'CAPE_RESULTSERVER_IP=%q\n' "$CAPE_RESULTSERVER_IP"
     printf 'INETSIM_SERVER_IP=%q\n' "$INETSIM_IP"
@@ -65,6 +73,7 @@ extension_write_config() {
     printf 'CAPTURE_INTERFACE=%q\n' "$ISOLATED_BRIDGE_NAME"
   } >"$cfg"
   chmod 0600 "$cfg"
+  [[ "$saved" =~ ^[0-9]+$ ]] && targets_bind "$saved"
 }
 
 extension_install() {
