@@ -1,10 +1,31 @@
 #!/usr/bin/env bash
 
 discover_busy_state() {
-  CAPE_BUSY="unknown"; BUSY_REASON="unable to determine safely"
+  CAPE_BUSY="unknown"
+  BUSY_REASON="read-only planning cannot prove CAPE database idleness; deploy cutover uses the atomic task-aware maintenance guard"
+
+  # CAPE's local sniffer command line carries the per-analysis dump path. This
+  # is a read-only strong busy signal and catches work on any analysis VM, not
+  # merely the currently selected libvirt domain.
+  local active_capture
+  active_capture="$(ps -eo args= 2>/dev/null | awk '
+    /[t]cpdump/ && /storage\/analyses\/[0-9]+\/(dump|dump_sorted)\.pcap/ {print; exit}
+  ' || true)"
+  if [[ -n "$active_capture" ]]; then
+    CAPE_BUSY="yes"
+    BUSY_REASON="active CAPE analysis packet capture process detected"
+    return 0
+  fi
+
   case "${DOMAIN_STATE:-unknown}" in
-    running|paused|blocked|pmsuspended) CAPE_BUSY="yes"; BUSY_REASON="analysis domain state is '${DOMAIN_STATE}'; treat as busy until a CAPE task-aware idle check is implemented" ;;
-    "shut off"|shutoff|crashed) CAPE_BUSY="no"; BUSY_REASON="analysis domain state is '${DOMAIN_STATE}'" ;;
+    "shut off"|shutoff|crashed)
+      CAPE_BUSY="unknown"
+      BUSY_REASON="selected domain is not running, but other CAPE work is not inferred idle without the task-aware cutover guard"
+      ;;
+    running|paused|blocked|pmsuspended)
+      CAPE_BUSY="unknown"
+      BUSY_REASON="selected analysis domain is '${DOMAIN_STATE}', which alone does not prove an active task; cutover will query/lock CAPE atomically"
+      ;;
   esac
 }
 
