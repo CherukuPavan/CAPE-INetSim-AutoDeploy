@@ -95,6 +95,8 @@ grep -Fq 'cape_capture_post_hashes' "$ROOT/lib/cape-configure.sh"
 grep -Fq 'Refusing to rollback CAPE file changed after AutoDeploy' "$ROOT/lib/cape-configure.sh"
 grep -Fq 'cape_assert_owned_files_unchanged' "$ROOT/lib/deploy.sh"
 grep -Fq 'CAPE commit changed since deployment' "$ROOT/bin/cape-inetsim-repair"
+grep -Fq 'cape_assert_owned_files_unchanged' "$ROOT/bin/cape-inetsim-repair"
+grep -Fq 'refusing repair overwrite' "$ROOT/bin/cape-inetsim-repair"
 
 # Missing maintenance API symbols must also safe-stop.
 cat >"$CAPE_ROOT/conf/routing.conf" <<'EOF'
