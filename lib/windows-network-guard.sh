@@ -52,7 +52,20 @@ windows_management_guard_available() {
 }
 
 nwfilter_runtime_prepare() {
+  local socket_was_active=no service_was_active=no
+  systemctl is-active --quiet virtnwfilterd.socket && socket_was_active=yes
+  systemctl is-active --quiet virtnwfilterd.service && service_was_active=yes
+
   if windows_management_guard_available; then
+    # A socket that was already active may have started the modular daemon when
+    # the availability probe connected. Track only a daemon transition caused
+    # by this deployment so rollback can restore it conservatively.
+    if [[ "$service_was_active" != yes ]] &&
+       systemctl is-active --quiet virtnwfilterd.service &&
+       ! state_resource_owned libvirt-service virtnwfilterd.service; then
+      state_record_resource libvirt-service virtnwfilterd.service activated yes "preexisting=inactive;probe-activated"
+      state_write_atomic
+    fi
     MANAGEMENT_NWFILTER_AVAILABLE=yes
     NWFILTER_RUNTIME_MODE=ready
     return 0
@@ -63,10 +76,6 @@ nwfilter_runtime_prepare() {
     fail "libvirt nwfilter runtime is unavailable and was not proven safely activatable"
     return 1
   }
-
-  local socket_was_active=no service_was_active=no
-  systemctl is-active --quiet virtnwfilterd.socket && socket_was_active=yes
-  systemctl is-active --quiet virtnwfilterd.service && service_was_active=yes
 
   if [[ "$socket_was_active" != yes ]]; then
     state_record_intent libvirt-service virtnwfilterd.socket activating "preexisting=inactive"
