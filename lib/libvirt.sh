@@ -151,3 +151,12 @@ if len(macs)==1: print(macs[0])
   [[ -n "$MANAGEMENT_BRIDGE_NAME" ]] || add_error "Could not derive bridge name for management libvirt network $MANAGEMENT_NETWORK_NAME"
   [[ -n "$WINDOWS_MANAGEMENT_MAC" ]] || add_error "Could not uniquely derive Windows management NIC MAC on $MANAGEMENT_NETWORK_NAME"
 }
+
+discover_hypervisor_safety_features() {
+  MANAGEMENT_NWFILTER_AVAILABLE=no
+  if virsh nwfilter-info clean-traffic >/dev/null 2>&1; then
+    MANAGEMENT_NWFILTER_AVAILABLE=yes
+  else
+    add_error "libvirt nwfilter 'clean-traffic' is unavailable; hypervisor anti-spoofing cannot be guaranteed"
+  fi
+}
