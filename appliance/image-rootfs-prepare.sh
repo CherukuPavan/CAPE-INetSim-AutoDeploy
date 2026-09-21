@@ -3,8 +3,8 @@ set -eu
 
 # Run inside the appliance build root. This creates a generalized simulator
 # image; it intentionally does NOT bake in the target fake-Internet
-# subnet/address. Keep this script POSIX-sh compatible because virt-customize
-# executes --run scripts through /bin/sh inside the guest.
+# subnet/address. Keep this script POSIX-sh compatible because cloud-init
+# executes it through /bin/sh-compatible guest tooling during the build boot.
 
 export DEBIAN_FRONTEND=noninteractive
 
@@ -65,4 +65,23 @@ rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 if [ -f /etc/cape-inetsim-build-dns ]; then
   rm -f /etc/cape-inetsim-build-dns /etc/resolv.conf
   ln -s ../run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+fi
+
+
+# Generalize build identity inside the guest before shutdown. This deliberately
+# avoids post-build virt-customize networking on hosted CI while preserving the
+# same invariants independently checked by verify-artifact.sh.
+printf '%s\n' 'cape-inetsim-appliance' >/etc/hostname
+hostname cape-inetsim-appliance 2>/dev/null || true
+
+rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub
+rm -rf /var/lib/cloud/instances/* /var/lib/cloud/instance
+rm -f /var/lib/dhcp/* 2>/dev/null || true
+rm -f /var/lib/NetworkManager/*lease* 2>/dev/null || true
+rm -f /var/lib/systemd/network/*lease* 2>/dev/null || true
+
+# Empty machine-id files are regenerated on the next real deployment boot.
+: >/etc/machine-id
+if [ -e /var/lib/dbus/machine-id ] && [ ! -L /var/lib/dbus/machine-id ]; then
+  : >/var/lib/dbus/machine-id
 fi
