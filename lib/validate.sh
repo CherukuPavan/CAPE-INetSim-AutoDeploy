@@ -60,6 +60,7 @@ if a.get("sniffer",f"capture_host_{label}",fallback="") != fake: raise SystemExi
 if p.get("network","dnswhitelist",fallback="").lower() != "no": raise SystemExit("dnswhitelist not disabled")
 if p.get("network","ipwhitelist",fallback="").lower() != "no": raise SystemExit("ipwhitelist not disabled")
 if r.get("routing","route",fallback="").lower() != "none": raise SystemExit("CAPE default route is not none")
+if r.get("routing","enable_pcap",fallback="").lower() not in ("yes","true","1","on"): raise SystemExit("CAPE packet capture is disabled for route none")
 PY
   grep -q 'CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1' "$CAPE_ROOT/modules/auxiliary/sniffer.py"
 }
