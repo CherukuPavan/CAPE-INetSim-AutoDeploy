@@ -42,7 +42,7 @@ cape_maintenance_tool() {
       fi
       rm -f "$user_guard"
     elif [[ "$action" == release ]]; then
-      local copy="/tmp/cape-inetsim-guard-$.json"
+      local copy="/tmp/cape-inetsim-guard-$$.json"
       install -m 0600 -o "$CAPE_SERVICE_USER" "$CAPE_MAINTENANCE_GUARD_FILE" "$copy" 2>/dev/null || {
         fail "Could not stage CAPE maintenance guard for release"
         return 1
