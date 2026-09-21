@@ -77,6 +77,13 @@ deploy_assert_supported_environment() {
     fail "Configured CAPE analysis snapshot is not proven as a running internal-memory baseline with the selected management NIC"
     return 1
   }
+  case "${MANAGEMENT_NWFILTER_AVAILABLE:-no}" in
+    yes|activatable) ;;
+    *)
+      fail "libvirt clean-traffic nwfilter is neither ready nor safely activatable"
+      return 1
+      ;;
+  esac
   [[ -n "${MANAGEMENT_NETWORK_NAME:-}" ]] || { fail "Management libvirt network is unknown"; return 1; }
   [[ -n "${CAPE_RESULTSERVER_IP:-}" && "${CAPE_RESULTSERVER_PORT:-}" =~ ^[0-9]+$ ]] || {
     fail "CAPE ResultServer path could not be derived"
@@ -191,6 +198,7 @@ deploy_initialize_or_resume_state() {
 deploy_stage_non_disruptive() {
   local artifact
   info "Staging isolated network and generalized INetSim appliance; CAPE analyses are not interrupted."
+  nwfilter_runtime_prepare
   artifact="$(appliance_fetch "$APPLIANCE_MANIFEST")"
 
   isolated_network_apply
@@ -218,6 +226,7 @@ deploy_stage_non_disruptive() {
 
 deploy_validate_staged_resources() {
   local artifact
+  nwfilter_runtime_prepare
   artifact="$(appliance_fetch "$APPLIANCE_MANIFEST")"
   isolated_network_apply
   firewall_apply
