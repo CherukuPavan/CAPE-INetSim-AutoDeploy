@@ -28,15 +28,14 @@ discover_windows_backends() {
 
   if [[ -n "${CAPE_MACHINE_IP:-}" ]] && { probe_tcp "$CAPE_MACHINE_IP" 5985 || probe_tcp "$CAPE_MACHINE_IP" 5986; }; then
     WINRM_AVAILABLE="yes"
-    WINDOWS_BACKEND="winrm"
-    return 0
+    WINDOWS_BACKEND="winrm-candidate"
   fi
 
+  # CAPE Agent reachability is reported for diagnostics only. AutoDeploy does
+  # not use the analysis agent as an arbitrary privileged management channel.
   if [[ -n "${CAPE_MACHINE_IP:-}" ]] && probe_tcp "$CAPE_MACHINE_IP" 8000; then
     CAPE_AGENT_REACHABLE="yes"
-    WINDOWS_BACKEND="cape-agent-candidate"
-    return 0
   fi
 
-  WINDOWS_BACKEND="manual-powershell-fallback"
+  [[ "$WINDOWS_BACKEND" == winrm-candidate ]] || WINDOWS_BACKEND="manual-powershell-fallback"
 }
