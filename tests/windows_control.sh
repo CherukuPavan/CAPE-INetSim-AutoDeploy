@@ -11,7 +11,11 @@ INETSIM_IP=192.168.200.2
 CAPE_RESULTSERVER_IP=192.168.122.1
 CAPE_RESULTSERVER_PORT=2042
 CONTROL_HOST_IP=192.168.122.1
-cmd="$(windows_manual_command)"
-[[ "$cmd" == powershell.exe*EncodedCommand* ]]
-[[ "$(wc -w <<<"$cmd")" -eq 6 ]]
-echo '[PASS] Windows backend controller and one-command fallback generation'
+cmd="$(windows_manual_callback_command 'http://192.168.122.1:54321' 'test-token')"
+[[ "$cmd" == powershell.exe* ]]
+grep -Fq 'http://192.168.122.1:54321' <<<"$cmd"
+grep -Fq 'test-token' <<<"$cmd"
+grep -Fq -- "-IsolatedMac '52:54:00:aa:bb:cc'" <<<"$cmd"
+grep -Fq "Invoke-WebRequest" <<<"$cmd"
+python3 -m py_compile "$ROOT/tools/windows_callback.py"
+echo '[PASS] Windows backend controller and one-command callback fallback generation'
