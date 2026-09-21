@@ -1,0 +1,286 @@
+name: Prepare AutoDeploy release
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_run_id:
+        description: Successful appliance-build workflow run ID
+        required: true
+        type: string
+      source_sha:
+        description: Exact 40-character source commit used by that appliance build
+        required: true
+        type: string
+      release_tag:
+        description: Release tag, e.g. v1.0.0-rc.1 or v1.0.0
+        required: true
+        default: v1.0.0-rc.1
+        type: string
+      publish_draft:
+        description: Create a GitHub draft release after all verification gates pass
+        required: true
+        default: false
+        type: boolean
+      prerelease:
+        description: Mark the draft release as a prerelease
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: prepare-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      - name: Checkout exact candidate release tooling
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ inputs.source_sha }}
+          path: tooling
+
+      - name: Checkout exact candidate source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ inputs.source_sha }}
+          path: source
+          fetch-depth: 0
+
+      - name: Validate release identity
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::source_sha must be a full 40-character commit SHA"
+            exit 2
+          }
+          [[ "$RELEASE_TAG" =~ ^v1\.0\.0(-rc\.[0-9]+)?$ ]] || {
+            echo "::error::release_tag must be v1.0.0 or v1.0.0-rc.N"
+            exit 2
+          }
+          [[ "$(git -C source rev-parse HEAD)" == "$SOURCE_SHA" ]] || {
+            echo "::error::source checkout does not match requested SHA"
+            exit 2
+          }
+
+          RUN_JSON="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID")"
+          [[ "$(jq -r .conclusion <<<"$RUN_JSON")" == success ]] || {
+            echo "::error::candidate appliance workflow did not conclude successfully"
+            exit 2
+          }
+          [[ "$(jq -r .head_sha <<<"$RUN_JSON")" == "$SOURCE_SHA" ]] || {
+            echo "::error::candidate workflow source SHA does not match release source SHA"
+            exit 2
+          }
+          [[ "$(jq -r .name <<<"$RUN_JSON")" == "Build generalized INetSim appliance" ]] || {
+            echo "::error::candidate run is not the generalized appliance workflow"
+            exit 2
+          }
+
+          if [[ "$RELEASE_TAG" == v1.0.0 ]]; then
+            VISIBILITY="$(gh repo view "$GITHUB_REPOSITORY" --json visibility --jq .visibility)"
+            [[ "$VISIBILITY" == PUBLIC ]] || {
+              echo "::error::stable v1.0.0 cannot be published while the repository is private; the one-command unauthenticated installer would be inaccessible"
+              exit 2
+            }
+          fi
+
+      - name: Download exact candidate and evidence
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/candidate" "$RUNNER_TEMP/evidence"
+          gh run download "$CANDIDATE_RUN_ID" -R "$GITHUB_REPOSITORY" \
+            -n cape-inetsim-appliance-v1.0.0-candidate \
+            -D "$RUNNER_TEMP/candidate"
+          gh run download "$CANDIDATE_RUN_ID" -R "$GITHUB_REPOSITORY" \
+            -n cape-inetsim-appliance-v1.0.0-evidence \
+            -D "$RUNNER_TEMP/evidence"
+
+      - name: Install independent release verification tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libguestfs-tools qemu-utils
+
+      - name: Re-verify candidate provenance and bytes
+        run: |
+          set -euo pipefail
+          C="$RUNNER_TEMP/candidate"
+          E="$RUNNER_TEMP/evidence"
+          PKG="$C/cape-inetsim-appliance-v1.0.0.qcow2.gz"
+          RAW="$RUNNER_TEMP/cape-inetsim-appliance-v1.0.0.qcow2"
+
+          python3 - "$E/candidate-provenance.json" "$SOURCE_SHA" "$CANDIDATE_RUN_ID" <<'PY'
+          import json,sys
+          p,source_sha,run_id=sys.argv[1:]
+          d=json.load(open(p))
+          assert d["source_commit"] == source_sha
+          assert d["artifact_name"] == "cape-inetsim-appliance-v1.0.0.qcow2"
+          assert d["transport_name"] == "cape-inetsim-appliance-v1.0.0.qcow2.gz"
+          assert d["transport_compression"] == "gzip"
+          assert d["independent_verifier"] == "PASS"
+          assert int(d["transport_size"]) < 2147483648
+          print("candidate provenance PASS for run",run_id)
+          PY
+
+          PKG_EXPECTED="$(awk '{print $1}' "$E/cape-inetsim-appliance-v1.0.0.qcow2.gz.sha256")"
+          PKG_ACTUAL="$(sha256sum "$PKG" | awk '{print $1}')"
+          [[ "$PKG_ACTUAL" == "$PKG_EXPECTED" ]]
+          [[ "$PKG_ACTUAL" == "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["transport_sha256"])' "$E/candidate-provenance.json")" ]]
+          [[ "$(stat -c '%s' "$PKG")" == "$(cat "$E/cape-inetsim-appliance-v1.0.0.qcow2.gz.size.txt")" ]]
+          gzip -t "$PKG"
+
+          gzip -dc "$PKG" >"$RAW"
+          RAW_EXPECTED="$(awk '{print $1}' "$E/cape-inetsim-appliance-v1.0.0.qcow2.sha256")"
+          RAW_ACTUAL="$(sha256sum "$RAW" | awk '{print $1}')"
+          [[ "$RAW_ACTUAL" == "$RAW_EXPECTED" ]]
+          [[ "$RAW_ACTUAL" == "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["qcow2_sha256"])' "$E/candidate-provenance.json")" ]]
+
+          chmod +x source/appliance/build/verify-artifact.sh
+          source/appliance/build/verify-artifact.sh "$RAW"
+
+      - name: Build release distribution
+        run: |
+          set -euo pipefail
+          VERSION="${RELEASE_TAG#v}"
+          DIST="$RUNNER_TEMP/release"
+          ROOT="$RUNNER_TEMP/dist-root/CAPE-INetSim-AutoDeploy-$VERSION"
+          PKG="$RUNNER_TEMP/candidate/cape-inetsim-appliance-v1.0.0.qcow2.gz"
+          RAW="$RUNNER_TEMP/cape-inetsim-appliance-v1.0.0.qcow2"
+          MANIFEST="$DIST/appliance-manifest.json"
+          ASSET_URL="https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/cape-inetsim-appliance-v1.0.0.qcow2.gz"
+
+          mkdir -p "$DIST" "$ROOT"
+          rsync -a --exclude .git source/ "$ROOT/"
+          printf '%s\n' "$VERSION" >"$ROOT/VERSION"
+
+          python3 source/appliance/build/render-manifest.py \
+            --artifact "$RAW" \
+            --transport-artifact "$PKG" \
+            --url "$ASSET_URL" \
+            --output "$MANIFEST"
+          cp "$MANIFEST" "$ROOT/appliance/manifest.json"
+
+          SOURCE_NAME="CAPE-INetSim-AutoDeploy-$VERSION.tar.gz"
+          SOURCE_EPOCH="$(git -C source show -s --format=%ct "$SOURCE_SHA")"
+          tar --sort=name --mtime="@$SOURCE_EPOCH" --owner=0 --group=0 --numeric-owner \
+            -C "$RUNNER_TEMP/dist-root" -cf - "CAPE-INetSim-AutoDeploy-$VERSION" \
+            | gzip -n -9 >"$DIST/$SOURCE_NAME"
+          SOURCE_SHA256="$(sha256sum "$DIST/$SOURCE_NAME" | awk '{print $1}')"
+          printf '%s  %s\n' "$SOURCE_SHA256" "$SOURCE_NAME" >"$DIST/$SOURCE_NAME.sha256"
+
+          python3 - tooling/release/bootstrap-template.sh "$DIST/install" "$RELEASE_TAG" "$SOURCE_NAME" "$SOURCE_SHA256" "$SOURCE_SHA" <<'PY'
+          import pathlib,sys
+          template,out,tag,name,sha,commit=sys.argv[1:]
+          s=pathlib.Path(template).read_text()
+          s=s.replace("@@TAG@@",tag).replace("@@SOURCE_NAME@@",name).replace("@@SOURCE_SHA256@@",sha).replace("@@SOURCE_COMMIT@@",commit)
+          if "@@" in s:
+              raise SystemExit("unexpanded bootstrap placeholder")
+          pathlib.Path(out).write_text(s)
+          PY
+          chmod 0755 "$DIST/install"
+
+          cp "$PKG" "$DIST/cape-inetsim-appliance-v1.0.0.qcow2.gz"
+          cp "$RUNNER_TEMP/evidence/cape-inetsim-appliance-v1.0.0.qcow2.gz.sha256" "$DIST/"
+          cp "$RUNNER_TEMP/evidence/cape-inetsim-appliance-v1.0.0.qcow2.sha256" "$DIST/"
+          cp "$RUNNER_TEMP/evidence/cape-inetsim-appliance-v1.0.0.qcow2.info.txt" "$DIST/"
+          cp "$RUNNER_TEMP/evidence/candidate-provenance.json" "$DIST/"
+          cp "$RUNNER_TEMP/evidence/artifact-verify.log" "$DIST/"
+          cp "$MANIFEST" "$DIST/appliance-manifest.json"
+
+          sha256sum "$DIST/install" >"$DIST/install.sha256"
+          sha256sum "$DIST/appliance-manifest.json" >"$DIST/appliance-manifest.json.sha256"
+
+          python3 - "$DIST/release-provenance.json" "$SOURCE_SHA" "$CANDIDATE_RUN_ID" "$RELEASE_TAG" "$SOURCE_NAME" "$SOURCE_SHA256" "$DIST/appliance-manifest.json" <<'PY'
+          import hashlib,json,pathlib,sys
+          out,source,run,tag,source_name,source_sha,manifest=sys.argv[1:]
+          mpath=pathlib.Path(manifest)
+          d={
+            "schema":1,
+            "release_tag":tag,
+            "source_commit":source,
+            "candidate_run_id":int(run),
+            "source_bundle":source_name,
+            "source_bundle_sha256":source_sha,
+            "manifest_sha256":hashlib.sha256(mpath.read_bytes()).hexdigest(),
+          }
+          pathlib.Path(out).write_text(json.dumps(d,indent=2)+"\n")
+          PY
+
+          {
+            echo "CAPE-INetSim-AutoDeploy $RELEASE_TAG"
+            echo
+            echo "Source commit: $SOURCE_SHA"
+            echo "Appliance candidate workflow run: $CANDIDATE_RUN_ID"
+            echo "Source bundle SHA-256: $SOURCE_SHA256"
+            echo
+            echo "The appliance and source bundle are checksum pinned. The installer verifies both transport and raw QCOW2 checksums before deployment."
+          } >"$DIST/RELEASE-NOTES.txt"
+
+      - name: Validate generated one-command bootstrap
+        run: |
+          set -euo pipefail
+          bash -n "$RUNNER_TEMP/release/install"
+          grep -Fq "$RELEASE_TAG" "$RUNNER_TEMP/release/install"
+          grep -Fq 'sha256sum -c' "$RUNNER_TEMP/release/install"
+          python3 -m json.tool "$RUNNER_TEMP/release/appliance-manifest.json" >/dev/null
+
+      - name: Upload release package preview
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: cape-inetsim-autodeploy-${{ inputs.release_tag }}-release-package
+          path: ${{ runner.temp }}/release
+          retention-days: 14
+          compression-level: 0
+
+      - name: Create draft GitHub release
+        if: ${{ inputs.publish_draft }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::release $RELEASE_TAG already exists; refusing to overwrite release assets"
+            exit 3
+          fi
+          if git -C source ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "::error::tag $RELEASE_TAG already exists; refusing to reuse or move an immutable release tag"
+            exit 3
+          fi
+
+          args=(release create "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" --draft \
+            --title "CAPE-INetSim-AutoDeploy $RELEASE_TAG" \
+            --notes-file "$RUNNER_TEMP/release/RELEASE-NOTES.txt")
+          if [[ "${{ inputs.prerelease }}" == true ]]; then
+            args+=(--prerelease)
+          fi
+          gh "${args[@]}"
+
+          RESOLVED_TAG_SHA="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha)"
+          [[ "$RESOLVED_TAG_SHA" == "$SOURCE_SHA" ]] || {
+            echo "::error::created release tag does not resolve to the verified source commit"
+            exit 4
+          }
+
+          gh release upload "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --clobber \
+            "$RUNNER_TEMP/release/install" \
+            "$RUNNER_TEMP/release/install.sha256" \
+            "$RUNNER_TEMP/release/CAPE-INetSim-AutoDeploy-${RELEASE_TAG#v}.tar.gz" \
+            "$RUNNER_TEMP/release/CAPE-INetSim-AutoDeploy-${RELEASE_TAG#v}.tar.gz.sha256" \
+            "$RUNNER_TEMP/release/appliance-manifest.json" \
+            "$RUNNER_TEMP/release/appliance-manifest.json.sha256" \
+            "$RUNNER_TEMP/release/cape-inetsim-appliance-v1.0.0.qcow2.gz" \
+            "$RUNNER_TEMP/release/cape-inetsim-appliance-v1.0.0.qcow2.gz.sha256" \
+            "$RUNNER_TEMP/release/cape-inetsim-appliance-v1.0.0.qcow2.sha256" \
+            "$RUNNER_TEMP/release/cape-inetsim-appliance-v1.0.0.qcow2.info.txt" \
+            "$RUNNER_TEMP/release/candidate-provenance.json" \
+            "$RUNNER_TEMP/release/artifact-verify.log" \
+            "$RUNNER_TEMP/release/release-provenance.json"
