@@ -22,7 +22,6 @@ rollback_try_critical() {
 }
 
 rollback_cutover_resources_exist() {
-  [[ -n "${SAFETY_SNAPSHOT:-}" || -n "${WINDOWS_ISOLATED_MAC:-}" ]] && return 0
   state_has_owned_kind cape-file && return 0
   state_has_owned_kind extension && return 0
   state_has_owned_kind windows-config && return 0
@@ -50,8 +49,17 @@ rollback_restore_cutover() {
     rollback_try_critical "restore CAPE configuration/source files" cape_restore_integration_files
   fi
 
-  if [[ -n "${SAFETY_SNAPSHOT:-}" || -n "${WINDOWS_ISOLATED_MAC:-}" ]]; then
-    rollback_try_critical "restore Windows pre-deployment snapshot/hardware" windows_rollback_to_safety
+  if state_has_owned_kind windows-config || state_has_owned_kind domain-interface || state_has_owned_kind snapshot || state_has_owned_kind domain-interface-filter; then
+    local i
+    CAPE_TARGETS_COUNT="$(targets_count)"
+    for ((i=CAPE_TARGETS_COUNT-1;i>=0;i--)); do
+      targets_bind "$i"
+      rollback_try_critical "restore Windows pre-deployment snapshot/hardware for $CAPE_MACHINE_SECTION/$DOMAIN" windows_rollback_to_safety
+      TARGET_PHASE=rolled-back
+      targets_capture_bound "$i"
+      state_write_atomic
+    done
+    ((CAPE_TARGETS_COUNT > 0)) && targets_bind 0
   fi
 
   # Keep scheduling closed until every deployment-owned staged network resource
