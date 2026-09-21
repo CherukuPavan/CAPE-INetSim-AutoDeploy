@@ -78,14 +78,13 @@ PY
   : >"$local_file"
   while :; do
     resp="$(virsh qemu-agent-command "$dom" "{\"execute\":\"guest-file-read\",\"arguments\":{\"handle\":$handle,\"count\":32768}}")"
-    python3 - "$local_file" <<'PY' <<<"$resp"
-import base64,json,sys
+    python3 -c 'import base64,json,sys
 p=sys.argv[1]
 r=json.load(sys.stdin)["return"]
 b=r.get("buf-b64")
 if b:
-    with open(p,"ab") as f: f.write(base64.b64decode(b))
-PY
+    open(p,"ab").write(base64.b64decode(b))
+' "$local_file" <<<"$resp"
     eof="$(python3 -c 'import json,sys; print(str(json.load(sys.stdin)["return"].get("eof",False)).lower())' <<<"$resp")"
     [[ "$eof" == true ]] && break
   done
