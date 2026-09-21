@@ -36,16 +36,17 @@ extension_fetch_extract() {
 }
 
 extension_write_config() {
-  cat >"$EXTENSION_ROOT/src/inetsim-vm.conf" <<EOF2
-CAPE_ROOT=$CAPE_ROOT
-CAPE_MACHINE=$CAPE_MACHINE_SECTION
-CAPE_GUEST_CONTROL_IP=$CAPE_MACHINE_IP
-CAPE_RESULTSERVER_IP=$CAPE_RESULTSERVER_IP
-INETSIM_SERVER_IP=$INETSIM_IP
-ANALYSIS_GUEST_IP=$WINDOWS_FAKE_IP
-CAPTURE_INTERFACE=$ISOLATED_BRIDGE_NAME
-EOF2
-  chmod 0600 "$EXTENSION_ROOT/src/inetsim-vm.conf"
+  local cfg="$EXTENSION_ROOT/src/inetsim-vm.conf"
+  {
+    printf 'CAPE_ROOT=%q\n' "$CAPE_ROOT"
+    printf 'CAPE_MACHINE=%q\n' "$CAPE_MACHINE_SECTION"
+    printf 'CAPE_GUEST_CONTROL_IP=%q\n' "$CAPE_MACHINE_IP"
+    printf 'CAPE_RESULTSERVER_IP=%q\n' "$CAPE_RESULTSERVER_IP"
+    printf 'INETSIM_SERVER_IP=%q\n' "$INETSIM_IP"
+    printf 'ANALYSIS_GUEST_IP=%q\n' "$WINDOWS_FAKE_IP"
+    printf 'CAPTURE_INTERFACE=%q\n' "$ISOLATED_BRIDGE_NAME"
+  } >"$cfg"
+  chmod 0600 "$cfg"
 }
 
 extension_install() {
