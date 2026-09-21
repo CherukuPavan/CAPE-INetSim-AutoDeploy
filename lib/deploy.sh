@@ -38,7 +38,7 @@ deploy_phase_is_resumable() {
 deploy_required_commands() {
   local -a missing=()
   local cmd
-  for cmd in python3 virsh qemu-img virt-install curl flock ip systemctl tar sha256sum base64 timeout; do
+  for cmd in python3 virsh qemu-img virt-install curl flock ip systemctl tar sha256sum base64 timeout nft; do
     have "$cmd" || missing+=("$cmd")
   done
   if ((${#missing[@]})); then
@@ -169,6 +169,7 @@ deploy_stage_non_disruptive() {
   artifact="$(appliance_fetch "$APPLIANCE_MANIFEST")"
 
   isolated_network_apply
+  firewall_apply
   if ! deploy_phase_at_least isolated-network-ready; then
     state_set_phase isolated-network-ready
   fi
@@ -194,6 +195,7 @@ deploy_validate_staged_resources() {
   local artifact
   artifact="$(appliance_fetch "$APPLIANCE_MANIFEST")"
   isolated_network_apply
+  firewall_apply
   inetsim_copy_appliance_disk "$artifact"
   inetsim_define_domain
   virsh start "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1 || true
