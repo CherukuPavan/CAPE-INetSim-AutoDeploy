@@ -64,7 +64,14 @@ state_record_resource() {
 state_resource_owned() {
   local kind="$1" name="$2"
   [[ -f "$AD_RESOURCE_LEDGER" ]] || return 1
-  awk -F '\t' -v k="$kind" -v n="$name" 'NR>1 && $1==k && $2==n && $4=="yes" {found=1} END{exit found?0:1}' "$AD_RESOURCE_LEDGER"
+  awk -F '\t' -v k="$kind" -v n="$name" '
+    NR>1 && $1==k && $2==n {created=$4; action=$3; seen=1}
+    END {
+      if (!seen) exit 1
+      if (created!="yes") exit 1
+      if (action ~ /^(removed|restored|released)/) exit 1
+      exit 0
+    }' "$AD_RESOURCE_LEDGER"
 }
 
 state_new_deployment_id() {
