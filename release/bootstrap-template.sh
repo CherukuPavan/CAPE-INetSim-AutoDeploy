@@ -5,6 +5,7 @@ REPO="CherukuPavan/CAPE-INetSim-AutoDeploy"
 TAG="@@TAG@@"
 SOURCE_NAME="@@SOURCE_NAME@@"
 SOURCE_SHA256="@@SOURCE_SHA256@@"
+SOURCE_COMMIT="@@SOURCE_COMMIT@@"
 SOURCE_URL="https://github.com/$REPO/releases/download/$TAG/$SOURCE_NAME"
 
 command -v curl >/dev/null 2>&1 || { echo "[FAIL] curl is required" >&2; exit 2; }
@@ -27,5 +28,9 @@ ROOT="$(find "$TMP" -mindepth 1 -maxdepth 1 -type d -name 'CAPE-INetSim-AutoDepl
 }
 
 chmod +x "$ROOT/install" "$ROOT"/bin/* "$ROOT"/tests/*.sh 2>/dev/null || true
+export CAPE_INETSIM_RELEASE_TAG="$TAG"
+export CAPE_INETSIM_RELEASE_SOURCE_BUNDLE="$SOURCE_NAME"
+export CAPE_INETSIM_RELEASE_SOURCE_SHA256="$SOURCE_SHA256"
+export CAPE_INETSIM_RELEASE_SOURCE_COMMIT="$SOURCE_COMMIT"
 trap - EXIT
 exec "$ROOT/install" "$@"
