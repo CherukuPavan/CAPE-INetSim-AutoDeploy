@@ -28,6 +28,11 @@ wrapper_b64=base64.b64encode(wrapper).decode("ascii")
 
 doc=f"""#cloud-config
 ssh_pwauth: false
+growpart:
+  mode: auto
+  devices: ['/']
+  ignore_growroot_disabled: false
+resize_rootfs: true
 write_files:
   - path: /usr/local/src/cape-inetsim-guest-configure
     owner: root:root
