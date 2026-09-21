@@ -25,7 +25,33 @@ echo '[PASS] exact-match CAPE sniffer patch logic'
 # claiming a source layout is safe to patch.
 source "$ROOT/lib/compat.sh"
 CAPE_ROOT="$TMP/cape"
-mkdir -p "$CAPE_ROOT/conf" "$CAPE_ROOT/modules/auxiliary" "$CAPE_ROOT/web/analysis"
+mkdir -p "$CAPE_ROOT/conf" "$CAPE_ROOT/modules/auxiliary" "$CAPE_ROOT/web/analysis" \
+  "$CAPE_ROOT/lib/cuckoo/core/data"
+cat >"$CAPE_ROOT/lib/cuckoo/core/data/machines.py" <<'PY'
+class Machine(Base):
+    locked: Mapped[bool]
+    locked_changed_on: Mapped[object]
+def f(stmt):
+    return stmt.with_for_update(of=Machine)
+PY
+cat >"$CAPE_ROOT/lib/cuckoo/core/data/task.py" <<'PY'
+TASK_RUNNING = "running"
+TASK_DISTRIBUTED = "distributed"
+TASK_COMPLETED = "completed"
+TASK_DISTRIBUTED_COMPLETED = "distributed_completed"
+PY
+cat >"$CAPE_ROOT/lib/cuckoo/core/data/db_common.py" <<'PY'
+def _utcnow_naive():
+    pass
+PY
+cat >"$CAPE_ROOT/lib/cuckoo/core/database.py" <<'PY'
+class _Database(object):
+    pass
+class Database:
+    pass
+def init_database(*args, **kwargs):
+    pass
+PY
 cat >"$CAPE_ROOT/conf/kvm.conf" <<'EOF'
 [win10]
 label = win10
@@ -69,3 +95,14 @@ grep -Fq 'cape_capture_post_hashes' "$ROOT/lib/cape-configure.sh"
 grep -Fq 'Refusing to rollback CAPE file changed after AutoDeploy' "$ROOT/lib/cape-configure.sh"
 grep -Fq 'cape_assert_owned_files_unchanged' "$ROOT/lib/deploy.sh"
 grep -Fq 'CAPE commit changed since deployment' "$ROOT/bin/cape-inetsim-repair"
+
+# Missing maintenance API symbols must also safe-stop.
+cat >"$CAPE_ROOT/conf/routing.conf" <<'EOF'
+[routing]
+route = none
+EOF
+cp "$TMP/sniffer.py" "$CAPE_ROOT/modules/auxiliary/sniffer.py"
+sed -i '/TASK_DISTRIBUTED_COMPLETED/d' "$CAPE_ROOT/lib/cuckoo/core/data/task.py"
+COMPAT_NOTES=()
+check_cape_layout
+[[ "$COMPAT_STATUS" == plan-only-unknown-cape-layout ]]
