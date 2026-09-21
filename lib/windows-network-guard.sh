@@ -101,8 +101,8 @@ nwfilter_runtime_prepare() {
 
 nwfilter_runtime_has_bindings() {
   local out
-  out="$(virsh nwfilter-binding-list --name 2>/dev/null)" || return 2
-  [[ -n "$(printf '%s\n' "$out" | sed '/^[[:space:]]*$/d')" ]]
+  out="$(virsh nwfilter-binding-list 2>/dev/null)" || return 2
+  [[ -n "$(printf '%s\n' "$out" | awk 'NR>2 && NF {print; exit}')" ]]
 }
 
 nwfilter_runtime_rollback() {
