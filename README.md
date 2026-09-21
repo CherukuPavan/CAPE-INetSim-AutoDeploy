@@ -104,5 +104,5 @@ Before v1.0.0 can be called deployable, all of the following must be true:
 1. Generalized QCOW2 build completes successfully and its contents are verified.
 2. The artifact is published in versioned release/artifact storage and its exact SHA-256 is pinned in `appliance/manifest.json`.
 3. The same release passes a controlled end-to-end deployment on one supported CAPE host.
-4. The exact same release/command passes on a second independent CAPE host with different CAPE/libvirt/VM identifiers.
+4. The exact same release/command passes on a second independent CAPE host with different CAPE/libvirt/VM identifiers. The second host is treated as a blind/random supported installation: no host-specific scripts, identifiers, manual prerequisite fixes, or candidate changes are allowed between first-host and second-host validation. If the second host exposes a product defect, the candidate is invalidated, the fix must be generalized, and validation restarts from the first host.
 5. Positive and negative Network Analysis/INetSim visibility checks pass without giving the Windows analysis VM real Internet access.
