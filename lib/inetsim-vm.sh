@@ -4,6 +4,16 @@ INETSIM_DOMAIN_NAME="${INETSIM_DOMAIN_NAME:-cape-inetsim-appliance}"
 
 choose_libvirt_storage_pool() {
   local p state xml typ avail path
+  if [[ -n "${LIBVIRT_STORAGE_POOL:-}" && -n "${LIBVIRT_STORAGE_PATH:-}" && -d "$LIBVIRT_STORAGE_PATH" ]]; then
+    state="$(virsh pool-info "$LIBVIRT_STORAGE_POOL" 2>/dev/null | awk -F: '/^State:/ {gsub(/^[ \t]+/,"",$2);print $2}')"
+    avail="$(df -Pk "$LIBVIRT_STORAGE_PATH" 2>/dev/null | awk 'NR==2{print $4}')"
+    if [[ "$state" == running && "$avail" =~ ^[0-9]+$ && "$avail" -ge 20971520 ]]; then
+      return 0
+    fi
+    LIBVIRT_STORAGE_POOL=""
+    LIBVIRT_STORAGE_PATH=""
+  fi
+
   local -a ordered=()
   virsh pool-info default >/dev/null 2>&1 && ordered+=(default)
   while IFS= read -r p; do [[ -n "$p" && "$p" != default ]] && ordered+=("$p"); done < <(virsh pool-list --all --name 2>/dev/null)
