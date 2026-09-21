@@ -8,6 +8,8 @@ bash -n "$BOOT"
 grep -Fq 'https://github.com/$REPO/releases/download/$TAG/$SOURCE_NAME' "$BOOT"
 grep -Fq 'sha256sum -c' "$BOOT"
 grep -Fq 'curl --fail --silent --show-error --location' "$BOOT"
+grep -Fq 'invalid embedded source SHA-256' "$BOOT"
+grep -Fq 'invalid embedded source commit' "$BOOT"
 ! grep -Fq '/archive/refs/heads/main' "$BOOT"
 
 grep -q '^  workflow_dispatch:' "$WF"
