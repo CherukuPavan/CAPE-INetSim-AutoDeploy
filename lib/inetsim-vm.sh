@@ -208,7 +208,9 @@ inetsim_vm_rollback() {
     state_record_resource domain "$INETSIM_DOMAIN_NAME" removed-by-rollback yes ""
   fi
 
-  rm -f "${INETSIM_DISK_PATH:-}.part" 2>/dev/null || true
+  if [[ -n "${INETSIM_DISK_PATH:-}" ]]; then
+    rm -f "$INETSIM_DISK_PATH.part" 2>/dev/null || true
+  fi
   if [[ -n "${INETSIM_DISK_PATH:-}" && -e "$INETSIM_DISK_PATH" ]]; then
     if ! state_resource_owned disk "$INETSIM_DISK_PATH"; then
       if state_resource_intended disk "$INETSIM_DISK_PATH"; then
