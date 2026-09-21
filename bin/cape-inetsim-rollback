@@ -1,30 +1,45 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 ROOT="${AUTODEPLOY_ROOT:-/usr/local/lib/cape-inetsim-autodeploy}"
 [[ -f "$ROOT/lib/state.sh" ]] || ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AUTODEPLOY_ROOT="$ROOT"
+export AUTODEPLOY_ROOT
+
 source "$ROOT/lib/common.sh"
 source "$ROOT/lib/state.sh"
 source "$ROOT/lib/transaction.sh"
+source "$ROOT/lib/qga.sh"
+source "$ROOT/lib/windows-vm.sh"
 source "$ROOT/lib/isolated-network.sh"
+source "$ROOT/lib/inetsim-vm.sh"
+source "$ROOT/lib/cape-configure.sh"
+source "$ROOT/lib/appliance.sh"
+source "$ROOT/lib/extension.sh"
+source "$ROOT/lib/services.sh"
+source "$ROOT/lib/maintenance.sh"
+source "$ROOT/lib/rollback.sh"
 
-MODE="dry-run"
-[[ "${1:-}" == "--apply" ]] && MODE="apply"
-
+MODE=dry-run
+[[ "${1:-}" == "--apply" ]] && MODE=apply
+require_root
 state_load || { fail "No deployment state exists"; exit 1; }
 
-echo "Rollback plan for deployment ${DEPLOYMENT_ID:-unknown}"
-echo "  phase: ${DEPLOYMENT_PHASE:-unknown}"
-if state_resource_owned "libvirt-network" "${ISOLATED_NETWORK_NAME:-cape-inetsim-isolated}"; then
-  echo "  - remove AutoDeploy-owned libvirt network: ${ISOLATED_NETWORK_NAME:-cape-inetsim-isolated}"
-fi
-echo "  - later milestones restore CAPE files/snapshots/NICs only when ownership is recorded"
+echo "Rollback plan for deployment $DEPLOYMENT_ID"
+kv "phase:" "${DEPLOYMENT_PHASE:-unknown}"
+[[ -n "${SAFETY_SNAPSHOT:-}" ]] && echo "  - revert Windows domain '$DOMAIN' to pre-deployment snapshot '$SAFETY_SNAPSHOT'"
+state_has_owned_kind cape-file && echo "  - restore backed-up CAPE configuration/source files"
+state_has_owned_kind extension && echo "  - restore extension-protected CAPE web files"
+state_has_owned_kind domain && echo "  - remove AutoDeploy-owned INetSim VM"
+state_has_owned_kind disk && echo "  - remove AutoDeploy-owned INetSim disk"
+state_has_owned_kind libvirt-network && echo "  - remove AutoDeploy-owned isolated libvirt network"
+echo "  - restore original CAPE service states"
 
 if [[ "$MODE" == dry-run ]]; then
-  echo "DRY RUN ONLY. Re-run with --apply when rollback is intentionally requested."
+  echo
+  echo "DRY RUN ONLY. No system configuration was changed."
+  echo "Apply with: sudo ./install --rollback --apply"
   exit 0
 fi
 
 transaction_lock_acquire
-isolated_network_rollback
-state_set_phase "rolled-back"
+autodeploy_rollback_internal
