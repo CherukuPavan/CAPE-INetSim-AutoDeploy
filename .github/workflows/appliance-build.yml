@@ -34,7 +34,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libguestfs-tools qemu-utils qemu-system-x86 cloud-image-utils
           sudo chmod 666 /dev/kvm 2>/dev/null || true
-          # libguestfs/supermin needs the runner user to read a host kernel.
           sudo chmod a+r /boot/vmlinuz-* /boot/initrd.img-* 2>/dev/null || true
 
       - name: Build generalized QCOW2
@@ -60,8 +59,33 @@ jobs:
           appliance/build/verify-artifact.sh "$RUNNER_TEMP/cape-inetsim-appliance-v1.0.0.qcow2" \
             2>&1 | tee "$RUNNER_TEMP/appliance-diag/artifact-verify.log"
 
-      - name: Create candidate verification evidence
+      - name: Package release transport
+        id: appliance_package
         if: steps.appliance_build.outcome == 'success' && steps.appliance_verify.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          RAW="$RUNNER_TEMP/cape-inetsim-appliance-v1.0.0.qcow2"
+          PKG="$RAW.gz"
+          gzip -6 -c "$RAW" >"$PKG"
+          gzip -t "$PKG"
+          RAW_SHA="$(sha256sum "$RAW" | awk '{print $1}')"
+          UNPACKED_SHA="$(gzip -dc "$PKG" | sha256sum | awk '{print $1}')"
+          [[ "$RAW_SHA" == "$UNPACKED_SHA" ]] || {
+            echo "::error::gzip release transport does not reproduce the verified QCOW2"
+            exit 1
+          }
+          PKG_SIZE="$(stat -c '%s' "$PKG")"
+          if (( PKG_SIZE >= 2147483648 )); then
+            echo "::error::gzip release transport is $PKG_SIZE bytes; GitHub release assets must be under 2 GiB"
+            exit 1
+          fi
+          sha256sum "$PKG" >"$PKG.sha256"
+          printf '%s\n' "$PKG_SIZE" >"$PKG.size.txt"
+          echo "transport_size=$PKG_SIZE" >>"$GITHUB_OUTPUT"
+
+      - name: Create candidate verification evidence
+        if: steps.appliance_build.outcome == 'success' && steps.appliance_verify.outcome == 'success' && steps.appliance_package.outcome == 'success'
         env:
           SOURCE_SHA: ${{ github.sha }}
         run: |
@@ -70,6 +94,8 @@ jobs:
           mkdir -p "$EVIDENCE"
           cp "$RUNNER_TEMP/cape-inetsim-appliance-v1.0.0.qcow2.sha256" "$EVIDENCE/"
           cp "$RUNNER_TEMP/cape-inetsim-appliance-v1.0.0.qcow2.info.txt" "$EVIDENCE/"
+          cp "$RUNNER_TEMP/cape-inetsim-appliance-v1.0.0.qcow2.gz.sha256" "$EVIDENCE/"
+          cp "$RUNNER_TEMP/cape-inetsim-appliance-v1.0.0.qcow2.gz.size.txt" "$EVIDENCE/"
           cp "$RUNNER_TEMP/appliance-diag/artifact-verify.log" "$EVIDENCE/"
           cp appliance/build/base-image.json "$EVIDENCE/base-image.json"
           python3 -c '
@@ -78,11 +104,17 @@ jobs:
           source_sha=sys.argv[2]
           base=json.loads((root/"base-image.json").read_text())
           qcow_sha=(root/"cape-inetsim-appliance-v1.0.0.qcow2.sha256").read_text().split()[0]
+          transport_sha=(root/"cape-inetsim-appliance-v1.0.0.qcow2.gz.sha256").read_text().split()[0]
+          transport_size=int((root/"cape-inetsim-appliance-v1.0.0.qcow2.gz.size.txt").read_text().strip())
           (root/"candidate-provenance.json").write_text(json.dumps({
               "schema":1,
               "source_commit":source_sha,
               "artifact_name":"cape-inetsim-appliance-v1.0.0.qcow2",
               "qcow2_sha256":qcow_sha,
+              "transport_name":"cape-inetsim-appliance-v1.0.0.qcow2.gz",
+              "transport_sha256":transport_sha,
+              "transport_size":transport_size,
+              "transport_compression":"gzip",
               "base_release_build":base["release_build"],
               "base_sha256":base["sha256"],
               "independent_verifier":"PASS"
@@ -90,7 +122,7 @@ jobs:
           ' "$EVIDENCE" "$SOURCE_SHA"
 
       - name: Upload candidate verification evidence
-        if: steps.appliance_build.outcome == 'success' && steps.appliance_verify.outcome == 'success'
+        if: steps.appliance_build.outcome == 'success' && steps.appliance_verify.outcome == 'success' && steps.appliance_package.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: cape-inetsim-appliance-v1.0.0-evidence
@@ -98,19 +130,21 @@ jobs:
           retention-days: 30
 
       - name: Upload build candidate
-        if: steps.appliance_build.outcome == 'success' && steps.appliance_verify.outcome == 'success'
+        if: steps.appliance_build.outcome == 'success' && steps.appliance_verify.outcome == 'success' && steps.appliance_package.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: cape-inetsim-appliance-v1.0.0-candidate
           path: |
-            ${{ runner.temp }}/cape-inetsim-appliance-v1.0.0.qcow2
+            ${{ runner.temp }}/cape-inetsim-appliance-v1.0.0.qcow2.gz
+            ${{ runner.temp }}/cape-inetsim-appliance-v1.0.0.qcow2.gz.sha256
+            ${{ runner.temp }}/cape-inetsim-appliance-v1.0.0.qcow2.gz.size.txt
             ${{ runner.temp }}/cape-inetsim-appliance-v1.0.0.qcow2.sha256
             ${{ runner.temp }}/cape-inetsim-appliance-v1.0.0.qcow2.info.txt
           retention-days: 7
           compression-level: 0
 
       - name: Upload failure diagnostics
-        if: steps.appliance_build.outcome != 'success' || steps.appliance_verify.outcome == 'failure'
+        if: steps.appliance_build.outcome != 'success' || steps.appliance_verify.outcome == 'failure' || steps.appliance_package.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
           name: cape-inetsim-appliance-build-diagnostics
@@ -123,8 +157,10 @@ jobs:
         run: |
           echo "appliance_build_outcome=${{ steps.appliance_build.outcome }}"
           echo "appliance_verify_outcome=${{ steps.appliance_verify.outcome }}"
-          if [[ "${{ steps.appliance_build.outcome }}" != "success" || "${{ steps.appliance_verify.outcome }}" != "success" ]]; then
-            echo "::error::Appliance candidate build/verification did not pass. No candidate is publishable."
+          echo "appliance_package_outcome=${{ steps.appliance_package.outcome }}"
+          echo "transport_size=${{ steps.appliance_package.outputs.transport_size }}"
+          if [[ "${{ steps.appliance_build.outcome }}" != "success" || "${{ steps.appliance_verify.outcome }}" != "success" || "${{ steps.appliance_package.outcome }}" != "success" ]]; then
+            echo "::error::Appliance candidate build/verification/release packaging did not pass. No candidate is publishable."
             exit 1
           fi
-          echo "Appliance candidate build and independent verification passed."
+          echo "Appliance candidate build, independent verification, and release-size packaging passed."
