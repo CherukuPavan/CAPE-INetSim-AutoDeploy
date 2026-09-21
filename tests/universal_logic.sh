@@ -126,3 +126,5 @@ PATH="$OLD_PATH"
 grep -Fq 'discover_windows_snapshot_capability' "$ROOT/lib/plan.sh"
 grep -Fq 'internal snapshot capable:' "$ROOT/lib/plan.sh"
 echo "[PASS] Windows internal-snapshot capability safe-stop preflight"
+
+grep -Fq 'WINDOWS_INTERNAL_SNAPSHOT_CAPABLE:-no}" == yes' "$ROOT/lib/deploy.sh"
