@@ -299,10 +299,12 @@ deploy_windows_cutover() {
   if ! deploy_phase_at_least windows-nic-attached; then
     windows_stop_for_cutover
     windows_create_safety_snapshot
+    windows_management_guard_apply
     windows_attach_isolated_nic
     state_set_phase windows-nic-attached
   else
     deploy_verify_safety_snapshot
+    windows_management_guard_verify
     deploy_verify_windows_nic
   fi
 
