@@ -110,9 +110,14 @@ jobs:
       - name: Install independent release verification tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libguestfs-tools qemu-utils
+          sudo apt-get install -y --no-install-recommends libguestfs-tools qemu-utils qemu-system-x86 cloud-image-utils
+          sudo chmod 666 /dev/kvm 2>/dev/null || true
+          sudo chmod a+r /boot/vmlinuz-* /boot/initrd.img-* 2>/dev/null || true
 
       - name: Re-verify candidate provenance and bytes
+        env:
+          LIBGUESTFS_BACKEND: direct
+          LIBGUESTFS_MEMSIZE: 1024
         run: |
           set -euo pipefail
           C="$RUNNER_TEMP/candidate"
