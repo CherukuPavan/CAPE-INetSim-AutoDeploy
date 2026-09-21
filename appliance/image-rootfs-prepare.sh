@@ -1,20 +1,31 @@
-#!/usr/bin/env bash
-set -Eeuo pipefail
+#!/bin/sh
+set -eu
 
-# Run inside the appliance build root. This creates a generalized simulator image;
-# it intentionally does NOT bake in the target fake-Internet subnet/address.
+# Run inside the appliance build root. This creates a generalized simulator
+# image; it intentionally does NOT bake in the target fake-Internet
+# subnet/address. Keep this script POSIX-sh compatible because virt-customize
+# executes --run scripts through /bin/sh inside the guest.
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends inetsim qemu-guest-agent ca-certificates iproute2 netplan.io
 
 INET_VER="$(dpkg-query -W -f='${Version}' inetsim)"
-[[ "$INET_VER" == 1.3.2* ]] || { echo "Unexpected INetSim package: $INET_VER" >&2; exit 20; }
+case "$INET_VER" in
+  1.3.2*) ;;
+  *) echo "Unexpected INetSim package: $INET_VER" >&2; exit 20 ;;
+esac
+
 NETDNS_VER="$(perl -MNet::DNS -e 'print $Net::DNS::VERSION')"
-[[ "$NETDNS_VER" == 1.44* ]] || { echo "Unexpected Net::DNS version: $NETDNS_VER" >&2; exit 21; }
+case "$NETDNS_VER" in
+  1.44*) ;;
+  *) echo "Unexpected Net::DNS version: $NETDNS_VER" >&2; exit 21 ;;
+esac
 
 DNS_PM=/usr/share/perl5/INetSim/DNS.pm
-[[ -f "$DNS_PM.pre-netdns-fix" ]] || cp -a "$DNS_PM" "$DNS_PM.pre-netdns-fix"
+if [ ! -f "$DNS_PM.pre-netdns-fix" ]; then
+  cp -a "$DNS_PM" "$DNS_PM.pre-netdns-fix"
+fi
 if grep -qE '^[[:space:]]*\$server->main_loop;[[:space:]]*$' "$DNS_PM"; then
   sed -i 's|^[[:space:]]*\$server->main_loop;[[:space:]]*$|        while (1) { $server->loop_once(10); }|' "$DNS_PM"
 elif ! grep -q 'loop_once(10)' "$DNS_PM"; then
