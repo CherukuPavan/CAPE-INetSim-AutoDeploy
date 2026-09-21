@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-REPO="CherukuPavan/CAPE-INetSim-AutoDeploy"
+REPO="@@REPO@@"
 TAG="@@TAG@@"
 SOURCE_NAME="@@SOURCE_NAME@@"
 SOURCE_SHA256="@@SOURCE_SHA256@@"
