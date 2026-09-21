@@ -16,6 +16,11 @@ assert "cape_release_maintenance" not in restore
 assert "services_restore_desired_state" not in restore
 assert "services_stop_scheduler_for_handoff" in restore
 
+remove=s[s.index("rollback_remove_staged_resources()"):s.index("rollback_finish_cape_handoff()")]
+assert "ROLLBACK_CRITICAL_FAILURES > 0" in remove
+assert "preserving containment firewall/network/appliance resources for safe retry" in remove
+assert remove.index("ROLLBACK_CRITICAL_FAILURES > 0") < remove.index("firewall_rollback")
+
 finish=s[s.index("rollback_finish_cape_handoff()"):s.index("autodeploy_rollback_internal()")]
 assert "ROLLBACK_CRITICAL_FAILURES" in finish
 assert finish.index("cape_release_maintenance") < finish.index("services_restore_desired_state")
