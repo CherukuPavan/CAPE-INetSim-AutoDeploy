@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="${AUTODEPLOY_ROOT:-/usr/local/lib/cape-inetsim-autodeploy}"
+[[ -f "$ROOT/lib/state.sh" ]] || ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+AUTODEPLOY_ROOT="$ROOT"
+source "$ROOT/lib/common.sh"
+source "$ROOT/lib/state.sh"
+
+if ! state_load; then
+  echo "CAPE-INetSim-AutoDeploy: not deployed (no state file at $AD_STATE_FILE)"
+  exit 1
+fi
+
+echo "CAPE-INetSim-AutoDeploy status"
+kv "deployment id:" "${DEPLOYMENT_ID:-unknown}"
+kv "phase:" "${DEPLOYMENT_PHASE:-unknown}"
+kv "CAPE root:" "${CAPE_ROOT:-unknown}"
+kv "CAPE machine:" "${CAPE_MACHINE_SECTION:-unknown}"
+kv "libvirt domain:" "${DOMAIN:-unknown}"
+kv "isolated subnet:" "${ISOLATED_SUBNET:-unknown}"
+kv "INetSim IP:" "${INETSIM_IP:-unknown}"
+kv "Windows fake IP:" "${WINDOWS_FAKE_IP:-unknown}"
+kv "isolated network:" "${ISOLATED_NETWORK_NAME:-unknown}"
+kv "bridge:" "${ISOLATED_BRIDGE_NAME:-unknown}"
