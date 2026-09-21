@@ -62,7 +62,7 @@ validate_recovery_assets() {
 
   [[ -n "${SAFETY_SNAPSHOT:-}" ]] &&
     state_resource_owned snapshot "$DOMAIN:$SAFETY_SNAPSHOT" &&
-    windows_snapshot_exists "$SAFETY_SNAPSHOT" || {
+    virsh snapshot-info "$DOMAIN" "$SAFETY_SNAPSHOT" >/dev/null 2>&1 || {
       fail "Deployment-owned pre-change Windows safety snapshot is missing"
       failures=$((failures+1))
     }
