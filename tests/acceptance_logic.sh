@@ -73,5 +73,7 @@ grep -Fq 'bin/cape-inetsim-acceptance' "$ROOT/install"
 grep -Fq 'tcpdump -nn -r "$POS_PCAP"' "$ROOT/bin/cape-inetsim-acceptance"
 grep -Fq 'tcpdump -nn -r "$NEG_PCAP"' "$ROOT/bin/cape-inetsim-acceptance"
 grep -Fq 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$ROOT/bin/cape-inetsim-acceptance"
+grep -Fq 'release_validation' "$ROOT/bin/cape-inetsim-acceptance"
+grep -Fq 'recovery_assets' "$ROOT/bin/cape-inetsim-acceptance"
 
 echo '[PASS] real-report positive/negative functional acceptance logic'
