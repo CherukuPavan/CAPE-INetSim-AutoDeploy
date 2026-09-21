@@ -122,8 +122,21 @@ cfg=configparser.ConfigParser(interpolation=None, strict=False)
 cfg.optionxform=str.lower
 cfg.read(p)
 ignore={'kvm','resultserver','timeouts'}
-for sec in cfg.sections():
-    if sec.lower() in ignore: continue
+
+# CAPE's [kvm] machines= list is the authoritative set of guests actually
+# available to the KVM machinery. Example/template/stale sections may coexist
+# in the same file and must not be auto-deployed merely because they look like
+# valid machine sections.
+configured=[]
+if cfg.has_section('kvm'):
+    raw=cfg.get('kvm','machines',fallback='').strip()
+    configured=[x.strip() for x in raw.replace('\n',',').split(',') if x.strip()]
+configured_set=set(configured)
+
+sections=configured if configured else [s for s in cfg.sections() if s.lower() not in ignore]
+for sec in sections:
+    if sec.lower() in ignore or not cfg.has_section(sec):
+        continue
     d={k.lower():v.strip() for k,v in cfg.items(sec)}
     if not any(k in d for k in ('ip','label','snapshot','platform','interface')): continue
     if d.get('enabled','yes').lower() in ('no','false','0'): continue
