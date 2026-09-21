@@ -71,6 +71,7 @@ rollback_remove_staged_resources() {
   rollback_try "remove AutoDeploy INetSim VM/disk" inetsim_vm_rollback
   rollback_try "remove AutoDeploy host firewall guard" firewall_rollback
   rollback_try "remove AutoDeploy isolated libvirt network" isolated_network_rollback
+  rollback_try "restore AutoDeploy-started libvirt nwfilter runtime" nwfilter_runtime_rollback
 }
 
 rollback_finish_cape_handoff() {
