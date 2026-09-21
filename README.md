@@ -7,7 +7,7 @@ Universal deployment automation for integrating a dedicated Ubuntu INetSim appli
 The v1.0.0 target is one reusable command on a supported CAPE host:
 
 ```bash
-curl -fsSL https://github.com/CherukuPavan/CAPE-INetSim-AutoDeploy/releases/download/v1.0.0/install | sudo bash
+curl -fsSL https://github.com/CherukuPavan/CAPE-INetSim-AutoDeploy-Releases/releases/download/v1.0.0/install | sudo bash
 ```
 
 The target host already has KVM/libvirt, a working CAPEv2 installation, and at least one working Windows analysis VM. AutoDeploy discovers machine-specific values instead of hard-coding hostnames, CAPE machine names, snapshot names, MAC addresses, management IPs, bridges, interface names, or fake-Internet subnets.
@@ -84,6 +84,7 @@ install/bootstrap
 - No SSL43/SSL44/SSL45-specific values belong in product logic.
 - `192.168.200.0/24` is only a preferred candidate; AutoDeploy selects another unused private subnet if it conflicts.
 - The generalized appliance is a separately versioned, checksum-pinned artifact and contains no deployment-specific fake-Internet subnet.
+- CAPE-INetSim-VM-Extension v1.0.1 runtime files are vendored with exact file hashes inside the AutoDeploy source bundle, so a random target host never needs credentials for the separate private extension development repository.
 
 ## Appliance build
 
@@ -95,7 +96,7 @@ GitHub Actions builds, independently verifies, and release-packages the candidat
 
 The production release is designed around immutable release assets rather than the mutable `main` branch. The one-command `install` release asset contains an embedded SHA-256 for the versioned source bundle; that source bundle contains the published appliance manifest, and the installer separately verifies both the compressed appliance transport SHA-256 and the decompressed raw QCOW2 SHA-256.
 
-The repository is currently private. A stable `v1.0.0` release is intentionally blocked by the release workflow until the repository (or an equivalent release endpoint) is anonymously reachable, because the final one-command experience must not require GitHub credentials.
+The development repository remains private. Runtime releases are promoted to the separate public `CherukuPavan/CAPE-INetSim-AutoDeploy-Releases` endpoint after exact-source, provenance, checksum, package-hygiene, and anonymous-download gates pass. The public runtime bundle intentionally excludes development history, workflows, internal notes, host inventories, and lab-specific evidence.
 
 ## Release gate
 
