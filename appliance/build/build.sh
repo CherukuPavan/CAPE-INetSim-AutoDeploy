@@ -8,7 +8,7 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 need(){ command -v "$1" >/dev/null 2>&1 || { echo "[FAIL] missing build command: $1" >&2; exit 2; }; }
-for x in python3 curl sha256sum qemu-img qemu-system-x86_64 cloud-localds virt-sysprep virt-cat virt-filesystems virt-df virt-customize timeout; do need "$x"; done
+for x in python3 curl sha256sum qemu-img qemu-system-x86_64 cloud-localds guestfish virt-cat virt-filesystems virt-df timeout; do need "$x"; done
 
 readarray -t BASE < <(python3 - "$BASE_MANIFEST" <<'PY'
 import json,sys
@@ -125,17 +125,19 @@ if ! virt-cat -a "$OUT.part" /var/lib/cape-inetsim-build-ok >/dev/null 2>&1; the
   exit 8
 fi
 
-# Remove build-only cloud-init state and marker files before generalizing.
-virt-customize -a "$OUT.part"   --run-command 'rm -rf /var/lib/cloud/instances/* /var/lib/cloud/instance /var/lib/cape-inetsim-build-ok /var/lib/cape-inetsim-build-failed /var/log/cape-inetsim-image-build.log /root/cape-inetsim-image-rootfs-prepare /root/cape-inetsim-build-wrapper'
-
-OPS="$(virt-sysprep --list-operations | awk '{print $1}' | tr '\n' ' ')"
-required_ops=(machine-id ssh-hostkeys dhcp-client-state net-hostname)
-selected=()
-for op in "${required_ops[@]}"; do
-  grep -qw "$op" <<<"$OPS" || { echo "[FAIL] virt-sysprep operation unavailable: $op" >&2; exit 4; }
-  selected+=("$op")
-done
-virt-sysprep -a "$OUT.part" --operations "$(IFS=,; echo "${selected[*]}")"
+# The guest performs identity generalization before shutdown. Remove only
+# build-control markers/logs offline; guestfish does not require guest network
+# access and avoids hosted-runner passt failures seen with virt-customize.
+guestfish --rw -a "$OUT.part" -i <<'EOF_GUESTFISH'
+rm-f /var/lib/cape-inetsim-build-ok
+rm-f /var/lib/cape-inetsim-build-failed
+rm-f /var/log/cape-inetsim-image-build.log
+rm-f /var/log/cloud-init.log
+rm-f /var/log/cloud-init-output.log
+rm-f /root/cape-inetsim-image-rootfs-prepare
+rm-f /root/cape-inetsim-build-wrapper
+rm-f /usr/local/src/cape-inetsim-guest-configure
+EOF_GUESTFISH
 
 qemu-img check "$OUT.part" >/dev/null
 [[ "$(qemu-img info --output=json "$OUT.part" | python3 -c 'import json,sys;print(json.load(sys.stdin)["format"])')" == qcow2 ]]
