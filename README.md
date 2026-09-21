@@ -78,6 +78,8 @@ install/bootstrap
 - Windows validation requires zero IPv4 default routes, zero IPv6 default routes, no enabled IPv6 bindings, no unexpected active third adapter, INetSim-only DNS, working CAPE ResultServer reachability, and failed public IPv4/IPv6 reachability.
 - CAPE source is modified only after a known layout/anchor passes the compatibility gate; unknown layouts safe-stop before mutation.
 - Busy CAPE systems are staged non-disruptively and cut over only after AutoDeploy atomically acquires CAPE machine maintenance ownership.
+- Running qcow2 analysis disks are inspected read-only with QEMU shared-image semantics when their live QEMU process holds the normal image lock; AutoDeploy never runs qemu-img repair/conversion against a live analysis disk.
+- On modular libvirt hosts, an installed standard `clean-traffic` definition with an inactive `virtnwfilterd.socket` is detected as safely activatable; deployment enables/starts that socket before cutover, proves the filter through libvirt, records ownership, and restores the prior runtime state on rollback when safe.
 - Every mutable CAPE file is backed up before edit. Libvirt resources, Windows NICs/snapshots, firewall resources, and extension state are deployment-owned and recorded before/after mutation so interrupted operations can be resumed or rolled back safely.
 - No SSL43/SSL44/SSL45-specific values belong in product logic.
 - `192.168.200.0/24` is only a preferred candidate; AutoDeploy selects another unused private subnet if it conflicts.
