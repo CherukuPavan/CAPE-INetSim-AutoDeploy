@@ -30,6 +30,8 @@ grep -q 'Upload release package preview' "$WF"
 grep -q 'Create draft GitHub release' "$WF"
 grep -q -- '--draft' "$WF"
 grep -q 'refusing to overwrite release assets' "$WF"
+grep -q 'refusing to reuse or move an immutable release tag' "$WF"
+grep -q 'created release tag does not resolve to the verified source commit' "$WF"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
