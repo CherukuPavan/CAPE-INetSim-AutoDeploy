@@ -11,6 +11,7 @@ run_discovery() {
   discover_resultserver
   match_selected_domain
   discover_domain_details
+  discover_management_network
   discover_windows_backends
   plan_isolated_subnet
   discover_busy_state
@@ -45,6 +46,7 @@ print_plan() {
   kv "current CAPE snapshot:" "${CAPE_MACHINE_SNAPSHOT:-unknown}"
   kv "current CAPE interface:" "${CAPE_MACHINE_INTERFACE:-unknown}"
   kv "libvirt domain:" "${DOMAIN:-ambiguous}"
+  kv "management libvirt network:" "${MANAGEMENT_NETWORK_NAME:-unknown}"
   kv "domain state:" "${DOMAIN_STATE:-unknown}"
   kv "NIC count:" "${DOMAIN_NIC_COUNT:-unknown}"
   kv "NIC model(s):" "${DOMAIN_NIC_MODELS:-unknown}"
