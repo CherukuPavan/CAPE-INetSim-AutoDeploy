@@ -93,16 +93,17 @@ import sys,xml.etree.ElementTree as ET
 try: root=ET.fromstring(sys.stdin.read())
 except Exception: raise SystemExit
 for d in root.findall("./devices/disk"):
-    if d.get("device")!="disk" or d.get("snapshot")=="no":
+    if d.get("device")!="disk":
         continue
     src=d.find("source"); drv=d.find("driver")
     if src is None:
         continue
     path=src.get("file") or ""
     typ=(drv.get("type") if drv is not None else "") or ""
+    snap=d.get("snapshot") or "default"
     readonly=d.find("readonly") is not None
     if not readonly:
-        print(path+"|"+typ)
+        print(path+"|"+typ+"|"+snap)
 ' <<<"$DOMAIN_XML")"
 
   local -a records=()
@@ -112,9 +113,13 @@ for d in root.findall("./devices/disk"):
     return 0
   fi
 
-  local rec path declared detected
+  local rec path declared snap detected
   for rec in "${records[@]}"; do
-    IFS='|' read -r path declared <<<"$rec"
+    IFS='|' read -r path declared snap <<<"$rec"
+    if [[ "$snap" == no ]]; then
+      add_error "Windows writable disk is excluded from snapshots; refusing an incomplete analysis/safety snapshot: ${path:-unknown}"
+      return 0
+    fi
     if [[ -z "$path" || ! -f "$path" ]]; then
       add_error "Windows snapshot preflight requires writable file-backed disks; unsupported disk source detected"
       return 0
