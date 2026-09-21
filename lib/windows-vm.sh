@@ -125,3 +125,74 @@ windows_create_running_snapshot() {
   state_write_atomic
   pass "Created CAPE-ready running snapshot $FINAL_SNAPSHOT"
 }
+
+
+windows_stop_for_cutover() {
+  local state
+  state="$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)"
+  WINDOWS_ORIGINAL_DOMAIN_STATE="${WINDOWS_ORIGINAL_DOMAIN_STATE:-$state}"
+  state_write_atomic
+  case "$state" in
+    "shut off") return 0 ;;
+    running)
+      virsh shutdown "$DOMAIN" >/dev/null 2>&1 || true
+      local i
+      for ((i=0;i<60;i+=2)); do
+        [[ "$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)" == "shut off" ]] && return 0
+        sleep 2
+      done
+      fail "Windows domain is running but did not shut down cleanly; refusing forced cutover"
+      return 1
+      ;;
+    *)
+      fail "Windows domain state is not safe for cutover: ${state:-unknown}"
+      return 1
+      ;;
+  esac
+}
+
+windows_delete_owned_snapshot() {
+  local snap="$1"
+  [[ -n "$snap" ]] || return 0
+  state_resource_owned snapshot "$DOMAIN:$snap" || return 0
+  if windows_snapshot_exists "$snap"; then
+    virsh snapshot-delete "$DOMAIN" "$snap" >/dev/null
+  fi
+  state_record_resource snapshot "$DOMAIN:$snap" deleted-by-rollback yes ""
+}
+
+windows_rollback_to_safety() {
+  local state
+  state="$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)"
+  if [[ "$state" == running ]]; then
+    virsh shutdown "$DOMAIN" >/dev/null 2>&1 || true
+    local i
+    for ((i=0;i<30;i+=2)); do
+      [[ "$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)" == "shut off" ]] && break
+      sleep 2
+    done
+    if [[ "$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)" != "shut off" ]]; then
+      warn "Windows did not shut down during rollback; forcing power-off after CAPE maintenance lock"
+      virsh destroy "$DOMAIN" >/dev/null
+    fi
+  fi
+
+  if [[ -n "${SAFETY_SNAPSHOT:-}" ]] && state_resource_owned snapshot "$DOMAIN:$SAFETY_SNAPSHOT" && windows_snapshot_exists "$SAFETY_SNAPSHOT"; then
+    virsh snapshot-revert "$DOMAIN" "$SAFETY_SNAPSHOT" --force >/dev/null
+    [[ "$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)" == "shut off" ]] || virsh destroy "$DOMAIN" >/dev/null 2>&1 || true
+  fi
+
+  # Reverting the pre-change snapshot normally restores the pre-NIC domain XML.
+  # Detach explicitly only if the deployment-owned interface still remains.
+  if [[ -n "${WINDOWS_ISOLATED_MAC:-}" ]] && windows_find_isolated_mac | grep -Fqi "$WINDOWS_ISOLATED_MAC"; then
+    windows_detach_isolated_nic
+  fi
+
+  windows_delete_owned_snapshot "${FINAL_SNAPSHOT:-}"
+  windows_delete_owned_snapshot "${WORKING_SNAPSHOT:-}"
+  windows_delete_owned_snapshot "${SAFETY_SNAPSHOT:-}"
+
+  if [[ "${WINDOWS_ORIGINAL_DOMAIN_STATE:-}" == running ]]; then
+    virsh start "$DOMAIN" >/dev/null
+  fi
+}
