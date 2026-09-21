@@ -198,10 +198,31 @@ inetsim_configure_guest() {
 }
 
 inetsim_verify_host() {
+  qga_wait "$INETSIM_DOMAIN_NAME" 30 || {
+    fail "INetSim appliance QEMU Guest Agent is unavailable during verification"
+    return 1
+  }
+
+  local runtime
+  runtime="$(qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/sh -c '
+set -eu
+printf "ipv4_forward=%s\n" "$(sysctl -n net.ipv4.ip_forward)"
+printf "ipv6_forward=%s\n" "$(sysctl -n net.ipv6.conf.all.forwarding)"
+printf "default4=%s\n" "$(ip -4 route show default | wc -l)"
+printf "default6=%s\n" "$(ip -6 route show default | wc -l)"
+' 2>/dev/null)" || {
+    fail "Could not verify INetSim appliance runtime network isolation"
+    return 1
+  }
+  grep -Fxq 'ipv4_forward=0' <<<"$runtime" || { fail "INetSim appliance IPv4 forwarding is enabled"; return 1; }
+  grep -Fxq 'ipv6_forward=0' <<<"$runtime" || { fail "INetSim appliance IPv6 forwarding is enabled"; return 1; }
+  grep -Fxq 'default4=1' <<<"$runtime" || { fail "INetSim appliance does not have exactly one IPv4 management default route"; return 1; }
+  grep -Fxq 'default6=0' <<<"$runtime" || { fail "INetSim appliance unexpectedly has an IPv6 default route"; return 1; }
+
   python3 "$AUTODEPLOY_ROOT/tools/dns_probe.py" "$INETSIM_IP" "$INETSIM_IP" >/dev/null
   curl -fsS --max-time 5 "http://$INETSIM_IP/" >/dev/null
   curl -kfsS --max-time 5 "https://$INETSIM_IP/" >/dev/null
-  pass "INetSim DNS, HTTP and HTTPS respond on $INETSIM_IP"
+  pass "INetSim DNS/HTTP/HTTPS respond and runtime forwarding isolation is enforced on $INETSIM_IP"
 }
 
 inetsim_vm_rollback() {
