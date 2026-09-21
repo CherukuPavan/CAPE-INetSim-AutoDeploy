@@ -14,3 +14,8 @@ echo '[PASS] task-aware atomic CAPE maintenance guard uses lock ownership marker
 
 grep -Fq 'local copy="/tmp/cape-inetsim-guard-$$.json"' "$ROOT/lib/maintenance.sh"
 ! grep -Fq 'cape-inetsim-guard-$.json' "$ROOT/lib/maintenance.sh"
+
+grep -Fq 'pending-guard-partial-state' "$ROOT/tools/cape_maintenance.py"
+grep -Fq 'recovered":True' "$ROOT/tools/cape_maintenance.py"
+grep -Fq 'local user_dir="/tmp/cape-inetsim-autodeploy-$DEPLOYMENT_ID"' "$ROOT/lib/maintenance.sh"
+grep -Fq 'verify --label "$CAPE_MACHINE_LABEL"' "$ROOT/lib/maintenance.sh"
