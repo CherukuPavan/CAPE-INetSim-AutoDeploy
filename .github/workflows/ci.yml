@@ -59,5 +59,7 @@ jobs:
         run: bash tests/maintenance_tool.sh
       - name: Frozen extension constants
         run: bash tests/extension_logic.sh
+      - name: Release packaging policy
+        run: bash tests/release_logic.sh
       - name: Workflow notification policy
         run: bash tests/workflow_policy.sh
