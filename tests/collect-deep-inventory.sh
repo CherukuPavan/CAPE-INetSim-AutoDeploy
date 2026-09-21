@@ -252,7 +252,7 @@ fi
 # Packages/tools
 runsh "packages/virtualization" "dpkg-query -W 2>/dev/null | grep -E '^(qemu|libvirt|virt-manager|virtinst|libguestfs|guestfs|ovmf|dnsmasq|bridge-utils|iproute2|nftables|iptables)[[:space:]]' || true"
 runsh "packages/cape_related" "dpkg-query -W 2>/dev/null | grep -E '^(python3|tcpdump|suricata|yara|libpcap|postgresql|mongodb|redis)[[:space:]]' || true"
-runsh "packages/tools" "for x in virsh qemu-img virt-install virt-sysprep guestfish python3 git curl jq tcpdump; do printf '%-18s ' \"$x\"; command -v \"$x\" || true; done"
+runsh "packages/tools" "for x in virsh qemu-img virt-install virt-sysprep guestfish python3 git curl jq tcpdump; do printf '%-18s ' \"\$x\"; command -v \"\$x\" || true; done"
 runsh "packages/python" "python3 --version; pip3 --version 2>/dev/null || true"
 
 find "$OUT" -type f -print0 | sort -z | xargs -0 sha256sum >"$OUT/SHA256SUMS"
