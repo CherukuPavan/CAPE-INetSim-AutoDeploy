@@ -50,7 +50,9 @@ extension_install() {
 
 extension_rollback() {
   [[ -d "$EXTENSION_ROOT" ]] || return 0
-  state_resource_owned extension "CAPE-INetSim-VM-Extension-v$EXTENSION_VERSION" || return 0
+  if ! state_resource_owned extension "CAPE-INetSim-VM-Extension-v$EXTENSION_VERSION" && [[ ! -s "$EXTENSION_ROOT/.installed_backup" ]]; then
+    return 0
+  fi
   (cd "$EXTENSION_ROOT" && ./scripts/rollback.sh --check)
   (cd "$EXTENSION_ROOT" && printf 'RESTORE\n' | ./scripts/rollback.sh --restore)
   state_record_resource extension "CAPE-INetSim-VM-Extension-v$EXTENSION_VERSION" removed-by-rollback yes "$EXTENSION_ROOT"
