@@ -44,6 +44,41 @@ PY
     return 0
   fi
 
+  local maintenance_layout
+  maintenance_layout="$(python3 - "$CAPE_ROOT" <<'PY'
+import pathlib,sys
+root=pathlib.Path(sys.argv[1])
+required={
+  "lib/cuckoo/core/data/machines.py":[
+    "class Machine(", "locked:", "locked_changed_on:", "with_for_update(of=Machine)",
+  ],
+  "lib/cuckoo/core/data/task.py":[
+    'TASK_RUNNING = "running"', 'TASK_DISTRIBUTED = "distributed"',
+    'TASK_COMPLETED = "completed"', 'TASK_DISTRIBUTED_COMPLETED = "distributed_completed"',
+  ],
+  "lib/cuckoo/core/data/db_common.py":["def _utcnow_naive("],
+  "lib/cuckoo/core/database.py":["class _Database(", "Database ="],
+}
+missing=[]
+for rel,tokens in required.items():
+    p=root/rel
+    if not p.is_file():
+        missing.append(rel+":missing")
+        continue
+    text=p.read_text(encoding="utf-8",errors="replace")
+    for token in tokens:
+        if token not in text:
+            missing.append(rel+":"+token)
+print("OK" if not missing else "unsupported:"+",".join(missing))
+PY
+)"
+  if [[ "$maintenance_layout" != OK ]]; then
+    COMPAT_STATUS="plan-only-unknown-cape-layout"
+    add_note "maintenance-api:$maintenance_layout"
+    return 0
+  fi
+  add_note "maintenance-api:known-layout"
+
   local sniffer="$CAPE_ROOT/modules/auxiliary/sniffer.py" layout
   layout="$(python3 - "$sniffer" <<'PY'
 import sys
