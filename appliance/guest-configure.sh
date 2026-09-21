@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-usage(){ echo "usage: $0 --isolated-mac MAC --ip CIDR" >&2; exit 2; }
-MAC=""; CIDR=""
+usage(){ echo "usage: $0 --management-mac MAC --isolated-mac MAC --ip CIDR" >&2; exit 2; }
+MGMT_MAC=""; ISO_MAC=""; CIDR=""
 while (($#)); do
   case "$1" in
-    --isolated-mac) MAC="${2,,}"; shift 2 ;;
+    --management-mac) MGMT_MAC="${2,,}"; shift 2 ;;
+    --isolated-mac) ISO_MAC="${2,,}"; shift 2 ;;
     --ip) CIDR="$2"; shift 2 ;;
     *) usage ;;
   esac
 done
-[[ -n "$MAC" && -n "$CIDR" ]] || usage
+[[ -n "$MGMT_MAC" && -n "$ISO_MAC" && -n "$CIDR" ]] || usage
+[[ "$MGMT_MAC" != "$ISO_MAC" ]] || { echo "management and isolated MACs are identical" >&2; exit 29; }
 
 IP="${CIDR%/*}"
 python3 - "$CIDR" <<'PY'
@@ -19,34 +21,55 @@ n=ipaddress.ip_interface(sys.argv[1])
 if not n.ip.is_private: raise SystemExit('isolated address must be private')
 PY
 
-IFACE=""
-for p in /sys/class/net/*; do
-  [[ -f "$p/address" ]] || continue
-  if [[ "$(tr '[:upper:]' '[:lower:]' <"$p/address")" == "$MAC" ]]; then IFACE="$(basename "$p")"; break; fi
-done
-[[ -n "$IFACE" ]] || { echo "interface for MAC $MAC not found" >&2; exit 30; }
+iface_for_mac() {
+  local want="${1,,}" p
+  for p in /sys/class/net/*; do
+    [[ -f "$p/address" ]] || continue
+    if [[ "$(tr '[:upper:]' '[:lower:]' <"$p/address")" == "$want" ]]; then basename "$p"; return 0; fi
+  done
+  return 1
+}
 
-# Configure only the isolated NIC. The management NIC/default route stay untouched.
-cat >/etc/netplan/90-cape-inetsim-isolated.yaml <<EOF2
+MGMT_IF="$(iface_for_mac "$MGMT_MAC")" || { echo "management interface for MAC $MGMT_MAC not found" >&2; exit 30; }
+ISO_IF="$(iface_for_mac "$ISO_MAC")" || { echo "isolated interface for MAC $ISO_MAC not found" >&2; exit 31; }
+[[ "$MGMT_IF" != "$ISO_IF" ]] || { echo "management and isolated interfaces resolved to same device" >&2; exit 32; }
+
+# Both interfaces are rendered by MAC so deploy-time interface names are never
+# assumptions. Only management gets DHCP/default routing. Isolated gets no DNS,
+# gateway, DHCP or link-local fallback.
+cat >/etc/netplan/90-cape-inetsim.yaml <<EOF2
 network:
   version: 2
   ethernets:
+    cape_inetsim_management:
+      match:
+        macaddress: "$MGMT_MAC"
+      set-name: "$MGMT_IF"
+      dhcp4: true
+      dhcp6: false
     cape_inetsim_isolated:
       match:
-        macaddress: "$MAC"
-      set-name: "$IFACE"
+        macaddress: "$ISO_MAC"
+      set-name: "$ISO_IF"
       addresses:
         - "$CIDR"
       dhcp4: false
       dhcp6: false
+      accept-ra: false
       link-local: []
 EOF2
-chmod 0600 /etc/netplan/90-cape-inetsim-isolated.yaml
+chmod 0600 /etc/netplan/90-cape-inetsim.yaml
+
+# Remove cloud-image generated network definitions so they cannot race/duplicate
+# the deployment-owned MAC-based netplan.
+find /etc/netplan -maxdepth 1 -type f ! -name '90-cape-inetsim.yaml' -delete
 netplan generate
 netplan apply
 
 DEFAULTS="$(ip -4 route show default | wc -l)"
-[[ "$DEFAULTS" -eq 1 ]] || { echo "expected exactly one management default route, found $DEFAULTS" >&2; exit 31; }
+[[ "$DEFAULTS" -eq 1 ]] || { echo "expected exactly one management default route, found $DEFAULTS" >&2; exit 33; }
+ip -4 route show default | grep -Fq "dev $MGMT_IF"
+! ip -4 route show default | grep -Fq "dev $ISO_IF"
 
 CONF=/etc/inetsim/inetsim.conf
 [[ -f "$CONF.pre-autodeploy" ]] || cp -a "$CONF" "$CONF.pre-autodeploy"
@@ -69,8 +92,8 @@ systemctl enable inetsim.service >/dev/null
 systemctl restart inetsim.service
 sleep 2
 
-ip -4 addr show dev "$IFACE" | grep -Fq "$CIDR"
-ss -lntup | grep -Fq "$IP:53"
-ss -lntup | grep -Fq "$IP:80"
+ip -4 addr show dev "$ISO_IF" | grep -Fq "$CIDR"
+ss -lnup | grep -Fq "$IP:53"
+ss -lntp | grep -Eq "$IP:(80|443)[[:space:]]"
 
-echo "INETSIM_GUEST_CONFIG_OK iface=$IFACE ip=$CIDR"
+echo "INETSIM_GUEST_CONFIG_OK management=$MGMT_IF isolated=$ISO_IF ip=$CIDR"
