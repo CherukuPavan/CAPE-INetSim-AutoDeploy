@@ -8,8 +8,14 @@ import json,sys
 with open(sys.argv[1],encoding="utf-8-sig") as h: d=json.load(h)
 assert d.get("ok") is True
 assert int(d.get("default_routes",-1)) == 0
+assert int(d.get("ipv4_default_routes",-1)) == 0
+assert int(d.get("ipv6_default_routes",-1)) == 0
+assert int(d.get("ipv6_bindings_enabled",-1)) == 0
+assert int(d.get("unexpected_active_adapters",-1)) == 0
 assert d.get("resultserver_reachable") is True
+assert d.get("inetsim_http_reachable") is True
 assert d.get("public_ip_reachable") is False
+assert d.get("public_ipv6_reachable") is False
 PY
 }
 
