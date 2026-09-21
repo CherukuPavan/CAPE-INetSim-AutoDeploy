@@ -11,7 +11,7 @@ assert r"(https?://)[^/@\s]+@" not in s
 PY
 
 grep -Fq -- '--collect) MODE=collect' "$ROOT/install"
-grep -Fq 'exec "$AUTODEPLOY_ROOT/bin/cape-inetsim-collect"' "$ROOT/install"
+grep -Fq 'exec bash "$AUTODEPLOY_ROOT/bin/cape-inetsim-collect"' "$ROOT/install"
 grep -Fq 'OUTPUT_USER="${SUDO_USER:-$(id -un)}"' "$ROOT/bin/cape-inetsim-collect"
 
 echo '[PASS] supported read-only collector redacts URI credentials and is exposed as --collect'
