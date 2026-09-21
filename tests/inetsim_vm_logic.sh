@@ -16,3 +16,7 @@ deploy_reset_resource_state
 [[ "$INETSIM_DOMAIN_NAME" == cape-inetsim-appliance ]]
 
 echo '[PASS] generalized appliance domain QGA injection and fresh-state defaults'
+
+grep -Fq 'LIBVIRT_STORAGE_POOL:-' "$ROOT/lib/inetsim-vm.sh"
+grep -Fq 'No active directory libvirt storage pool with at least 20 GiB free was found' "$ROOT/lib/compat.sh"
+grep -Fq 'LIBVIRT_STORAGE_POOL="$d_storage_pool"' "$ROOT/lib/deploy.sh"
