@@ -115,6 +115,23 @@ state_resource_owned() {
     }' "$AD_RESOURCE_LEDGER"
 }
 
+state_has_owned_kind() {
+  local kind="$1"
+  [[ -n "${DEPLOYMENT_ID:-}" && -f "$AD_RESOURCE_LEDGER" ]] || return 1
+  awk -F '\t' -v d="$DEPLOYMENT_ID" -v k="$kind" '
+    NR>1 && $1==d && $2==k {
+      key=$3
+      created[key]=$5
+      action[key]=$4
+    }
+    END {
+      for (key in created) {
+        if (created[key]=="yes" && action[key] !~ /^(removed|restored|released|deleted)/) exit 0
+      }
+      exit 1
+    }' "$AD_RESOURCE_LEDGER"
+}
+
 state_new_deployment_id() {
   DEPLOYMENT_ID="$(date -u +%Y%m%dT%H%M%SZ)-$(hostname -s | tr -cs 'A-Za-z0-9._-' '-')-$$"
 }
