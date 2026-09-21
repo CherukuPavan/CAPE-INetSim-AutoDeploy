@@ -114,9 +114,12 @@ cape_assert_owned_files_unchanged || {
   exit 26
 }
 
-# CAPE mutations happen only after CAPE reaches a task-safe point. If the
-# scheduler is already stopped there is no scheduling race to guard.
-if [[ "$REPAIR_CAPE_ACTIVE" == yes ]]; then
+# CAPE mutations happen only after CAPE reaches a task-safe point. A stopped
+# scheduler alone is not sufficient: cape-processor may still be reporting a
+# completed task. Acquire the database/machine maintenance guard whenever either
+# scheduler or processor is active. Only a fully stopped scheduler+processor
+# pair may skip the guard.
+if [[ "$REPAIR_CAPE_ACTIVE" == yes || "$REPAIR_PROCESSOR_ACTIVE" == yes ]]; then
   cape_wait_and_acquire_maintenance "${REPAIR_WAIT_SECONDS:-3600}"
   REPAIR_MAINTENANCE_ACQUIRED=yes
 fi
