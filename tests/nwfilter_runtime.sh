@@ -7,6 +7,7 @@ source "$ROOT/lib/windows-network-guard.sh"
 
 declare -A OWNED=()
 socket_active=no
+socket_enabled=no
 service_active=no
 bindings_mode=empty
 
@@ -37,6 +38,18 @@ systemctl() {
         virtnwfilterd.service) [[ "$service_active" == yes ]] ;;
         *) return 1 ;;
       esac
+      ;;
+    is-enabled)
+      [[ "${1:-}" == --quiet ]] && shift
+      [[ "${1:-}" == virtnwfilterd.socket && "$socket_enabled" == yes ]]
+      ;;
+    enable)
+      [[ "$1" == virtnwfilterd.socket ]] || return 1
+      socket_enabled=yes
+      ;;
+    disable)
+      [[ "$1" == virtnwfilterd.socket ]] || return 1
+      socket_enabled=no
       ;;
     start)
       [[ "$1" == virtnwfilterd.socket ]] || return 1
@@ -74,7 +87,9 @@ MANAGEMENT_NWFILTER_AVAILABLE=activatable
 NWFILTER_RUNTIME_MODE=modular-socket
 nwfilter_runtime_prepare
 [[ "$socket_active" == yes ]]
+[[ "$socket_enabled" == yes ]]
 [[ "$service_active" == yes ]]
+state_resource_owned libvirt-unit-enable virtnwfilterd.socket
 state_resource_owned libvirt-service virtnwfilterd.socket
 state_resource_owned libvirt-service virtnwfilterd.service
 [[ "$MANAGEMENT_NWFILTER_AVAILABLE" == yes ]]
@@ -83,7 +98,9 @@ state_resource_owned libvirt-service virtnwfilterd.service
 bindings_mode=empty
 nwfilter_runtime_rollback
 [[ "$socket_active" == no ]]
+[[ "$socket_enabled" == no ]]
 [[ "$service_active" == no ]]
+! state_resource_owned libvirt-unit-enable virtnwfilterd.socket
 ! state_resource_owned libvirt-service virtnwfilterd.socket
 ! state_resource_owned libvirt-service virtnwfilterd.service
 
@@ -91,6 +108,7 @@ nwfilter_runtime_rollback
 # runtime instead of risking disruption to an operator-owned filter consumer.
 OWNED=()
 socket_active=no
+socket_enabled=no
 service_active=no
 bindings_mode=empty
 MANAGEMENT_NWFILTER_AVAILABLE=activatable
@@ -99,7 +117,9 @@ nwfilter_runtime_prepare
 bindings_mode=present
 nwfilter_runtime_rollback
 [[ "$socket_active" == yes ]]
+[[ "$socket_enabled" == yes ]]
 [[ "$service_active" == yes ]]
+! state_resource_owned libvirt-unit-enable virtnwfilterd.socket
 ! state_resource_owned libvirt-service virtnwfilterd.socket
 ! state_resource_owned libvirt-service virtnwfilterd.service
 
