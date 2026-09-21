@@ -44,7 +44,7 @@ mapping={
  "section":"CAPE_MACHINE_SECTION",
  "label":"CAPE_MACHINE_LABEL",
  "ip":"CAPE_MACHINE_IP",
- "configured_snapshot":"CAPE_MACHINE_SNAPSHOT",
+ "original_snapshot":"CAPE_MACHINE_SNAPSHOT",
  "interface":"CAPE_MACHINE_INTERFACE",
  "platform":"CAPE_MACHINE_PLATFORM",
  "domain":"DOMAIN",
@@ -73,6 +73,7 @@ mapping={
  "safety_snapshot":"SAFETY_SNAPSHOT",
  "working_snapshot":"WORKING_SNAPSHOT",
  "final_snapshot":"FINAL_SNAPSHOT",
+ "phase":"TARGET_PHASE",
 }
 for key,var in mapping.items():
     v=d.get(key,"")
@@ -87,11 +88,11 @@ PY
 targets_capture_bound() {
   local index="${1:-${TARGET_INDEX:-}}"
   [[ "$index" =~ ^[0-9]+$ ]] || return 0
-  CAPE_TARGETS_JSON="$(python3 - "${CAPE_TARGETS_JSON:-[]}" "$index"     "${WINDOWS_ISOLATED_NIC_MODEL:-}" "${WINDOWS_ISOLATED_MAC:-}"     "${WINDOWS_BACKEND_USED:-}" "${WINDOWS_ORIGINAL_DOMAIN_STATE:-}"     "${SAFETY_SNAPSHOT:-}" "${WORKING_SNAPSHOT:-}" "${FINAL_SNAPSHOT:-}"     "${CAPE_MACHINE_SNAPSHOT:-}" <<'PY'
+  CAPE_TARGETS_JSON="$(python3 - "${CAPE_TARGETS_JSON:-[]}" "$index"     "${WINDOWS_ISOLATED_NIC_MODEL:-}" "${WINDOWS_ISOLATED_MAC:-}"     "${WINDOWS_BACKEND_USED:-}" "${WINDOWS_ORIGINAL_DOMAIN_STATE:-}"     "${SAFETY_SNAPSHOT:-}" "${WORKING_SNAPSHOT:-}" "${FINAL_SNAPSHOT:-}"     "${TARGET_PHASE:-discovered}" <<'PY'
 import json,sys
 a=json.loads(sys.argv[1]); i=int(sys.argv[2])
 keys=("isolated_nic_model","isolated_mac","backend_used","original_domain_state",
-      "safety_snapshot","working_snapshot","final_snapshot","configured_snapshot")
+      "safety_snapshot","working_snapshot","final_snapshot","phase")
 for k,v in zip(keys,sys.argv[3:]):
     a[i][k]=v
 print(json.dumps(a,separators=(",",":")))
@@ -104,9 +105,9 @@ targets_identity_json() {
   python3 - "${CAPE_TARGETS_JSON:-[]}" <<'PY'
 import json,sys
 a=json.loads(sys.argv[1])
-keys=("section","label","ip","configured_snapshot","interface","platform","domain",
+keys=("section","label","ip","platform","domain",
       "management_network","management_bridge","management_mac",
-      "resultserver_ip","resultserver_port","control_host_ip","fake_ip")
+      "resultserver_ip","resultserver_port","control_host_ip")
 out=[{k:d.get(k,"") for k in keys} for d in a]
 print(json.dumps(out,sort_keys=True,separators=(",",":")))
 PY
@@ -125,7 +126,7 @@ targets_append_current() {
 import json,sys
 a=json.loads(sys.argv[1])
 vals=sys.argv[2:]
-keys=("section","label","ip","configured_snapshot","interface","platform",
+keys=("section","label","ip","original_snapshot","interface","platform",
       "domain","domain_state","domain_nic_count","domain_nic_models","snapshot_capable",
       "analysis_snapshot_status","analysis_snapshot_state","analysis_snapshot_memory",
       "management_network","management_bridge","management_mac",
@@ -136,7 +137,8 @@ try: d["errors"]=json.loads(vals[len(keys)])
 except Exception: d["errors"]=[]
 d.update({
  "fake_ip":"","isolated_nic_model":"","isolated_mac":"","backend_used":"",
- "original_domain_state":"","safety_snapshot":"","working_snapshot":"","final_snapshot":""
+ "original_domain_state":"","safety_snapshot":"","working_snapshot":"","final_snapshot":"",
+ "phase":"discovered"
 })
 a.append(d)
 print(json.dumps(a,separators=(",",":")))
@@ -275,7 +277,25 @@ a=json.loads(sys.argv[1])
 for i,d in enumerate(a,1):
     err=d.get("errors") or []
     status="ready" if not err else "blocked"
-    snap=d.get("configured_snapshot") or "<none>"
+    snap=d.get("original_snapshot") or "<none>"
     print(f"{i}. {d.get('section','?')} -> {d.get('domain','?')} | mgmt={d.get('ip','?')} | fake={d.get('fake_ip','?')} | snapshot={snap} | {status}")
+PY
+}
+
+target_state_set_phase() {
+  TARGET_PHASE="$1"
+  targets_capture_bound "${TARGET_INDEX:-0}"
+  state_write_atomic
+}
+
+targets_all_phase_at_least() {
+  local want="$1"
+  python3 - "${CAPE_TARGETS_JSON:-[]}" "$want" <<'PY'
+import json,sys
+order={"discovered":0,"nic-attached":10,"configured":20,"snapshots-ready":30,"cape-configured":40}
+a=json.loads(sys.argv[1]); want=sys.argv[2]
+w=order.get(want,-1)
+if w < 0: raise SystemExit(2)
+raise SystemExit(0 if a and all(order.get(d.get("phase","discovered"),-1) >= w for d in a) else 1)
 PY
 }
