@@ -42,8 +42,11 @@ cape_maintenance_tool() {
       fi
       rm -f "$user_guard"
     elif [[ "$action" == release ]]; then
-      local copy="/tmp/cape-inetsim-guard-$$.json"
-      install -m 0600 -o "$CAPE_SERVICE_USER" "$CAPE_MAINTENANCE_GUARD_FILE" "$copy" 2>/dev/null || true
+      local copy="/tmp/cape-inetsim-guard-$.json"
+      install -m 0600 -o "$CAPE_SERVICE_USER" "$CAPE_MAINTENANCE_GUARD_FILE" "$copy" 2>/dev/null || {
+        fail "Could not stage CAPE maintenance guard for release"
+        return 1
+      }
       set +e
       runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" "$action" --label "$CAPE_MACHINE_LABEL" --deployment-id "$DEPLOYMENT_ID" --guard-file "$copy"
       local rc=$?
@@ -55,8 +58,19 @@ cape_maintenance_tool() {
         warn "CAPE maintenance release was incomplete; preserving recovery guard $CAPE_MAINTENANCE_GUARD_FILE"
       fi
       return "$rc"
+    elif [[ "$action" == verify ]]; then
+      install -m 0600 -o "$CAPE_SERVICE_USER" "$CAPE_MAINTENANCE_GUARD_FILE" "$user_guard" 2>/dev/null || {
+        fail "Could not stage CAPE maintenance guard for verification"
+        return 1
+      }
+      set +e
+      runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" "$action" --label "$CAPE_MACHINE_LABEL" --deployment-id "$DEPLOYMENT_ID" --guard-file "$user_guard"
+      local rc=$?
+      set -e
+      rm -f "$user_guard"
+      return "$rc"
     else
-      runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" "$action" --label "$CAPE_MACHINE_LABEL" --guard-file "$user_guard"
+      runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" "$action" --label "$CAPE_MACHINE_LABEL" --deployment-id "$DEPLOYMENT_ID" --guard-file "$user_guard"
     fi
   fi
 }
