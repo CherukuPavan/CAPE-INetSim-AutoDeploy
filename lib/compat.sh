@@ -67,7 +67,14 @@ PY
     already-present)
       COMPAT_STATUS="plan-compatible"; add_note "capture-override:already-present" ;;
     known-clean-pattern)
-      COMPAT_STATUS="plan-compatible"; add_note "capture-override:known-clean-pattern" ;;
+      if git -C "$CAPE_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 &&
+         [[ -n "$(git -C "$CAPE_ROOT" status --porcelain -- modules/auxiliary/sniffer.py 2>/dev/null || true)" ]]; then
+        COMPAT_STATUS="plan-only-unknown-cape-layout"
+        add_note "capture-override:preexisting-source-modification"
+      else
+        COMPAT_STATUS="plan-compatible"; add_note "capture-override:known-clean-pattern"
+      fi
+      ;;
     *)
       COMPAT_STATUS="plan-only-unknown-cape-layout"; add_note "capture-override:$layout" ;;
   esac
