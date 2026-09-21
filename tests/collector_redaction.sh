@@ -14,6 +14,9 @@ grep -Fq -- '--collect) MODE=collect' "$ROOT/install"
 grep -Fq 'exec bash "$AUTODEPLOY_ROOT/bin/cape-inetsim-collect"' "$ROOT/install"
 grep -Fq 'OUTPUT_USER="${SUDO_USER:-$(id -un)}"' "$ROOT/bin/cape-inetsim-collect"
 grep -Fq -- 'qemu-img info --force-share --backing-chain' "$ROOT/bin/cape-inetsim-collect"
+grep -Fq 'libvirt/nwfilter_runtime' "$ROOT/bin/cape-inetsim-collect"
+grep -Fq 'virsh nwfilter-binding-list' "$ROOT/bin/cape-inetsim-collect"
+grep -Fq 'virtnwfilterd.socket' "$ROOT/bin/cape-inetsim-collect"
 
 
 TMP="$(mktemp -d)"
