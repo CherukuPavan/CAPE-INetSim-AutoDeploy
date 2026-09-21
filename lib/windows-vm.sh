@@ -98,8 +98,13 @@ windows_attach_isolated_nic() {
 windows_detach_isolated_nic() {
   [[ -n "${WINDOWS_ISOLATED_MAC:-}" ]] || return 0
   if ! state_resource_owned domain-interface "$DOMAIN:$WINDOWS_ISOLATED_MAC"; then
-    fail "Refusing to detach unowned Windows NIC $WINDOWS_ISOLATED_MAC"
-    return 1
+    if state_resource_intended domain-interface "$DOMAIN:$WINDOWS_ISOLATED_MAC" &&
+       windows_find_isolated_mac | grep -Fqi "$WINDOWS_ISOLATED_MAC"; then
+      state_record_resource domain-interface "$DOMAIN:$WINDOWS_ISOLATED_MAC" recovered-attached yes "rollback-adoption"
+    else
+      fail "Refusing to detach unowned Windows NIC $WINDOWS_ISOLATED_MAC"
+      return 1
+    fi
   fi
   if windows_find_isolated_mac | grep -Fqi "$WINDOWS_ISOLATED_MAC"; then
     [[ "$(virsh domstate "$DOMAIN" | xargs)" == "shut off" ]] || { fail "Windows domain must be shut off before NIC rollback"; return 1; }
@@ -299,6 +304,31 @@ windows_delete_owned_snapshots_leaf_first() {
 
 windows_rollback_to_safety() {
   local state
+
+  # Recover ownership of any exactly matching snapshot that was created after
+  # its intent was journaled but before the success ledger row was flushed.
+  if [[ -n "${SAFETY_SNAPSHOT:-}" ]] && windows_snapshot_exists "$SAFETY_SNAPSHOT" &&
+     ! state_resource_owned snapshot "$DOMAIN:$SAFETY_SNAPSHOT"; then
+    windows_snapshot_adopt_if_intended "$SAFETY_SNAPSHOT" "CAPE-INetSim AutoDeploy pre-change snapshot $DEPLOYMENT_ID" "shutoff|no" || {
+      fail "Safety snapshot exists but cannot be attributed to this deployment"
+      return 1
+    }
+  fi
+  if [[ -n "${WORKING_SNAPSHOT:-}" ]] && windows_snapshot_exists "$WORKING_SNAPSHOT" &&
+     ! state_resource_owned snapshot "$DOMAIN:$WORKING_SNAPSHOT"; then
+    windows_snapshot_adopt_if_intended "$WORKING_SNAPSHOT" "CAPE-INetSim AutoDeploy configured rollback snapshot $DEPLOYMENT_ID" "shutoff|no" || {
+      fail "Working snapshot exists but cannot be attributed to this deployment"
+      return 1
+    }
+  fi
+  if [[ -n "${FINAL_SNAPSHOT:-}" ]] && windows_snapshot_exists "$FINAL_SNAPSHOT" &&
+     ! state_resource_owned snapshot "$DOMAIN:$FINAL_SNAPSHOT"; then
+    windows_snapshot_adopt_if_intended "$FINAL_SNAPSHOT" "CAPE-INetSim AutoDeploy running analysis snapshot $DEPLOYMENT_ID" "running|internal" || {
+      fail "Final snapshot exists but cannot be attributed to this deployment"
+      return 1
+    }
+  fi
+
   state="$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)"
   if [[ "$state" == running ]]; then
     virsh shutdown "$DOMAIN" >/dev/null 2>&1 || true
