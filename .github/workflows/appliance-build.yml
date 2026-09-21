@@ -27,6 +27,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Cache pinned Ubuntu base image
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/cape-inetsim-autodeploy/base
+          key: ubuntu-noble-20260801-0533b0655c32e68b31d792ecd6ccfca95abdbc536c4446874fe0513bd4140ffe
+
       - name: Install image build tools
         run: |
           sudo apt-get update
@@ -46,6 +52,7 @@ jobs:
         env:
           LIBGUESTFS_BACKEND: direct
           LIBGUESTFS_MEMSIZE: 1024
+          APPLIANCE_BASE_CACHE: /home/runner/.cache/cape-inetsim-autodeploy/base
         run: |
           chmod +x appliance/build/build.sh appliance/image-rootfs-prepare.sh appliance/guest-configure.sh
           appliance/build/build.sh "$RUNNER_TEMP/cape-inetsim-appliance-v1.0.0.qcow2"
