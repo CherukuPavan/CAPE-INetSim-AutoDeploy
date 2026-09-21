@@ -35,6 +35,11 @@ windows_select_live_backend() {
     pass "Windows control backend: approved WinRM"
     return 0
   fi
+  if cape_agent_wait "$CAPE_MACHINE_IP" 45 >/dev/null 2>&1; then
+    WINDOWS_BACKEND_USED=cape-agent-execpy
+    pass "Windows control backend: constrained CAPE Agent execpy"
+    return 0
+  fi
   WINDOWS_BACKEND_USED=manual-powershell
   warn "No supported zero-touch Windows management channel is available; one Administrator PowerShell command will be requested."
   return 0
@@ -47,6 +52,9 @@ windows_configure_selected_backend() {
       ;;
     winrm)
       windows_configure_via_winrm "$CAPE_MACHINE_IP" "$WINDOWS_ISOLATED_MAC" "$WINDOWS_FAKE_IP" 24 "$INETSIM_IP" "$CAPE_RESULTSERVER_IP" "$CAPE_RESULTSERVER_PORT" "$CONTROL_HOST_IP"
+      ;;
+    cape-agent-execpy)
+      windows_configure_via_cape_agent "$CAPE_MACHINE_IP" "$WINDOWS_ISOLATED_MAC" "$WINDOWS_FAKE_IP" 24 "$INETSIM_IP" "$CAPE_RESULTSERVER_IP" "$CAPE_RESULTSERVER_PORT" "$CONTROL_HOST_IP"
       ;;
     manual-powershell)
       windows_configure_via_manual_callback
@@ -66,6 +74,9 @@ windows_verify_selected_backend() {
     winrm)
       windows_verify_via_winrm "$CAPE_MACHINE_IP" "$WINDOWS_ISOLATED_MAC" "$WINDOWS_FAKE_IP" "$INETSIM_IP" "$CAPE_RESULTSERVER_IP" "$CAPE_RESULTSERVER_PORT"
       ;;
+    cape-agent-execpy)
+      windows_verify_via_cape_agent "$CAPE_MACHINE_IP" "$WINDOWS_ISOLATED_MAC" "$WINDOWS_FAKE_IP" "$INETSIM_IP" "$CAPE_RESULTSERVER_IP" "$CAPE_RESULTSERVER_PORT"
+      ;;
     manual-powershell)
       validate_windows_result_file
       ;;
@@ -81,7 +92,8 @@ windows_poweroff_selected_backend() {
   case "$WINDOWS_BACKEND_USED" in
     qemu-guest-agent) windows_poweroff_via_qga ;;
     winrm) windows_poweroff_via_winrm "$CAPE_MACHINE_IP" ;;
-    *) virsh shutdown "$DOMAIN" >/dev/null 2>&1 || true ;;
+    cape-agent-execpy|manual-powershell) virsh shutdown "$DOMAIN" >/dev/null 2>&1 || true ;;
+    *) fail "Unknown Windows poweroff backend: ${WINDOWS_BACKEND_USED:-none}"; return 40 ;;
   esac
   windows_wait_for_domain_state "shut off" 120
 }
