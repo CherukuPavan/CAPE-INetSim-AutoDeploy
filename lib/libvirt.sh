@@ -71,3 +71,53 @@ for i in ifs:
 print(len(ifs), ",".join(sorted(set(models))) or "unknown")
 ' <<<"$DOMAIN_XML")
 }
+
+
+discover_management_network() {
+  MANAGEMENT_NETWORK_NAME=""
+  [[ -n "${DOMAIN_XML:-}" && -n "${CAPE_MACHINE_IP:-}" ]] || return 0
+
+  local candidates
+  candidates="$(python3 - "$CAPE_MACHINE_IP" <<'PY' <<<"$DOMAIN_XML"
+import sys,xml.etree.ElementTree as ET
+ip=sys.argv[1]
+root=ET.fromstring(sys.stdin.read())
+for i in root.findall('./devices/interface'):
+    src=i.find('source')
+    if src is not None and src.get('network'):
+        print(src.get('network'))
+PY
+)"
+  mapfile -t _mgmt_candidates < <(printf '%s\n' "$candidates" | sed '/^$/d' | sort -u)
+  if ((${#_mgmt_candidates[@]} == 1)); then
+    MANAGEMENT_NETWORK_NAME="${_mgmt_candidates[0]}"
+    return 0
+  fi
+
+  local n netxml match
+  for n in "${_mgmt_candidates[@]}"; do
+    netxml="$(virsh net-dumpxml "$n" 2>/dev/null || true)"
+    match="$(python3 - "$CAPE_MACHINE_IP" <<'PY' <<<"$netxml"
+import ipaddress,sys,xml.etree.ElementTree as ET
+target=ipaddress.ip_address(sys.argv[1])
+try: root=ET.fromstring(sys.stdin.read())
+except Exception: raise SystemExit
+for x in root.findall('ip'):
+    a=x.get('address'); m=x.get('netmask'); p=x.get('prefix')
+    if not a: continue
+    try: net=ipaddress.ip_network(f"{a}/{p or m}",strict=False)
+    except Exception: continue
+    if target in net: print('yes'); break
+PY
+)"
+    if [[ "$match" == yes ]]; then
+      if [[ -n "$MANAGEMENT_NETWORK_NAME" ]]; then
+        add_error "Multiple libvirt networks contain CAPE management IP $CAPE_MACHINE_IP"
+        MANAGEMENT_NETWORK_NAME=""
+        return 0
+      fi
+      MANAGEMENT_NETWORK_NAME="$n"
+    fi
+  done
+  [[ -n "$MANAGEMENT_NETWORK_NAME" ]] || add_error "Could not discover libvirt management network for $CAPE_MACHINE_IP"
+}
