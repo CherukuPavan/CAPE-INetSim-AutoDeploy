@@ -4,6 +4,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AUTODEPLOY_ROOT="$ROOT"
 source "$ROOT/lib/common.sh"
 source "$ROOT/lib/cape.sh"
+source "$ROOT/lib/targets.sh"
 source "$ROOT/lib/libvirt.sh"
 source "$ROOT/lib/network.sh"
 
@@ -130,11 +131,9 @@ discover_windows_snapshot_capability
 grep -Fq 'excluded from snapshots' <<<"${DISCOVERY_ERRORS[0]}"
 PATH="$OLD_PATH"
 
-grep -Fq 'discover_windows_snapshot_capability' "$ROOT/lib/plan.sh"
-grep -Fq 'internal snapshot capable:' "$ROOT/lib/plan.sh"
+grep -Fq 'targets_discover_all' "$ROOT/lib/plan.sh"
+grep -Fq 'snapshot_capable")=="yes"' "$ROOT/lib/deploy.sh"
 echo "[PASS] Windows internal-snapshot capability safe-stop preflight"
-
-grep -Fq 'WINDOWS_INTERNAL_SNAPSHOT_CAPABLE:-no}" == yes' "$ROOT/lib/deploy.sh"
 
 # The configured CAPE snapshot itself must be a running internal-memory
 # baseline and must carry the same proven management NIC identity.
@@ -183,7 +182,12 @@ discover_cape_analysis_snapshot
 [[ "${#DISCOVERY_ERRORS[@]}" -eq 1 ]]
 grep -Fq 'not a running-state internal-memory analysis baseline' <<<"${DISCOVERY_ERRORS[0]}"
 
-grep -Fq 'discover_cape_analysis_snapshot' "$ROOT/lib/plan.sh"
-grep -Fq 'CAPE snapshot proof:' "$ROOT/lib/plan.sh"
-grep -Fq 'CAPE_ANALYSIS_SNAPSHOT_STATUS:-unproven}" == proven' "$ROOT/lib/deploy.sh"
-echo "[PASS] configured CAPE analysis snapshot identity/state preflight"
+CAPE_MACHINE_SNAPSHOT=""
+DISCOVERY_ERRORS=()
+discover_cape_analysis_snapshot
+[[ "$CAPE_ANALYSIS_SNAPSHOT_STATUS" == not-configured ]]
+[[ "${#DISCOVERY_ERRORS[@]}" -eq 0 ]]
+
+grep -Fq 'discover_cape_analysis_snapshot' "$ROOT/lib/targets.sh"
+grep -Fq 'analysis_snapshot_status") in ("proven","not-configured")' "$ROOT/lib/deploy.sh"
+echo "[PASS] configured-or-AutoDeploy-created CAPE analysis snapshot preflight"
