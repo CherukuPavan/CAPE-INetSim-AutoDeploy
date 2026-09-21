@@ -26,6 +26,10 @@ echo 'net.ipv4.ip_unprivileged_port_start=53' >/etc/sysctl.d/99-inetsim-lowports
 systemctl enable qemu-guest-agent.service
 systemctl disable systemd-networkd-wait-online.service 2>/dev/null || true
 
+# This appliance is configured through QEMU Guest Agent, not cloud metadata.
+# Disable cloud-init so it cannot overwrite deploy-time MAC-based networking.
+touch /etc/cloud/cloud-init.disabled
+
 # The deployment executes this through QEMU Guest Agent after both NICs exist.
 install -m 0755 /usr/local/src/cape-inetsim-guest-configure /usr/local/sbin/cape-inetsim-guest-configure
 
