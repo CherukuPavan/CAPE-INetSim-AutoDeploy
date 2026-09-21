@@ -25,9 +25,33 @@ curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
   "$SOURCE_URL" -o "$TMP/$SOURCE_NAME"
 printf '%s  %s\n' "$SOURCE_SHA256" "$TMP/$SOURCE_NAME" | sha256sum -c - >/dev/null
 
-tar -xzf "$TMP/$SOURCE_NAME" -C "$TMP"
-ROOT="$(find "$TMP" -mindepth 1 -maxdepth 1 -type d -name 'CAPE-INetSim-AutoDeploy-*' | head -1)"
-[[ -n "$ROOT" && -f "$ROOT/install" && -f "$ROOT/lib/common.sh" ]] || {
+EXPECTED_ROOT="${SOURCE_NAME%.tar.gz}"
+[[ "$EXPECTED_ROOT" == CAPE-INetSim-AutoDeploy-* ]] || {
+  echo "[FAIL] Release source bundle root name is invalid" >&2
+  exit 2
+}
+python3 - "$TMP/$SOURCE_NAME" "$EXPECTED_ROOT" <<'PY'
+import pathlib,sys,tarfile
+archive,root=sys.argv[1:]
+with tarfile.open(archive,"r:gz") as tf:
+    members=tf.getmembers()
+    if not members:
+        raise SystemExit("release source bundle is empty")
+    prefix=root.rstrip("/")+"/"
+    for m in members:
+        name=m.name
+        p=pathlib.PurePosixPath(name)
+        if p.is_absolute() or ".." in p.parts:
+            raise SystemExit(f"unsafe path in release source bundle: {name}")
+        if name != root and not name.startswith(prefix):
+            raise SystemExit(f"unexpected top-level path in release source bundle: {name}")
+        if m.isdev() or m.isfifo():
+            raise SystemExit(f"unsafe special file in release source bundle: {name}")
+PY
+
+tar -xzf "$TMP/$SOURCE_NAME" -C "$TMP" --no-same-owner --no-same-permissions
+ROOT="$TMP/$EXPECTED_ROOT"
+[[ -d "$ROOT" && -f "$ROOT/install" && -f "$ROOT/lib/common.sh" ]] || {
   echo "[FAIL] Release source bundle layout is invalid" >&2
   exit 2
 }
@@ -37,5 +61,4 @@ export CAPE_INETSIM_RELEASE_TAG="$TAG"
 export CAPE_INETSIM_RELEASE_SOURCE_BUNDLE="$SOURCE_NAME"
 export CAPE_INETSIM_RELEASE_SOURCE_SHA256="$SOURCE_SHA256"
 export CAPE_INETSIM_RELEASE_SOURCE_COMMIT="$SOURCE_COMMIT"
-trap - EXIT
-exec "$ROOT/install" "$@"
+"$ROOT/install" "$@"
