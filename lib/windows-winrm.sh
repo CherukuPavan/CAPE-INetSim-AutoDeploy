@@ -69,7 +69,7 @@ windows_winrm_run_script() {
 windows_configure_via_winrm() {
   local guest_ip="$1" isolated_mac="$2" fake_ip="$3" prefix="$4" dns_ip="$5" result_ip="$6" result_port="$7" control_host_ip="$8"
   local remote_result='C:\Windows\Temp\cape-inetsim-autodeploy-result.json'
-  local local_result="$AD_LOG_ROOT/${DEPLOYMENT_ID}-windows-result.json"
+  local local_result="$AD_LOG_ROOT/${DEPLOYMENT_ID}-$(ad_safe_token "$DOMAIN")-windows-result.json"
   windows_winrm_run_script "$guest_ip" "$AUTODEPLOY_ROOT/windows/configure-inetsim.ps1" "$remote_result"     -ManagementIP "$guest_ip" -IsolatedMac "$isolated_mac" -FakeIP "$fake_ip"     -PrefixLength "$prefix" -DnsIP "$dns_ip" -ResultServerIP "$result_ip"     -ResultServerPort "$result_port" -ControlHostIP "$control_host_ip" -ResultPath "$remote_result"     >"$local_result"
   validate_windows_result_path "$local_result"
   WINDOWS_BACKEND_USED=winrm
@@ -80,7 +80,7 @@ windows_configure_via_winrm() {
 windows_verify_via_winrm() {
   local guest_ip="$1" isolated_mac="$2" fake_ip="$3" dns_ip="$4" result_ip="$5" result_port="$6"
   local remote_result='C:\Windows\Temp\cape-inetsim-autodeploy-verify-result.json'
-  local local_result="$AD_LOG_ROOT/${DEPLOYMENT_ID}-windows-verify.json"
+  local local_result="$AD_LOG_ROOT/${DEPLOYMENT_ID}-$(ad_safe_token "$DOMAIN")-windows-verify.json"
   windows_winrm_run_script "$guest_ip" "$AUTODEPLOY_ROOT/windows/verify-inetsim.ps1" "$remote_result"     -ManagementIP "$guest_ip" -IsolatedMac "$isolated_mac" -FakeIP "$fake_ip"     -DnsIP "$dns_ip" -ResultServerIP "$result_ip" -ResultServerPort "$result_port" -ResultPath "$remote_result"     >"$local_result"
   validate_windows_result_path "$local_result"
 }
