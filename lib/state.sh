@@ -117,6 +117,27 @@ state_resource_owned() {
     }' "$AD_RESOURCE_LEDGER"
 }
 
+state_resource_intended() {
+  local kind="$1" name="$2"
+  [[ -n "${DEPLOYMENT_ID:-}" && -f "$AD_RESOURCE_LEDGER" ]] || return 1
+  awk -F '\t' -v d="$DEPLOYMENT_ID" -v k="$kind" -v n="$name" '
+    NR>1 && $1==d && $2==k && $3==n {created=$5; action=$4; seen=1}
+    END {
+      if (!seen) exit 1
+      if (created!="no") exit 1
+      if (action !~ /^(planned|creating|defining|attaching)$/) exit 1
+      exit 0
+    }' "$AD_RESOURCE_LEDGER"
+}
+
+state_record_intent() {
+  local kind="$1" name="$2" action="${3:-planned}" detail="${4:-}"
+  if state_resource_owned "$kind" "$name" || state_resource_intended "$kind" "$name"; then
+    return 0
+  fi
+  state_record_resource "$kind" "$name" "$action" no "$detail"
+}
+
 state_has_owned_kind() {
   local kind="$1"
   [[ -n "${DEPLOYMENT_ID:-}" && -f "$AD_RESOURCE_LEDGER" ]] || return 1
