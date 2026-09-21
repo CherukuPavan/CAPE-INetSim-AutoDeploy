@@ -11,17 +11,26 @@ AD_LOCK_FILE="${AD_LOCK_FILE:-/run/lock/cape-inetsim-autodeploy.lock}"
 state_init_paths() {
   install -d -m 0700 "$AD_STATE_ROOT" "$AD_BACKUP_ROOT" "$AD_GENERATED_ROOT" "$AD_LOG_ROOT"
   if [[ ! -e "$AD_RESOURCE_LEDGER" ]]; then
-    printf 'kind\tname\taction\tcreated_by_autodeploy\tdetail\n' >"$AD_RESOURCE_LEDGER"
+    printf 'deployment_id\tkind\tname\taction\tcreated_by_autodeploy\tdetail\n' >"$AD_RESOURCE_LEDGER"
     chmod 0600 "$AD_RESOURCE_LEDGER"
+  else
+    local header
+    header="$(head -1 "$AD_RESOURCE_LEDGER" 2>/dev/null || true)"
+    [[ "$header" == $'deployment_id\tkind\tname\taction\tcreated_by_autodeploy\tdetail' ]] || {
+      fail "Unsupported resource-ledger schema at $AD_RESOURCE_LEDGER"
+      return 1
+    }
   fi
 }
 
 state_write_atomic() {
+  state_init_paths
   local tmp
   tmp="$(mktemp "$AD_STATE_ROOT/.state.XXXXXX")"
+  ORIGINAL_CAPE_SNAPSHOT="${ORIGINAL_CAPE_SNAPSHOT:-${CAPE_MACHINE_SNAPSHOT:-}}"
   {
     echo '# CAPE-INetSim-AutoDeploy state; shell-quoted values; root-readable only.'
-    printf 'STATE_SCHEMA=%q\n' "1"
+    printf 'STATE_SCHEMA=%q\n' "2"
     printf 'DEPLOYMENT_ID=%q\n' "${DEPLOYMENT_ID:-}"
     printf 'DEPLOYMENT_PHASE=%q\n' "${DEPLOYMENT_PHASE:-discovered}"
     printf 'CAPE_ROOT=%q\n' "${CAPE_ROOT:-}"
@@ -34,7 +43,7 @@ state_write_atomic() {
     printf 'CONTROL_HOST_IP=%q\n' "${CONTROL_HOST_IP:-}"
     printf 'DOMAIN=%q\n' "${DOMAIN:-}"
     printf 'MANAGEMENT_NETWORK_NAME=%q\n' "${MANAGEMENT_NETWORK_NAME:-}"
-    printf 'ORIGINAL_CAPE_SNAPSHOT=%q\n' "${CAPE_MACHINE_SNAPSHOT:-}"
+    printf 'ORIGINAL_CAPE_SNAPSHOT=%q\n' "${ORIGINAL_CAPE_SNAPSHOT:-}"
     printf 'ISOLATED_SUBNET=%q\n' "${ISOLATED_SUBNET:-}"
     printf 'BRIDGE_IP=%q\n' "${BRIDGE_IP:-}"
     printf 'INETSIM_IP=%q\n' "${INETSIM_IP:-}"
@@ -49,6 +58,7 @@ state_write_atomic() {
     printf 'INETSIM_ISOLATED_MAC=%q\n' "${INETSIM_ISOLATED_MAC:-}"
     printf 'WINDOWS_ISOLATED_NIC_MODEL=%q\n' "${WINDOWS_ISOLATED_NIC_MODEL:-}"
     printf 'WINDOWS_ISOLATED_MAC=%q\n' "${WINDOWS_ISOLATED_MAC:-}"
+    printf 'WINDOWS_BACKEND_USED=%q\n' "${WINDOWS_BACKEND_USED:-}"
     printf 'SAFETY_SNAPSHOT=%q\n' "${SAFETY_SNAPSHOT:-}"
     printf 'WORKING_SNAPSHOT=%q\n' "${WORKING_SNAPSHOT:-}"
     printf 'FINAL_SNAPSHOT=%q\n' "${FINAL_SNAPSHOT:-}"
@@ -59,10 +69,19 @@ state_write_atomic() {
 }
 
 state_load() {
-  [[ -f "$AD_STATE_FILE" ]] || return 1
+  [[ -f "$AD_STATE_FILE" && ! -L "$AD_STATE_FILE" ]] || return 1
+  local uid mode
+  uid="$(stat -c '%u' "$AD_STATE_FILE" 2>/dev/null || echo -1)"
+  mode="$(stat -c '%a' "$AD_STATE_FILE" 2>/dev/null || echo 777)"
+  if [[ "$(id -u)" -eq 0 ]]; then
+    [[ "$uid" -eq 0 ]] || { fail "State file is not root-owned: $AD_STATE_FILE"; return 2; }
+    [[ "$mode" =~ ^[0-6]?[0-6]?[0-6]$ ]] || { fail "State file permissions are unsafe: $mode"; return 2; }
+  fi
   # File is created only by AutoDeploy under a root-only directory.
   # shellcheck disable=SC1090
   source "$AD_STATE_FILE"
+  [[ "${STATE_SCHEMA:-}" == "2" ]] || { fail "Unsupported state schema: ${STATE_SCHEMA:-missing}"; return 2; }
+  [[ -n "${DEPLOYMENT_ID:-}" ]] || { fail "State file is missing deployment ID"; return 2; }
 }
 
 state_set_phase() {
@@ -73,18 +92,19 @@ state_set_phase() {
 state_record_resource() {
   local kind="$1" name="$2" action="$3" created="$4" detail="${5:-}"
   state_init_paths
-  printf '%s\t%s\t%s\t%s\t%s\n' "$kind" "$name" "$action" "$created" "${detail//$'\t'/ }" >>"$AD_RESOURCE_LEDGER"
+  [[ -n "${DEPLOYMENT_ID:-}" ]] || { fail "Cannot record resource without deployment ID"; return 1; }
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$DEPLOYMENT_ID" "$kind" "$name" "$action" "$created" "${detail//$'\t'/ }" >>"$AD_RESOURCE_LEDGER"
 }
 
 state_resource_owned() {
   local kind="$1" name="$2"
-  [[ -f "$AD_RESOURCE_LEDGER" ]] || return 1
-  awk -F '\t' -v k="$kind" -v n="$name" '
-    NR>1 && $1==k && $2==n {created=$4; action=$3; seen=1}
+  [[ -n "${DEPLOYMENT_ID:-}" && -f "$AD_RESOURCE_LEDGER" ]] || return 1
+  awk -F '\t' -v d="$DEPLOYMENT_ID" -v k="$kind" -v n="$name" '
+    NR>1 && $1==d && $2==k && $3==n {created=$5; action=$4; seen=1}
     END {
       if (!seen) exit 1
       if (created!="yes") exit 1
-      if (action ~ /^(removed|restored|released)/) exit 1
+      if (action ~ /^(removed|restored|released|deleted)/) exit 1
       exit 0
     }' "$AD_RESOURCE_LEDGER"
 }
