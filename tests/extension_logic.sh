@@ -7,8 +7,11 @@ AD_STATE_ROOT=/tmp/unused
 APPLIANCE_CACHE_ROOT=/tmp/unused-cache
 source "$ROOT/lib/extension.sh"
 [[ "$EXTENSION_VERSION" == 1.0.1 ]]
-[[ "$EXTENSION_SHA256" == f3be934f08ad364d5964842d3db9bfea0f11cd40a44b76980855d692d3a34d87 ]]
-[[ "$EXTENSION_URL" == https://github.com/CherukuPavan/CAPE-INetSim-VM-Extension/releases/download/v1.0.1/CAPE-INetSim-VM-Extension-v1.0.1.tar.gz ]]
+[[ "$EXTENSION_RELEASE_ASSET_SHA256" == f3be934f08ad364d5964842d3db9bfea0f11cd40a44b76980855d692d3a34d87 ]]
+[[ "$EXTENSION_BUNDLED_ROOT" == "$ROOT/vendor/CAPE-INetSim-VM-Extension-v1.0.1" ]]
+(cd "$EXTENSION_BUNDLED_ROOT" && sha256sum -c RUNTIME-SHA256SUMS >/dev/null)
+grep -Fq 'Bundled INetSim extension runtime' "$ROOT/lib/extension.sh"
+! grep -Fq 'CAPE-INetSim-VM-Extension/releases/download' "$ROOT/lib/extension.sh"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -33,4 +36,4 @@ source "$EXTENSION_ROOT/src/inetsim-vm.conf"
 [[ "$ANALYSIS_GUEST_IP" == '198.51.100.10' ]]
 [[ "$CAPTURE_INTERFACE" == 'capeisim7' ]]
 
-echo '[PASS] frozen extension version/checksum constants'
+echo '[PASS] vendored extension runtime is version/checksum pinned and credential-free'
