@@ -139,6 +139,9 @@ try {
     if (-not (Test-NetConnection -ComputerName $DnsIP -Port 80 -InformationLevel Quiet -WarningAction SilentlyContinue)) {
         throw 'INetSim HTTP service is not reachable'
     }
+    if (-not (Test-NetConnection -ComputerName $DnsIP -Port 443 -InformationLevel Quiet -WarningAction SilentlyContinue)) {
+        throw 'INetSim HTTPS service is not reachable'
+    }
 
     $public4 = [bool](Test-Connection -ComputerName 8.8.8.8 -Count 1 -Quiet -ErrorAction SilentlyContinue)
     $public6 = [bool](Test-Connection -ComputerName '2606:4700:4700::1111' -Count 1 -Quiet -ErrorAction SilentlyContinue)
@@ -160,6 +163,7 @@ try {
         unexpected_active_adapters = 0
         resultserver_reachable = $true
         inetsim_http_reachable = $true
+        inetsim_https_reachable = $true
         public_ip_reachable = $false
         public_ipv6_reachable = $false
         backup = $backupPath
