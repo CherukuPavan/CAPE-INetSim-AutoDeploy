@@ -136,6 +136,7 @@ deploy_initialize_or_resume_state() {
   local d_rs_port="$CAPE_RESULTSERVER_PORT" d_control="$CONTROL_HOST_IP"
   local d_snapshot="$CAPE_MACHINE_SNAPSHOT" d_subnet="$ISOLATED_SUBNET"
   local d_bridge_ip="$BRIDGE_IP" d_inetsim_ip="$INETSIM_IP" d_fake="$WINDOWS_FAKE_IP"
+  local d_storage_pool="${LIBVIRT_STORAGE_POOL:-}" d_storage_path="${LIBVIRT_STORAGE_PATH:-}"
 
   if [[ -f "$AD_STATE_FILE" ]]; then
     state_load
@@ -166,6 +167,7 @@ deploy_initialize_or_resume_state() {
   CAPE_MACHINE_SNAPSHOT="$d_snapshot"; ORIGINAL_CAPE_SNAPSHOT="$d_snapshot"
   ISOLATED_SUBNET="$d_subnet"; BRIDGE_IP="$d_bridge_ip"; INETSIM_IP="$d_inetsim_ip"; WINDOWS_FAKE_IP="$d_fake"
   deploy_reset_resource_state
+  LIBVIRT_STORAGE_POOL="$d_storage_pool"; LIBVIRT_STORAGE_PATH="$d_storage_path"
   ORIGINAL_CAPE_SNAPSHOT="$d_snapshot"
 
   state_init_paths
