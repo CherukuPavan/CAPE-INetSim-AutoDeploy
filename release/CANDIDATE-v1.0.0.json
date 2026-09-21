@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "product_version": "1.0.0",
+  "status": "verified-build-candidate",
+  "host_validation": "pending",
+  "source_commit": "5d648d07a66da4d24f657b4453f3d28609755808",
+  "appliance_workflow_run_id": 35586491533,
+  "appliance_workflow_run_number": 93,
+  "raw_artifact": {
+    "name": "cape-inetsim-appliance-v1.0.0.qcow2",
+    "sha256": "104cb51d13b5e5821238ca24fcfcf13d4751a0ea57ca91ceec108775cf0f484f",
+    "virtual_size_bytes": 21474836480
+  },
+  "release_transport": {
+    "name": "cape-inetsim-appliance-v1.0.0.qcow2.gz",
+    "sha256": "502dd06c44c6411a64d0407930b6624c6e0f5b5506f2c8274ef9be454882ec72",
+    "size_bytes": 687273243,
+    "compression": "gzip"
+  },
+  "base_image": {
+    "release_build": "20260801",
+    "sha256": "0533b0655c32e68b31d792ecd6ccfca95abdbc536c4446874fe0513bd4140ffe"
+  },
+  "independent_artifact_verifier": "PASS",
+  "notes": "Build and offline artifact verification passed. This record is not a production-release approval; controlled end-to-end CAPE host validation remains required."
+}
