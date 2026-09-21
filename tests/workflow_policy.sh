@@ -32,5 +32,6 @@ grep -Fq 'actions/checkout@11d5960a326750d5838078e36cf38b85af677262' "$REL"
 grep -Fq 'libguestfs-tools qemu-utils qemu-system-x86 cloud-image-utils' "$REL"
 grep -Fq 'chmod a+r /boot/vmlinuz-* /boot/initrd.img-*' "$REL"
 grep -Fq 'LIBGUESTFS_BACKEND: direct' "$REL"
+! grep -Fq 'cp "$MANIFEST" "$DIST/appliance-manifest.json"' "$REL"
 
 echo '[PASS] workflow policy avoids duplicate/noisy builds and pins third-party action commits'
