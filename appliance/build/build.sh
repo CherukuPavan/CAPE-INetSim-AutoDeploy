@@ -148,6 +148,8 @@ virt-df -a "$OUT.part" >/dev/null
 OS_RELEASE="$(virt-cat -a "$OUT.part" /etc/os-release)"
 grep -q '^VERSION_ID="24.04"$' <<<"$OS_RELEASE"
 [[ "$(virt-cat -a "$OUT.part" /etc/sysctl.d/99-inetsim-lowports.conf | tr -d '\r')" == 'net.ipv4.ip_unprivileged_port_start=53' ]]
+grep -Fxq 'net.ipv4.ip_forward=0' < <(virt-cat -a "$OUT.part" /etc/sysctl.d/99-cape-inetsim-isolation.conf)
+grep -Fxq 'net.ipv6.conf.all.forwarding=0' < <(virt-cat -a "$OUT.part" /etc/sysctl.d/99-cape-inetsim-isolation.conf)
 virt-cat -a "$OUT.part" /usr/local/sbin/cape-inetsim-guest-configure | grep -q -- '--management-mac'
 virt-cat -a "$OUT.part" /etc/cloud/cloud-init.disabled >/dev/null
 
