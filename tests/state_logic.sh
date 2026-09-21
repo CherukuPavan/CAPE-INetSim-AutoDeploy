@@ -29,6 +29,12 @@ ISOLATED_NETWORK_NAME=cape-inetsim-isolated
 ISOLATED_BRIDGE_NAME=capeisim0
 state_write_atomic
 state_record_resource libvirt-network cape-inetsim-isolated defined yes 'bridge=capeisim0'
+state_record_intent disk /var/lib/libvirt/images/cape-inetsim.qcow2 creating 'planned disk'
+state_resource_intended disk /var/lib/libvirt/images/cape-inetsim.qcow2
+! state_resource_owned disk /var/lib/libvirt/images/cape-inetsim.qcow2
+state_record_resource disk /var/lib/libvirt/images/cape-inetsim.qcow2 created yes 'recovered/created'
+state_resource_owned disk /var/lib/libvirt/images/cape-inetsim.qcow2
+! state_resource_intended disk /var/lib/libvirt/images/cape-inetsim.qcow2
 
 unset DEPLOYMENT_PHASE CAPE_ROOT CAPE_MACHINE_SECTION CAPE_MACHINE_SNAPSHOT ORIGINAL_CAPE_SNAPSHOT DOMAIN ISOLATED_SUBNET BRIDGE_IP INETSIM_IP WINDOWS_FAKE_IP ISOLATED_NETWORK_NAME ISOLATED_BRIDGE_NAME
 state_load
