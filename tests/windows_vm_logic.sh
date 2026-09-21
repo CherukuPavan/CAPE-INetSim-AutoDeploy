@@ -36,3 +36,12 @@ windows_choose_nic_model
 [[ "$(snapshot_state_memory ready)" == 'running|internal' ]]
 
 echo '[PASS] Windows NIC and running-snapshot discovery logic'
+
+python3 - "$ROOT/lib/windows-vm.sh" <<'PY'
+import sys
+s=open(sys.argv[1],encoding="utf-8").read()
+start=s.index("windows_rollback_to_safety()")
+body=s[start:]
+assert 'intentionally left the analysis VM shut off for network safety' in body
+assert 'virsh start "$DOMAIN"' not in body
+PY
