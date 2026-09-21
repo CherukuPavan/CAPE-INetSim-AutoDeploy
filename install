@@ -78,6 +78,7 @@ Usage:
   sudo ./install [--deploy] [--machine CAPE_MACHINE] [--wait-seconds N]
   sudo ./install --plan [--machine CAPE_MACHINE]
   sudo ./install --verify
+  sudo ./install --repair
   sudo ./install --status
   sudo ./install --rollback [--apply]
 
@@ -98,6 +99,7 @@ while (($#)); do
     --deploy) MODE=deploy; shift ;;
     --plan) MODE=plan; shift ;;
     --verify) MODE=verify; shift ;;
+    --repair) MODE=repair; shift ;;
     --status) MODE=status; shift ;;
     --rollback) MODE=rollback; shift ;;
     --apply) ROLLBACK_APPLY=yes; shift ;;
@@ -128,10 +130,11 @@ case "$MODE" in
     ;;
   verify)
     require_root
-    state_load || { fail "No deployment state exists"; exit 1; }
-    validate_deployment_structural
-    validate_deployment_services
-    pass "Deployment verification passed"
+    exec "$AUTODEPLOY_ROOT/bin/cape-inetsim-verify"
+    ;;
+  repair)
+    require_root
+    exec "$AUTODEPLOY_ROOT/bin/cape-inetsim-repair"
     ;;
   status)
     require_root
