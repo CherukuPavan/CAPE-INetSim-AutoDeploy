@@ -76,6 +76,42 @@ discover_cape_machine_records
 [[ "$(record_field "${CAPE_MACHINE_RECORDS[0]}" section)" == win ]]
 rm -rf "$TMP_CAPE"
 
+# CAPE's [kvm] machines list is authoritative. Unlisted example/stale sections
+# must not be treated as active analysis guests.
+TMP_CAPE="$(mktemp -d)"
+mkdir -p "$TMP_CAPE/conf"
+cat >"$TMP_CAPE/conf/kvm.conf" <<'EOF'
+[kvm]
+machines = win10, win7
+
+[cape1]
+label = cape1
+platform = windows
+ip = 192.0.2.9
+
+[win10]
+label = win10
+platform = windows
+ip = 192.0.2.10
+
+[win7]
+label = win7
+platform = windows
+ip = 192.0.2.11
+
+[linux1]
+label = linux1
+platform = linux
+ip = 192.0.2.12
+EOF
+CAPE_ROOT="$TMP_CAPE"
+DISCOVERY_ERRORS=()
+discover_cape_machine_records
+[[ "${#CAPE_MACHINE_RECORDS[@]}" -eq 2 ]]
+[[ "$(record_field "${CAPE_MACHINE_RECORDS[0]}" section)" == win10 ]]
+[[ "$(record_field "${CAPE_MACHINE_RECORDS[1]}" section)" == win7 ]]
+rm -rf "$TMP_CAPE"
+
 TMP_DB="$(mktemp -d)"
 mkdir -p "$TMP_DB/conf"
 cat >"$TMP_DB/conf/cuckoo.conf" <<'EOF'
