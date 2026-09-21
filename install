@@ -146,7 +146,7 @@ case "$MODE" in
     exec "$AUTODEPLOY_ROOT/bin/cape-inetsim-status"
     ;;
   collect)
-    exec "$AUTODEPLOY_ROOT/bin/cape-inetsim-collect"
+    exec bash "$AUTODEPLOY_ROOT/bin/cape-inetsim-collect"
     ;;
   rollback)
     require_root
