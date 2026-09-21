@@ -1,34 +1,75 @@
 #!/usr/bin/env bash
 
-cape_root_candidates() {
-  local unit wd p
-  for unit in cape.service cape-web.service cape-processor.service cape-rooter.service; do
-    wd="$(systemctl show "$unit" -p WorkingDirectory --value 2>/dev/null || true)"
-    [[ -n "$wd" && "$wd" != "/" ]] && printf '%s\n' "$wd"
+resolve_cape_root_from_path() {
+  local p="$1" i
+  [[ -n "$p" && "$p" != "/" ]] || return 1
+  p="$(readlink -f "$p" 2>/dev/null || printf '%s' "$p")"
+  [[ -f "$p" ]] && p="$(dirname "$p")"
+  for i in 1 2 3 4 5 6; do
+    if [[ -f "$p/conf/kvm.conf" ]]; then
+      printf '%s\n' "$p"
+      return 0
+    fi
+    [[ "$p" == "/" ]] && break
+    p="$(dirname "$p")"
   done
-  printf '%s\n' /opt/CAPEv2 /srv/CAPEv2 /usr/local/CAPEv2
-  find /opt /srv /usr/local /home -maxdepth 5 -type f -path '*/conf/kvm.conf' -printf '%h\n' 2>/dev/null | sed 's#/conf$##' || true
+  return 1
+}
+
+cape_service_roots() {
+  local unit wd root
+  for unit in cape.service cape-web.service cape-processor.service cape-rooter.service; do
+    systemctl cat "$unit" >/dev/null 2>&1 || continue
+    wd="$(systemctl show "$unit" -p WorkingDirectory --value 2>/dev/null || true)"
+    root="$(resolve_cape_root_from_path "$wd" 2>/dev/null || true)"
+    [[ -n "$root" ]] && printf '%s\n' "$root"
+  done | sort -u
+}
+
+cape_fallback_roots() {
+  local p
+  if [[ -n "${CAPE_ROOT:-}" ]]; then
+    resolve_cape_root_from_path "$CAPE_ROOT" 2>/dev/null || true
+  fi
+  for p in /opt/CAPEv2 /srv/CAPEv2 /usr/local/CAPEv2; do
+    resolve_cape_root_from_path "$p" 2>/dev/null || true
+  done
+  find /opt /srv /usr/local /home -maxdepth 5 -type f -path '*/conf/kvm.conf' -printf '%h\n' 2>/dev/null |
+    sed 's#/conf$##' || true
 }
 
 discover_cape_root() {
-  local p
-  local -a roots=()
-  while IFS= read -r p; do
-    [[ -n "$p" ]] || continue
-    p="$(readlink -f "$p" 2>/dev/null || printf '%s' "$p")"
-    [[ -f "$p/conf/kvm.conf" ]] || continue
-    if [[ ! " ${roots[*]} " =~ " ${p} " ]]; then roots+=("$p"); fi
-  done < <(cape_root_candidates)
+  local -a service_roots=() fallback_roots=()
+  mapfile -t service_roots < <(cape_service_roots)
 
-  if ((${#roots[@]} == 1)); then
-    CAPE_ROOT="${roots[0]}"
-    pass "CAPE installation discovered"
-  elif ((${#roots[@]} == 0)); then
+  # The CAPE instance referenced by CAPE systemd units is authoritative.
+  # This avoids mistaking backup/source copies (for example CAPEv2-backup)
+  # for the live sandbox installation.
+  if ((${#service_roots[@]} == 1)); then
+    CAPE_ROOT="${service_roots[0]}"
+    CAPE_ROOT_SOURCE="systemd"
+    pass "Live CAPE installation discovered from systemd"
+    return 0
+  elif ((${#service_roots[@]} > 1)); then
     CAPE_ROOT=""
+    CAPE_ROOT_SOURCE="ambiguous-systemd"
+    add_error "CAPE services resolve to multiple roots: ${service_roots[*]}"
+    return 0
+  fi
+
+  mapfile -t fallback_roots < <(cape_fallback_roots | sed '/^$/d' | sort -u)
+  if ((${#fallback_roots[@]} == 1)); then
+    CAPE_ROOT="${fallback_roots[0]}"
+    CAPE_ROOT_SOURCE="filesystem-fallback"
+    pass "CAPE installation discovered by filesystem fallback"
+  elif ((${#fallback_roots[@]} == 0)); then
+    CAPE_ROOT=""
+    CAPE_ROOT_SOURCE="not-found"
     add_error "No CAPE root containing conf/kvm.conf was found"
   else
     CAPE_ROOT=""
-    add_error "Multiple CAPE roots found: ${roots[*]}"
+    CAPE_ROOT_SOURCE="ambiguous-filesystem"
+    add_error "No authoritative CAPE service root; multiple filesystem CAPE roots found: ${fallback_roots[*]}"
   fi
 }
 
