@@ -69,30 +69,44 @@ local-hostname: cape-inetsim-build
 EOF_META
 cloud-localds "$SEED" "$USER_DATA" "$META_DATA"
 
-QEMU_ACCEL=(-accel tcg)
+QEMU_MACHINE=(-machine type=q35,accel=tcg -cpu max)
 if [[ -r /dev/kvm && -w /dev/kvm ]]; then
-  QEMU_ACCEL=(-enable-kvm -cpu host)
+  QEMU_MACHINE=(-machine type=q35,accel=kvm -cpu host)
 fi
 
 echo "[INFO] booting temporary isolated build VM to install appliance packages"
 set +e
 timeout --signal=TERM --kill-after=30s 1500 \
   qemu-system-x86_64 \
-    "${QEMU_ACCEL[@]}" \
+    "${QEMU_MACHINE[@]}" \
     -name cape-inetsim-appliance-build \
     -m 2048 -smp 2 \
     -drive "file=$OUT.part,if=virtio,format=qcow2,cache=unsafe" \
     -drive "file=$SEED,if=virtio,format=raw,readonly=on" \
     -netdev user,id=buildnet,restrict=off \
     -device virtio-net-pci,netdev=buildnet \
-    -display none -serial stdio -monitor none -no-reboot \
+    -device virtio-rng-pci \
+    -nographic -monitor none -no-reboot \
   2>&1 | tee "$CONSOLE"
 QEMU_RC=${PIPESTATUS[0]}
 set -e
 
 if [[ "$QEMU_RC" -ne 0 ]]; then
   echo "[FAIL] temporary appliance build VM exited with status $QEMU_RC" >&2
-  tail -n 200 "$CONSOLE" >&2 || true
+  echo "----- guest provisioning log (if available) -----" >&2
+  virt-cat -a "$OUT.part" /var/log/cape-inetsim-image-build.log >&2 || true
+  echo "----- cloud-init output log (if available) -----" >&2
+  virt-cat -a "$OUT.part" /var/log/cloud-init-output.log >&2 || true
+  echo "----- qemu console tail -----" >&2
+  tail -n 300 "$CONSOLE" >&2 || true
+  if [[ -n "${APPLIANCE_DIAG_DIR:-}" ]]; then
+    mkdir -p "$APPLIANCE_DIAG_DIR"
+    cp -f "$CONSOLE" "$APPLIANCE_DIAG_DIR/qemu-console.log" 2>/dev/null || true
+    cp -f "$USER_DATA" "$APPLIANCE_DIAG_DIR/user-data" 2>/dev/null || true
+    cp -f "$META_DATA" "$APPLIANCE_DIAG_DIR/meta-data" 2>/dev/null || true
+    virt-cat -a "$OUT.part" /var/log/cape-inetsim-image-build.log >"$APPLIANCE_DIAG_DIR/guest-provisioning.log" 2>/dev/null || true
+    virt-cat -a "$OUT.part" /var/log/cloud-init-output.log >"$APPLIANCE_DIAG_DIR/cloud-init-output.log" 2>/dev/null || true
+  fi
   exit 7
 fi
 
