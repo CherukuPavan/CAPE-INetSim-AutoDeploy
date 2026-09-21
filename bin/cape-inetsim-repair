@@ -19,6 +19,7 @@ source "$ROOT/lib/inetsim-vm.sh"
 source "$ROOT/lib/cape-configure.sh"
 source "$ROOT/lib/extension.sh"
 source "$ROOT/lib/services.sh"
+source "$ROOT/lib/maintenance.sh"
 source "$ROOT/lib/validate.sh"
 
 require_root
@@ -49,6 +50,8 @@ inetsim_verify_host
 
 # Reapply only exact, version-gated CAPE settings. Backups from the original
 # deployment are never overwritten by backup_file_once().
+DISCOVERY_ERRORS=()
+COMPAT_NOTES=()
 check_cape_layout
 [[ "$COMPAT_STATUS" == plan-compatible ]] || { fail "Current CAPE source layout is not repair-compatible"; exit 23; }
 cape_configure_inetsim
