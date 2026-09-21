@@ -4,6 +4,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BOOT="$ROOT/release/bootstrap-template.sh"
 WF="$ROOT/.github/workflows/prepare-release.yml"
 
+[[ ! -e "$ROOT/release/CANDIDATE-v1.0.0.json" ]]
+
 bash -n "$BOOT"
 grep -Fq 'https://github.com/$REPO/releases/download/$TAG/$SOURCE_NAME' "$BOOT"
 grep -Fq 'sha256sum -c' "$BOOT"
