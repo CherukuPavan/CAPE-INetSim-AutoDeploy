@@ -25,6 +25,17 @@ state_init_paths() {
 
 state_write_atomic() {
   state_init_paths
+  if [[ -n "${TARGET_INDEX:-}" ]] && declare -F targets_capture_bound >/dev/null 2>&1; then
+    targets_capture_bound "$TARGET_INDEX"
+  fi
+  CAPE_TARGETS_COUNT="${CAPE_TARGETS_COUNT:-0}"
+  CAPE_TARGETS_IDENTITY_SHA256="${CAPE_TARGETS_IDENTITY_SHA256:-}"
+  if declare -F targets_count >/dev/null 2>&1; then
+    CAPE_TARGETS_COUNT="$(targets_count)"
+  fi
+  if [[ -z "$CAPE_TARGETS_IDENTITY_SHA256" ]] && declare -F targets_identity_sha256 >/dev/null 2>&1; then
+    CAPE_TARGETS_IDENTITY_SHA256="$(targets_identity_sha256)"
+  fi
   local tmp
   tmp="$(mktemp "$AD_STATE_ROOT/.state.XXXXXX")"
   ORIGINAL_CAPE_SNAPSHOT="${ORIGINAL_CAPE_SNAPSHOT:-${CAPE_MACHINE_SNAPSHOT:-}}"
@@ -44,6 +55,9 @@ state_write_atomic() {
     printf 'RELEASE_SOURCE_SHA256=%q\n' "${RELEASE_SOURCE_SHA256:-}"
     printf 'RELEASE_SOURCE_COMMIT=%q\n' "${RELEASE_SOURCE_COMMIT:-}"
     printf 'CAPE_DB_BACKEND=%q\n' "${CAPE_DB_BACKEND:-}"
+    printf 'CAPE_TARGETS_COUNT=%q\n' "${CAPE_TARGETS_COUNT:-0}"
+    printf 'CAPE_TARGETS_IDENTITY_SHA256=%q\n' "${CAPE_TARGETS_IDENTITY_SHA256:-}"
+    printf 'CAPE_TARGETS_JSON=%q\n' "${CAPE_TARGETS_JSON:-[]}"
     printf 'CAPE_MACHINE_SECTION=%q\n' "${CAPE_MACHINE_SECTION:-}"
     printf 'CAPE_MACHINE_LABEL=%q\n' "${CAPE_MACHINE_LABEL:-}"
     printf 'CAPE_MACHINE_IP=%q\n' "${CAPE_MACHINE_IP:-}"
