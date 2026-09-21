@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-import argparse,json,secrets,socket,threading,time
+import argparse,ipaddress,json,secrets,socket,threading,time
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs,urlparse
 
 p=argparse.ArgumentParser()
 p.add_argument("--bind",required=True)
+p.add_argument("--client",required=True)
 p.add_argument("--port",type=int,default=0)
 p.add_argument("--token",required=True)
 p.add_argument("--script",required=True)
@@ -13,6 +14,7 @@ p.add_argument("--result",required=True)
 p.add_argument("--ready",required=True)
 p.add_argument("--timeout",type=int,default=900)
 a=p.parse_args()
+allowed_client=str(ipaddress.ip_address(a.client))
 
 script=Path(a.script).read_bytes()
 result_path=Path(a.result)
@@ -25,6 +27,12 @@ class Handler(BaseHTTPRequestHandler):
         return
 
     def authorized(self):
+        try:
+            peer=str(ipaddress.ip_address(self.client_address[0]))
+        except ValueError:
+            return False
+        if peer != allowed_client:
+            return False
         q=parse_qs(urlparse(self.path).query)
         return secrets.compare_digest((q.get("token") or [""])[0],a.token)
 
