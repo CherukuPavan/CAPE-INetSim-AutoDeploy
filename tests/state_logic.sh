@@ -36,5 +36,7 @@ state_load
 [[ "$INETSIM_IP" == 192.168.200.2 ]]
 state_resource_owned libvirt-network cape-inetsim-isolated
 ! state_resource_owned libvirt-network foreign-network
+state_record_resource libvirt-network cape-inetsim-isolated removed-by-rollback yes ''
+! state_resource_owned libvirt-network cape-inetsim-isolated
 
 echo '[PASS] state persistence and ownership ledger'
