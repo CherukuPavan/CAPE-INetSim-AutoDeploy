@@ -152,13 +152,11 @@ deploy_reset_resource_state() {
 }
 
 deploy_initialize_or_resume_state() {
-  local d_root="$CAPE_ROOT" d_commit="$CAPE_COMMIT" d_db="$CAPE_DB_BACKEND" d_section="$CAPE_MACHINE_SECTION"
-  local d_label="$CAPE_MACHINE_LABEL" d_ip="$CAPE_MACHINE_IP" d_domain="$DOMAIN"
-  local d_mgmt_net="$MANAGEMENT_NETWORK_NAME" d_mgmt_bridge="$MANAGEMENT_BRIDGE_NAME" d_mgmt_mac="$WINDOWS_MANAGEMENT_MAC"
-  local d_rs_ip="$CAPE_RESULTSERVER_IP"
-  local d_rs_port="$CAPE_RESULTSERVER_PORT" d_control="$CONTROL_HOST_IP"
-  local d_snapshot="$CAPE_MACHINE_SNAPSHOT" d_subnet="$ISOLATED_SUBNET"
-  local d_bridge_ip="$BRIDGE_IP" d_inetsim_ip="$INETSIM_IP" d_fake="$WINDOWS_FAKE_IP"
+  local d_root="$CAPE_ROOT" d_commit="$CAPE_COMMIT" d_db="$CAPE_DB_BACKEND"
+  local d_targets_json="${CAPE_TARGETS_JSON:-[]}"
+  local d_targets_identity
+  d_targets_identity="$(targets_identity_sha256)"
+  local d_subnet="$ISOLATED_SUBNET" d_bridge_ip="$BRIDGE_IP" d_inetsim_ip="$INETSIM_IP"
   local d_storage_pool="${LIBVIRT_STORAGE_POOL:-}" d_storage_path="${LIBVIRT_STORAGE_PATH:-}"
 
   if [[ -f "$AD_STATE_FILE" ]]; then
@@ -169,29 +167,36 @@ deploy_initialize_or_resume_state() {
         return 1
       }
       [[ "$CAPE_ROOT" == "$d_root" ]] || { fail "Existing deployment state belongs to a different CAPE root"; return 1; }
-      [[ "$CAPE_MACHINE_SECTION" == "$d_section" ]] || { fail "Existing deployment state belongs to a different CAPE machine"; return 1; }
-      [[ "$DOMAIN" == "$d_domain" ]] || { fail "Existing deployment state belongs to a different libvirt domain"; return 1; }
       [[ "$CAPE_COMMIT" == "$d_commit" ]] || { fail "CAPE commit changed during/after deployment; use verify/repair compatibility flow"; return 1; }
       [[ "$CAPE_DB_BACKEND" == "$d_db" ]] || { fail "CAPE database backend changed during/after deployment; refusing resume"; return 1; }
+      [[ "${CAPE_TARGETS_IDENTITY_SHA256:-}" == "$d_targets_identity" ]] || {
+        fail "Enabled CAPE analysis-machine identity changed during/after deployment; refusing unsafe resume"
+        return 1
+      }
+      CAPE_TARGETS_COUNT="$(targets_count)"
+      ((CAPE_TARGETS_COUNT > 0)) || { fail "Deployment state contains no CAPE analysis targets"; return 1; }
+      targets_bind 0
       if deploy_phase_at_least cape-configured; then
         cape_assert_owned_files_unchanged || return 1
       fi
-      CAPE_MACHINE_SNAPSHOT="${ORIGINAL_CAPE_SNAPSHOT:-}"
-      pass "Resuming deployment state $DEPLOYMENT_ID at phase ${DEPLOYMENT_PHASE:-unknown}"
+      pass "Resuming deployment state $DEPLOYMENT_ID at phase ${DEPLOYMENT_PHASE:-unknown} for $CAPE_TARGETS_COUNT CAPE machine(s)"
       return 0
     fi
   fi
 
-  CAPE_ROOT="$d_root"; CAPE_COMMIT="$d_commit"; CAPE_DB_BACKEND="$d_db"; CAPE_MACHINE_SECTION="$d_section"
-  CAPE_MACHINE_LABEL="$d_label"; CAPE_MACHINE_IP="$d_ip"; DOMAIN="$d_domain"
-  MANAGEMENT_NETWORK_NAME="$d_mgmt_net"; MANAGEMENT_BRIDGE_NAME="$d_mgmt_bridge"; WINDOWS_MANAGEMENT_MAC="$d_mgmt_mac"
-  CAPE_RESULTSERVER_IP="$d_rs_ip"
-  CAPE_RESULTSERVER_PORT="$d_rs_port"; CONTROL_HOST_IP="$d_control"
-  CAPE_MACHINE_SNAPSHOT="$d_snapshot"; ORIGINAL_CAPE_SNAPSHOT="$d_snapshot"
-  ISOLATED_SUBNET="$d_subnet"; BRIDGE_IP="$d_bridge_ip"; INETSIM_IP="$d_inetsim_ip"; WINDOWS_FAKE_IP="$d_fake"
+  CAPE_ROOT="$d_root"
+  CAPE_COMMIT="$d_commit"
+  CAPE_DB_BACKEND="$d_db"
+  CAPE_TARGETS_JSON="$d_targets_json"
+  CAPE_TARGETS_COUNT="$(targets_count)"
+  CAPE_TARGETS_IDENTITY_SHA256="$d_targets_identity"
+  ISOLATED_SUBNET="$d_subnet"
+  BRIDGE_IP="$d_bridge_ip"
+  INETSIM_IP="$d_inetsim_ip"
   deploy_reset_resource_state
-  LIBVIRT_STORAGE_POOL="$d_storage_pool"; LIBVIRT_STORAGE_PATH="$d_storage_path"
-  ORIGINAL_CAPE_SNAPSHOT="$d_snapshot"
+  LIBVIRT_STORAGE_POOL="$d_storage_pool"
+  LIBVIRT_STORAGE_PATH="$d_storage_path"
+  targets_bind 0
 
   state_init_paths
   state_new_deployment_id
@@ -200,7 +205,7 @@ deploy_initialize_or_resume_state() {
   choose_isolated_bridge_name
   state_write_atomic
   services_capture_original_state
-  pass "Initialized deployment transaction $DEPLOYMENT_ID"
+  pass "Initialized deployment transaction $DEPLOYMENT_ID for $CAPE_TARGETS_COUNT CAPE analysis machine(s)"
 }
 
 deploy_stage_non_disruptive() {
