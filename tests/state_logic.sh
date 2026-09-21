@@ -55,3 +55,6 @@ DEPLOYMENT_ID=second-deployment
 DEPLOYMENT_ID="$first"
 
 echo '[PASS] state persistence, original snapshot, and deployment-scoped ownership ledger'
+
+state_record_intent domain-interface-filter testvm:52:54:00:aa:bb:cc applying 'anti-spoof'
+state_resource_intended domain-interface-filter testvm:52:54:00:aa:bb:cc
