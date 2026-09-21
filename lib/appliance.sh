@@ -28,7 +28,7 @@ try:
     with open(p) as f: d=json.load(f)
 except Exception as e:
     print(f"invalid JSON: {e}", file=sys.stderr); raise SystemExit(2)
-required=['schema','appliance_version','status','artifact_name','artifact_url','sha256','format','os','inetsim']
+required=['schema','appliance_version','status','artifact_name','artifact_url','sha256','format','os','inetsim','guest_management','networking']
 missing=[k for k in required if k not in d]
 if missing:
     print('missing fields: '+','.join(missing), file=sys.stderr); raise SystemExit(2)
@@ -44,6 +44,18 @@ if not re.fullmatch(r'[0-9a-f]{64}', sha):
     print('sha256 must be 64 hex characters', file=sys.stderr); raise SystemExit(2)
 if d['format'] != 'qcow2':
     print('only qcow2 appliances are supported', file=sys.stderr); raise SystemExit(2)
+name=str(d.get('artifact_name') or '')
+if not name or name != name.split('/')[-1] or name in ('.','..'):
+    print('artifact_name must be a safe basename', file=sys.stderr); raise SystemExit(2)
+osinfo=d.get('os') or {}
+if osinfo.get('distribution') != 'Ubuntu' or osinfo.get('release') != '24.04 LTS' or osinfo.get('architecture') != 'x86_64':
+    print('unsupported appliance OS identity', file=sys.stderr); raise SystemExit(2)
+if (d.get('guest_management') or {}).get('qemu_guest_agent') is not True:
+    print('appliance must require QEMU Guest Agent management', file=sys.stderr); raise SystemExit(2)
+if (d.get('networking') or {}).get('baked_in_fake_internet_subnet') is not False:
+    print('appliance must not contain a baked-in fake-Internet subnet', file=sys.stderr); raise SystemExit(2)
+if (d.get('inetsim') or {}).get('unprivileged_port_start') != 53:
+    print('appliance low-port safety setting is unexpected', file=sys.stderr); raise SystemExit(2)
 print('OK')
 PY
 }
@@ -59,9 +71,18 @@ appliance_verify_file() {
     return 1
   }
   if have qemu-img; then
-    local fmt
-    fmt="$(qemu-img info --output=json "$file" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("format",""))' 2>/dev/null || true)"
-    [[ "$fmt" == qcow2 ]] || { fail "Appliance is not qcow2 (detected: ${fmt:-unknown})"; return 1; }
+    local info_check
+    info_check="$(qemu-img info --output=json "$file" 2>/dev/null | python3 -c '
+import json,sys
+try: d=json.load(sys.stdin)
+except Exception: raise SystemExit(2)
+if d.get("format")!="qcow2": print("format="+str(d.get("format","unknown"))); raise SystemExit(3)
+for key in ("backing-filename","full-backing-filename","data-file","full-data-filename"):
+    if d.get(key): print("external="+key); raise SystemExit(4)
+print("OK")
+' 2>/dev/null || true)"
+    [[ "$info_check" == OK ]] || { fail "Appliance qcow2 has an unsupported format/backing dependency"; return 1; }
+    qemu-img check "$file" >/dev/null || { fail "Appliance qcow2 integrity check failed"; return 1; }
   fi
   pass "Appliance artifact checksum verified"
 }
