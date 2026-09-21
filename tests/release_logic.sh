@@ -25,6 +25,8 @@ grep -q '^  workflow_dispatch:' "$WF"
 ! grep -q '^  pull_request:' "$WF"
 grep -q 'candidate_run_id:' "$WF"
 grep -q 'source_sha:' "$WF"
+[[ "$(grep -Fc 'ref: ${{ inputs.source_sha }}' "$WF")" -ge 2 ]]
+grep -q 'Checkout exact candidate release tooling' "$WF"
 grep -q 'candidate workflow source SHA does not match release source SHA' "$WF"
 grep -q 'stable v1.0.0 cannot be published while the repository is private' "$WF"
 grep -q 'gh run download' "$WF"
