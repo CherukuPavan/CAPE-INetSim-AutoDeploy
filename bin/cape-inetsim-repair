@@ -79,6 +79,19 @@ trap 'repair_restore_runtime 130; exit 130' INT TERM
   exit 20
 }
 
+DISCOVERY_ERRORS=()
+COMPAT_NOTES=()
+check_cape_layout
+[[ "$COMPAT_STATUS" == plan-compatible ]] || { fail "Current CAPE source layout is not repair-compatible"; exit 23; }
+
+# Repair may recreate missing AutoDeploy-owned infrastructure, but it must not
+# silently overwrite CAPE files changed by an operator or CAPE update after the
+# deployment committed them.
+cape_assert_owned_files_unchanged || {
+  fail "CAPE-managed files drifted after deployment; refusing repair overwrite. Inspect or rollback deliberately."
+  exit 26
+}
+
 # Non-disruptive recovery first.
 if ! virsh net-info "$ISOLATED_NETWORK_NAME" >/dev/null 2>&1; then
   state_resource_owned libvirt-network "$ISOLATED_NETWORK_NAME" || { fail "Missing isolated network is not recorded as AutoDeploy-owned"; exit 21; }
@@ -100,19 +113,6 @@ fi
 
 inetsim_configure_guest
 inetsim_verify_host
-
-DISCOVERY_ERRORS=()
-COMPAT_NOTES=()
-check_cape_layout
-[[ "$COMPAT_STATUS" == plan-compatible ]] || { fail "Current CAPE source layout is not repair-compatible"; exit 23; }
-
-# Repair may recreate missing AutoDeploy-owned infrastructure, but it must not
-# silently overwrite CAPE files changed by an operator or CAPE update after the
-# deployment committed them.
-cape_assert_owned_files_unchanged || {
-  fail "CAPE-managed files drifted after deployment; refusing repair overwrite. Inspect or rollback deliberately."
-  exit 26
-}
 
 # CAPE mutations happen only after CAPE reaches a task-safe point. A stopped
 # scheduler alone is not sufficient: cape-processor may still be reporting a
