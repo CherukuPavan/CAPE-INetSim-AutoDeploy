@@ -25,14 +25,52 @@ source "$ROOT/lib/validate.sh"
 require_root
 transaction_lock_acquire
 state_load || { fail "No deployment state exists"; exit 1; }
-[[ "${DEPLOYMENT_PHASE:-}" == committed ]] || { fail "Repair is allowed only for a committed deployment"; exit 2; }
+case "${DEPLOYMENT_PHASE:-}" in
+  committed|repairing|repair-incomplete|cape-configured|extension-installed) ;;
+  *) fail "Repair is not safe from deployment phase: ${DEPLOYMENT_PHASE:-unknown}"; exit 2 ;;
+esac
 
-# Windows baseline is security-critical. Repair never invents/replaces it.
+REPAIR_CAPE_ACTIVE="$(service_active_flag cape.service)"
+REPAIR_PROCESSOR_ACTIVE="$(service_active_flag cape-processor.service)"
+REPAIR_WEB_ACTIVE="$(service_active_flag cape-web.service)"
+REPAIR_ROOTER_ACTIVE="$(service_active_flag cape-rooter.service)"
+REPAIR_MAINTENANCE_ACQUIRED=no
+
+repair_restore_runtime() {
+  local rc="$1"
+  trap - ERR INT TERM
+  set +e
+
+  if [[ "$REPAIR_MAINTENANCE_ACQUIRED" == yes && -f "$CAPE_MAINTENANCE_GUARD_FILE" ]]; then
+    if systemctl is-active --quiet cape.service; then
+      systemctl stop cape.service >/dev/null 2>&1 || true
+    fi
+    cape_release_maintenance >/dev/null 2>&1 || true
+  fi
+
+  if [[ "$REPAIR_PROCESSOR_ACTIVE" == yes ]]; then systemctl start cape-processor.service >/dev/null 2>&1 || true; else systemctl stop cape-processor.service >/dev/null 2>&1 || true; fi
+  if [[ "$REPAIR_WEB_ACTIVE" == yes ]]; then systemctl start cape-web.service >/dev/null 2>&1 || true; else systemctl stop cape-web.service >/dev/null 2>&1 || true; fi
+  if [[ "$REPAIR_ROOTER_ACTIVE" == yes ]]; then systemctl start cape-rooter.service >/dev/null 2>&1 || true; else systemctl stop cape-rooter.service >/dev/null 2>&1 || true; fi
+  if [[ "$REPAIR_CAPE_ACTIVE" == yes ]]; then systemctl start cape.service >/dev/null 2>&1 || true; else systemctl stop cape.service >/dev/null 2>&1 || true; fi
+
+  if [[ "$rc" -ne 0 ]]; then
+    DEPLOYMENT_PHASE=repair-incomplete
+    state_write_atomic >/dev/null 2>&1 || true
+    fail "Repair did not complete; runtime state was restored as far as possible"
+  fi
+  set -e
+  return "$rc"
+}
+
+trap 'rc=$?; repair_restore_runtime "$rc"; exit "$rc"' ERR
+trap 'repair_restore_runtime 130; exit 130' INT TERM
+
 [[ -n "${FINAL_SNAPSHOT:-}" ]] && virsh snapshot-info "$DOMAIN" "$FINAL_SNAPSHOT" >/dev/null 2>&1 || {
-  fail "CAPE-ready Windows snapshot is missing; repair will not guess or recreate it. Roll back/redeploy at a safe point."
+  fail "CAPE-ready Windows snapshot is missing; repair will not invent or recreate the security baseline."
   exit 20
 }
 
+# Non-disruptive recovery first.
 if ! virsh net-info "$ISOLATED_NETWORK_NAME" >/dev/null 2>&1; then
   state_resource_owned libvirt-network "$ISOLATED_NETWORK_NAME" || { fail "Missing isolated network is not recorded as AutoDeploy-owned"; exit 21; }
   isolated_network_apply
@@ -48,23 +86,42 @@ fi
 inetsim_configure_guest
 inetsim_verify_host
 
-# Reapply only exact, version-gated CAPE settings. Backups from the original
-# deployment are never overwritten by backup_file_once().
 DISCOVERY_ERRORS=()
 COMPAT_NOTES=()
 check_cape_layout
 [[ "$COMPAT_STATUS" == plan-compatible ]] || { fail "Current CAPE source layout is not repair-compatible"; exit 23; }
+
+# CAPE mutations happen only after CAPE reaches a task-safe point. If the
+# scheduler is already stopped there is no scheduling race to guard.
+if [[ "$REPAIR_CAPE_ACTIVE" == yes ]]; then
+  cape_wait_and_acquire_maintenance "${REPAIR_WAIT_SECONDS:-3600}"
+  REPAIR_MAINTENANCE_ACQUIRED=yes
+fi
+
+DEPLOYMENT_PHASE=repairing
+state_write_atomic
 cape_configure_inetsim
 
 if ! grep -Rqs 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$CAPE_ROOT/web"; then
   extension_install
 fi
 
-if [[ "${CAPE_PROCESSOR_WAS_ACTIVE:-no}" == yes ]]; then systemctl restart cape-processor.service; fi
-if [[ "${CAPE_WEB_WAS_ACTIVE:-no}" == yes ]]; then systemctl restart cape-web.service; fi
-if [[ "${CAPE_SERVICE_WAS_ACTIVE:-no}" == yes ]]; then systemctl restart cape.service; fi
-
 validate_deployment_structural
+
+# Stop the scheduler before releasing DB maintenance locks so queued work can
+# never race the final service/configuration handoff.
+if [[ "$REPAIR_MAINTENANCE_ACQUIRED" == yes ]]; then
+  systemctl stop cape.service
+  cape_release_maintenance
+  REPAIR_MAINTENANCE_ACQUIRED=no
+fi
+
+if [[ "$REPAIR_PROCESSOR_ACTIVE" == yes ]]; then systemctl restart cape-processor.service; else systemctl stop cape-processor.service >/dev/null 2>&1 || true; fi
+if [[ "$REPAIR_WEB_ACTIVE" == yes ]]; then systemctl restart cape-web.service; else systemctl stop cape-web.service >/dev/null 2>&1 || true; fi
+if [[ "$REPAIR_ROOTER_ACTIVE" == yes ]]; then systemctl is-active --quiet cape-rooter.service || systemctl start cape-rooter.service; else systemctl stop cape-rooter.service >/dev/null 2>&1 || true; fi
+if [[ "$REPAIR_CAPE_ACTIVE" == yes ]]; then systemctl start cape.service; else systemctl stop cape.service >/dev/null 2>&1 || true; fi
+
 validate_deployment_services
 state_set_phase committed
-pass "Safe repair completed"
+trap - ERR INT TERM
+pass "Safe task-aware repair completed"
