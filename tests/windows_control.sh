@@ -18,4 +18,7 @@ grep -Fq 'test-token' <<<"$cmd"
 grep -Fq -- "-IsolatedMac '52:54:00:aa:bb:cc'" <<<"$cmd"
 grep -Fq "Invoke-WebRequest" <<<"$cmd"
 python3 -m py_compile "$ROOT/tools/windows_callback.py"
+grep -Fq -- '--client "$CAPE_MACHINE_IP"' "$ROOT/lib/windows-control.sh"
+grep -Fq 'self.client_address[0]' "$ROOT/tools/windows_callback.py"
+grep -Fq 'peer != allowed_client' "$ROOT/tools/windows_callback.py"
 echo '[PASS] Windows backend controller and one-command callback fallback generation'
