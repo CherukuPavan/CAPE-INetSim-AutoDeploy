@@ -40,9 +40,9 @@ windows_select_live_backend() {
     pass "Windows control backend: constrained CAPE Agent execpy"
     return 0
   fi
-  WINDOWS_BACKEND_USED=manual-powershell
-  warn "No supported zero-touch Windows management channel is available; one Administrator PowerShell command will be requested."
-  return 0
+  WINDOWS_BACKEND_USED=""
+  fail "No supported zero-touch Windows control channel is available for $CAPE_MACHINE_SECTION/$DOMAIN (QGA, approved WinRM, or CAPE Agent execpy/admin required)"
+  return 40
 }
 
 windows_configure_selected_backend() {
