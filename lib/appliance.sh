@@ -83,7 +83,7 @@ appliance_fetch() {
 
   rm -f "$part"
   curl --fail --location --proto '=https' --tlsv1.2 --retry 3 --output "$part" "$url"
-  appliance_verify_file "$part" "$manifest"
+  appliance_verify_file "$part" "$manifest" >&2
   chmod 0644 "$part"
   mv -f "$part" "$cache"
   printf '%s\n' "$cache"
