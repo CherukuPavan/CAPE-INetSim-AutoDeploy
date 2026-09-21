@@ -6,6 +6,7 @@ from pathlib import Path
 p=argparse.ArgumentParser()
 p.add_argument("action",choices=["inspect","acquire","verify","release"])
 p.add_argument("--label",default="")
+p.add_argument("--deployment-id",required=True)
 p.add_argument("--guard-file",required=True)
 a=p.parse_args()
 
@@ -62,6 +63,8 @@ if a.action=="verify":
         output({"valid":False,"reason":"no-guard-file"},4)
     if state.get("schema") != 2 or not state.get("acquired"):
         output({"valid":False,"reason":"unsupported-or-invalid-guard"},4)
+    if state.get("deployment_id") != a.deployment_id:
+        output({"valid":False,"reason":"guard-belongs-to-different-deployment"},4)
     marker=state.get("maintenance_locked_changed_on")
     expected={m.get("label") for m in state.get("machines",[]) if m.get("label")}
     with session.begin():
@@ -136,6 +139,7 @@ if a.action=="acquire":
         with open(pending,"w") as fh:
             json.dump({
                 "schema":2,
+                "deployment_id":a.deployment_id,
                 "acquired":True,
                 "maintenance_locked_changed_on":marker_text,
                 "machines":original,
@@ -155,6 +159,8 @@ if a.action=="release":
 
     if state.get("schema") != 2 or not state.get("acquired"):
         output({"released":False,"reason":"unsupported-or-invalid-guard"},4)
+    if state.get("deployment_id") != a.deployment_id:
+        output({"released":False,"reason":"guard-belongs-to-different-deployment"},4)
     marker=state.get("maintenance_locked_changed_on")
     if not marker:
         output({"released":False,"reason":"guard-missing-lock-marker"},4)
