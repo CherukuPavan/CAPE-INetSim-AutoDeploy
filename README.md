@@ -7,7 +7,7 @@ Universal deployment automation for integrating a dedicated Ubuntu INetSim appli
 The v1.0.0 target is one reusable command on a supported CAPE host:
 
 ```bash
-curl -fsSL <release-install-url> | sudo bash
+curl -fsSL https://github.com/CherukuPavan/CAPE-INetSim-AutoDeploy/releases/download/v1.0.0/install | sudo bash
 ```
 
 The target host already has KVM/libvirt, a working CAPEv2 installation, and at least one working Windows analysis VM. AutoDeploy discovers machine-specific values instead of hard-coding hostnames, CAPE machine names, snapshot names, MAC addresses, management IPs, bridges, interface names, or fake-Internet subnets.
@@ -16,7 +16,7 @@ The target host already has KVM/libvirt, a working CAPEv2 installation, and at l
 
 The universal orchestrator is implemented on the development branch, including discovery, compatibility gating, transactional state, owned-resource rollback, busy-CAPE maintenance handling, isolated libvirt networking, an INetSim VM lifecycle, Windows control backends, CAPE capture/processing integration, the frozen Network Analysis extension, verification, repair, status, and rollback commands.
 
-The generalized INetSim appliance pipeline is still being validated. **The production appliance manifest is deliberately unpublished**, so a real deployment stops before target-host mutation until an exact QCOW2 artifact and SHA-256 are approved and pinned.
+The generalized INetSim appliance now builds successfully in CI, passes the independent offline artifact verifier, and is packaged as a checksum-pinned gzip transport that fits GitHub's release-asset size limit. **The production appliance manifest is still deliberately unpublished**, so a real deployment stops before target-host mutation until the release candidate has passed controlled end-to-end CAPE host validation and the exact release URL/checksums are promoted.
 
 Read-only planning is available now:
 
@@ -80,7 +80,13 @@ install/bootstrap
 
 The appliance builder starts from a checksum-pinned Ubuntu 24.04 cloud image, expands the guest root filesystem, provisions INetSim inside a temporary QEMU/NoCloud build VM, validates the required INetSim/Net::DNS compatibility behavior, generalizes machine identity with `virt-sysprep`, validates the resulting QCOW2, and emits a SHA-256.
 
-GitHub Actions currently runs this as a candidate-build diagnostic while the pipeline is being hardened. A failed candidate build must never cause the installer to publish or consume an unverified image.
+GitHub Actions builds, independently verifies, and release-packages the candidate. The release workflow is manual and binds a release to the exact successful appliance workflow run and exact source commit; it re-verifies the gzip transport, decompressed QCOW2, provenance, and artifact contents before producing a checksum-pinned release bundle. A failed build, verifier, package-size gate, provenance check, or checksum check cannot produce a publishable release.
+
+## Release distribution
+
+The production release is designed around immutable release assets rather than the mutable `main` branch. The one-command `install` release asset contains an embedded SHA-256 for the versioned source bundle; that source bundle contains the published appliance manifest, and the installer separately verifies both the compressed appliance transport SHA-256 and the decompressed raw QCOW2 SHA-256.
+
+The repository is currently private. A stable `v1.0.0` release is intentionally blocked by the release workflow until the repository (or an equivalent release endpoint) is anonymously reachable, because the final one-command experience must not require GitHub credentials.
 
 ## Release gate
 
