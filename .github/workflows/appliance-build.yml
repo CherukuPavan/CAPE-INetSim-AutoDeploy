@@ -8,10 +8,6 @@ on:
     paths:
       - appliance/**
       - .github/workflows/appliance-build.yml
-  pull_request:
-    paths:
-      - appliance/**
-      - .github/workflows/appliance-build.yml
 
 permissions:
   contents: read
