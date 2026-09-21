@@ -57,7 +57,7 @@ required={
     'TASK_COMPLETED = "completed"', 'TASK_DISTRIBUTED_COMPLETED = "distributed_completed"',
   ],
   "lib/cuckoo/core/data/db_common.py":["def _utcnow_naive("],
-  "lib/cuckoo/core/database.py":["class _Database(", "Database ="],
+  "lib/cuckoo/core/database.py":["class _Database(", "class Database:", "def init_database("],
 }
 missing=[]
 for rel,tokens in required.items():
