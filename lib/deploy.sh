@@ -65,16 +65,24 @@ deploy_assert_supported_environment() {
     fail "v1.0 automated live cutover currently requires CAPE PostgreSQL for atomic scheduler maintenance locking (found: ${CAPE_DB_BACKEND:-unknown}); safe stop, no mutation."
     return 1
   }
-  [[ "${CAPE_MACHINE_PLATFORM,,}" == windows* ]] || {
-    fail "Selected CAPE machine is not a Windows analysis VM: ${CAPE_MACHINE_PLATFORM:-unknown}"
+  [[ "${CAPE_TARGETS_COUNT:-0}" =~ ^[0-9]+$ && "${CAPE_TARGETS_COUNT:-0}" -gt 0 ]] || {
+    fail "No CAPE Windows analysis targets were discovered"
     return 1
   }
-  [[ "${WINDOWS_INTERNAL_SNAPSHOT_CAPABLE:-no}" == yes ]] || {
-    fail "Selected Windows analysis VM is not proven capable of the required qcow2 internal safety/running snapshots"
-    return 1
-  }
-  [[ "${CAPE_ANALYSIS_SNAPSHOT_STATUS:-unproven}" == proven ]] || {
-    fail "Configured CAPE analysis snapshot is not proven as a running internal-memory baseline with the selected management NIC"
+  python3 - "${CAPE_TARGETS_JSON:-[]}" <<'PY' || {
+import json,sys
+a=json.loads(sys.argv[1])
+assert a, "empty target set"
+for d in a:
+    assert d.get("domain"), f"{d.get('section','?')}: no libvirt domain"
+    assert d.get("snapshot_capable")=="yes", f"{d.get('section','?')}: qcow2 internal snapshots not proven"
+    assert d.get("management_network"), f"{d.get('section','?')}: management network unknown"
+    assert d.get("management_bridge"), f"{d.get('section','?')}: management bridge unknown"
+    assert d.get("management_mac"), f"{d.get('section','?')}: management MAC unknown"
+    assert d.get("resultserver_ip"), f"{d.get('section','?')}: ResultServer IP unknown"
+    assert str(d.get("resultserver_port","")).isdigit(), f"{d.get('section','?')}: ResultServer port invalid"
+PY
+    fail "One or more CAPE analysis VMs failed the multi-machine safety preflight"
     return 1
   }
   case "${MANAGEMENT_NWFILTER_AVAILABLE:-no}" in
