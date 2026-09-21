@@ -52,3 +52,25 @@ EOF
 LIBVIRT_DOMAINS=(domain-a domain-b)
 ambiguous='{"section":"not-a-domain","label":"also-not-a-domain","ip":"192.0.2.44","snapshot":"s"}'
 [[ -z "$(record_matches_domain "$ambiguous" 2>/dev/null || true)" ]]
+
+TMP_CAPE="$(mktemp -d)"
+mkdir -p "$TMP_CAPE/conf"
+cat >"$TMP_CAPE/conf/kvm.conf" <<'EOF'
+[win]
+label = win
+ip = 192.0.2.10
+platform = windows
+snapshot = s1
+
+[linux]
+label = linux
+ip = 192.0.2.20
+platform = linux
+snapshot = s2
+EOF
+CAPE_ROOT="$TMP_CAPE"
+DISCOVERY_ERRORS=()
+discover_cape_machine_records
+[[ "${#CAPE_MACHINE_RECORDS[@]}" -eq 1 ]]
+[[ "$(record_field "${CAPE_MACHINE_RECORDS[0]}" section)" == win ]]
+rm -rf "$TMP_CAPE"
