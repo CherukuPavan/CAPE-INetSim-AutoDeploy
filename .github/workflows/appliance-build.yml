@@ -8,13 +8,13 @@ on:
     paths:
       - appliance/**
       - .github/workflows/appliance-build.yml
-  pull_request:
-    paths:
-      - appliance/**
-      - .github/workflows/appliance-build.yml
 
 permissions:
   contents: read
+
+concurrency:
+  group: appliance-build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -27,6 +27,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libguestfs-tools qemu-utils
+          # libguestfs 1.52 prefers passt whenever the binary is runnable. The
+          # hosted runner's passt cannot establish the required namespace/socket,
+          # so force libguestfs' supported QEMU user-network fallback (SLIRP).
+          sudo apt-get remove -y passt 2>/dev/null || true
+          command -v passt >/dev/null && { echo "passt still present; refusing ambiguous network backend"; exit 1; } || true
           sudo chmod 666 /dev/kvm 2>/dev/null || true
           # libguestfs/supermin needs the runner user to read a host kernel.
           sudo chmod a+r /boot/vmlinuz-* /boot/initrd.img-* 2>/dev/null || true
