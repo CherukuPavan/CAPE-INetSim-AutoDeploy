@@ -81,3 +81,33 @@ PY
   cape_agent_remove "$guest_ip" "$remote_result"
   state_record_resource "windows-config" "$DOMAIN" "configured-via-cape-agent" "yes" "isolated_mac=$isolated_mac fake_ip=$fake_ip"
 }
+
+
+windows_verify_via_cape_agent() {
+  local guest_ip="$1" isolated_mac="$2" fake_ip="$3" dns_ip="$4" result_ip="$5" result_port="$6"
+  local ps1="$AUTODEPLOY_ROOT/windows/verify-inetsim.ps1"
+  local remote_ps='C:\Windows\Temp\cape-inetsim-autodeploy-verify.ps1'
+  local remote_result='C:\Windows\Temp\cape-inetsim-autodeploy-verify-result.json'
+  local local_result="$AD_LOG_ROOT/${DEPLOYMENT_ID}-windows-verify.json"
+
+  cape_agent_wait "$guest_ip" 120 || { fail "CAPE Agent unavailable for Windows verification"; return 1; }
+  cape_agent_store "$guest_ip" "$ps1" "$remote_ps"
+  local command
+  printf -v command 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%s" -ManagementIP "%s" -IsolatedMac "%s" -FakeIP "%s" -DnsIP "%s" -ResultServerIP "%s" -ResultServerPort %s -ResultPath "%s"'     "$remote_ps" "$guest_ip" "$isolated_mac" "$fake_ip" "$dns_ip" "$result_ip" "$result_port" "$remote_result"
+  cape_agent_execute "$guest_ip" "$command" >"$AD_LOG_ROOT/${DEPLOYMENT_ID}-cape-agent-verify-execute.json"
+  cape_agent_retrieve "$guest_ip" "$remote_result" "$local_result"
+  python3 - "$local_result" <<'PY'
+import json,sys
+with open(sys.argv[1],encoding="utf-8-sig") as f: d=json.load(f)
+if not d.get("ok"):
+    print(json.dumps(d,indent=2),file=sys.stderr)
+    raise SystemExit(1)
+PY
+  cape_agent_remove "$guest_ip" "$remote_ps"
+  cape_agent_remove "$guest_ip" "$remote_result"
+}
+
+windows_poweroff_via_cape_agent() {
+  local guest_ip="$1"
+  cape_agent_execute "$guest_ip" 'shutdown.exe /s /t 0 /f' >/dev/null 2>&1 || true
+}
