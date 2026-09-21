@@ -4,6 +4,7 @@ run_discovery() {
   DISCOVERY_ERRORS=(); COMPAT_NOTES=(); REQUESTED_MACHINE="${REQUESTED_MACHINE:-}"
   discover_cape_root
   discover_cape_git
+  discover_cape_database_backend
   discover_cape_services
   discover_cape_machine_records
   discover_libvirt
@@ -38,6 +39,7 @@ print_plan() {
   kv "CAPE commit:" "${CAPE_COMMIT:-unknown}"
   kv "CAPE branch:" "${CAPE_BRANCH:-unknown}"
   kv "CAPE working tree dirty:" "${CAPE_DIRTY:-unknown}"
+  kv "CAPE database backend:" "${CAPE_DB_BACKEND:-unknown}"
   kv "libvirt URI:" "${LIBVIRT_URI:-unknown}"
   kv "CAPE machine section:" "${CAPE_MACHINE_SECTION:-ambiguous}"
   kv "CAPE machine label:" "${CAPE_MACHINE_LABEL:-ambiguous}"
