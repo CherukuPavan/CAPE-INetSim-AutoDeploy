@@ -74,3 +74,22 @@ discover_cape_machine_records
 [[ "${#CAPE_MACHINE_RECORDS[@]}" -eq 1 ]]
 [[ "$(record_field "${CAPE_MACHINE_RECORDS[0]}" section)" == win ]]
 rm -rf "$TMP_CAPE"
+
+TMP_DB="$(mktemp -d)"
+mkdir -p "$TMP_DB/conf"
+cat >"$TMP_DB/conf/cuckoo.conf" <<'EOF'
+[database]
+connection = postgresql+psycopg2://cape:do-not-print@db.internal/cape
+EOF
+CAPE_ROOT="$TMP_DB"
+discover_cape_database_backend
+[[ "$CAPE_DB_BACKEND" == postgresql ]]
+cat >"$TMP_DB/conf/cuckoo.conf" <<'EOF'
+[database]
+connection =
+EOF
+discover_cape_database_backend
+[[ "$CAPE_DB_BACKEND" == sqlite ]]
+rm -rf "$TMP_DB"
+
+grep -Fq 'automated live cutover currently requires CAPE PostgreSQL' "$ROOT/lib/deploy.sh"
