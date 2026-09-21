@@ -29,6 +29,8 @@ jobs:
         run: bash tests/state_logic.sh
       - name: Transaction backup logic
         run: bash tests/transaction_logic.sh
+      - name: Rollback safety ordering
+        run: bash tests/rollback_logic.sh
       - name: Isolated network XML safety
         run: bash tests/network_xml.sh
       - name: Host fake-Internet firewall safety
