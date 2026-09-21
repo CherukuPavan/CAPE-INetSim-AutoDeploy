@@ -105,7 +105,7 @@ windows_configure_via_manual_callback() {
   server_log="$AD_LOG_ROOT/${DEPLOYMENT_ID}-windows-callback.log"
   rm -f "$ready" "$result"
 
-  python3 "$AUTODEPLOY_ROOT/tools/windows_callback.py"     --bind "$bind_ip" --port 0 --token "$token"     --script "$AUTODEPLOY_ROOT/windows/configure-inetsim.ps1"     --result "$result" --ready "$ready" --timeout "${WINDOWS_FALLBACK_TIMEOUT:-900}"     >"$server_log" 2>&1 &
+  python3 "$AUTODEPLOY_ROOT/tools/windows_callback.py"     --bind "$bind_ip" --client "$CAPE_MACHINE_IP" --port 0 --token "$token"     --script "$AUTODEPLOY_ROOT/windows/configure-inetsim.ps1"     --result "$result" --ready "$ready" --timeout "${WINDOWS_FALLBACK_TIMEOUT:-900}"     >"$server_log" 2>&1 &
   server_pid=$!
 
   local i
