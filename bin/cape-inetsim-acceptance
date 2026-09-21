@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT="${AUTODEPLOY_ROOT:-/usr/local/lib/cape-inetsim-autodeploy}"
+[[ -f "$ROOT/lib/state.sh" ]] || ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+AUTODEPLOY_ROOT="$ROOT"
+export AUTODEPLOY_ROOT
+
+source "$ROOT/lib/common.sh"
+source "$ROOT/lib/state.sh"
+
+POSITIVE_TASK=""
+NEGATIVE_TASK=""
+OUTPUT=""
+
+usage(){
+  cat <<EOF
+Usage:
+  sudo ./install --acceptance [--positive-task ID] [--negative-task ID]
+
+This is read-only with respect to CAPE, libvirt, Windows and networking.
+It validates completed route=none reports already present on the host.
+When task IDs are omitted it selects the newest qualifying positive and
+negative reports it can prove from local CAPE report files.
+EOF
+}
+
+while (($#)); do
+  case "$1" in
+    --positive-task)
+      [[ $# -ge 2 && "$2" =~ ^[0-9]+$ ]] || { echo "--positive-task requires an integer" >&2; exit 2; }
+      POSITIVE_TASK="$2"; shift 2 ;;
+    --negative-task)
+      [[ $# -ge 2 && "$2" =~ ^[0-9]+$ ]] || { echo "--negative-task requires an integer" >&2; exit 2; }
+      NEGATIVE_TASK="$2"; shift 2 ;;
+    --output)
+      [[ $# -ge 2 ]] || { echo "--output requires a path" >&2; exit 2; }
+      OUTPUT="$2"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
+  esac
+done
+
+require_root
+state_load || { fail "No deployment state exists"; exit 1; }
+[[ "${DEPLOYMENT_PHASE:-}" == committed ]] || {
+  fail "Functional acceptance requires a committed deployment (current phase: ${DEPLOYMENT_PHASE:-unknown})"
+  exit 1
+}
+
+# Re-run the structural/service verifier first. Functional report acceptance
+# must never hide a broken network/snapshot/firewall baseline.
+bash "$ROOT/bin/cape-inetsim-verify"
+
+install -d -m 0700 "$AD_LOG_ROOT"
+[[ -n "$OUTPUT" ]] || OUTPUT="$AD_LOG_ROOT/${DEPLOYMENT_ID}-functional-acceptance.json"
+
+args=(
+  --cape-root "$CAPE_ROOT"
+  --inetsim-ip "$INETSIM_IP"
+  --output "$OUTPUT"
+)
+[[ -n "$POSITIVE_TASK" ]] && args+=(--positive-task "$POSITIVE_TASK")
+[[ -n "$NEGATIVE_TASK" ]] && args+=(--negative-task "$NEGATIVE_TASK")
+
+python3 "$ROOT/tools/acceptance_reports.py" "${args[@]}"
+
+read_task_field() {
+  python3 - "$OUTPUT" "$1" <<'PY'
+import json,sys
+d=json.load(open(sys.argv[1]))
+v=d
+for p in sys.argv[2].split('.'):
+    v=v[p]
+print(v)
+PY
+}
+
+POSITIVE_TASK="$(read_task_field positive.task_id)"
+NEGATIVE_TASK="$(read_task_field negative.task_id)"
+
+find_pcap() {
+  local task="$1" base="$CAPE_ROOT/storage/analyses/$task"
+  local p
+  for p in "$base/dump.pcap" "$base/dump_sorted.pcap"; do
+    [[ -f "$p" ]] && { printf '%s\n' "$p"; return 0; }
+  done
+  return 1
+}
+
+POS_PCAP="$(find_pcap "$POSITIVE_TASK")" || {
+  fail "Positive task $POSITIVE_TASK has no local CAPE packet capture"
+  exit 21
+}
+NEG_PCAP="$(find_pcap "$NEGATIVE_TASK")" || {
+  fail "Negative task $NEGATIVE_TASK has no local CAPE packet capture"
+  exit 22
+}
+
+have tcpdump || { fail "tcpdump is required for functional packet-capture acceptance"; exit 23; }
+
+if ! timeout 15 tcpdump -nn -r "$POS_PCAP" -c 1 "host $INETSIM_IP" >/dev/null 2>&1; then
+  fail "Positive task $POSITIVE_TASK report says INetSim was used but its pcap has no traffic for $INETSIM_IP"
+  exit 24
+fi
+
+if timeout 15 tcpdump -nn -r "$NEG_PCAP" -c 1 "host $INETSIM_IP" >/dev/null 2>&1; then
+  fail "Negative-control task $NEGATIVE_TASK unexpectedly contains pcap traffic for $INETSIM_IP"
+  exit 25
+fi
+
+grep -Rqs 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$CAPE_ROOT/web" || {
+  fail "Installed extension route=none marker is missing"
+  exit 26
+}
+
+python3 - "$OUTPUT" "$POS_PCAP" "$NEG_PCAP" <<'PY'
+import json,pathlib,sys
+path,pos,neg=sys.argv[1:]
+p=pathlib.Path(path)
+d=json.loads(p.read_text())
+d["pcap_validation"]={
+    "positive_capture":pos,
+    "positive_contains_inetsim_ip":True,
+    "negative_capture":neg,
+    "negative_contains_inetsim_ip":False,
+}
+d["status"]="pass"
+p.write_text(json.dumps(d,indent=2)+"\n")
+PY
+
+pass "Positive and negative real-task functional acceptance passed"
+kv "positive task:" "$POSITIVE_TASK"
+kv "negative task:" "$NEGATIVE_TASK"
+kv "acceptance evidence:" "$OUTPUT"
