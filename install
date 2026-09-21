@@ -45,3 +45,13 @@ done
 require_root_for_plan
 run_discovery
 print_plan
+
+# Machine-readable exit status for collectors/CI. The plan text is still printed first.
+if ((${#DISCOVERY_ERRORS[@]})); then
+  exit 10
+fi
+case "${COMPAT_STATUS:-blocked}" in
+  blocked) exit 11 ;;
+  plan-only-unknown-cape-layout) exit 12 ;;
+esac
+exit 0
