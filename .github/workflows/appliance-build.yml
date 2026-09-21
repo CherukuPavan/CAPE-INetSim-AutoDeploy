@@ -53,7 +53,9 @@ jobs:
           LIBGUESTFS_BACKEND: direct
           LIBGUESTFS_MEMSIZE: 1024
           APPLIANCE_BASE_CACHE: /home/runner/.cache/cape-inetsim-autodeploy/base
-          APPLIANCE_BUILD_DNS: 10.0.2.3
+          # libguestfs direct/SLIRP uses 169.254.2.15/16 with gateway
+          # 169.254.2.2 and DNS proxy 169.254.2.3.
+          APPLIANCE_BUILD_DNS: 169.254.2.3
         run: |
           chmod +x appliance/build/build.sh appliance/image-rootfs-prepare.sh appliance/guest-configure.sh
           appliance/build/build.sh "$RUNNER_TEMP/cape-inetsim-appliance-v1.0.0.qcow2"
