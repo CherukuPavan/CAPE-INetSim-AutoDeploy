@@ -49,15 +49,17 @@ TAG=v1.0.0-rc.9
 NAME=CAPE-INetSim-AutoDeploy-1.0.0-rc.9.tar.gz
 SHA=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 COMMIT=0123456789abcdef0123456789abcdef01234567
-python3 - "$BOOT" "$TMP/install" "$TAG" "$NAME" "$SHA" "$COMMIT" <<'PY'
+REPO=CherukuPavan/CAPE-INetSim-AutoDeploy
+python3 - "$BOOT" "$TMP/install" "$REPO" "$TAG" "$NAME" "$SHA" "$COMMIT" <<'PY'
 import pathlib,sys
-src,out,tag,name,sha,commit=sys.argv[1:]
+src,out,repo,tag,name,sha,commit=sys.argv[1:]
 s=pathlib.Path(src).read_text()
-s=s.replace("@@TAG@@",tag).replace("@@SOURCE_NAME@@",name).replace("@@SOURCE_SHA256@@",sha).replace("@@SOURCE_COMMIT@@",commit)
+s=s.replace("@@REPO@@",repo).replace("@@TAG@@",tag).replace("@@SOURCE_NAME@@",name).replace("@@SOURCE_SHA256@@",sha).replace("@@SOURCE_COMMIT@@",commit)
 assert "@@" not in s
 pathlib.Path(out).write_text(s)
 PY
 bash -n "$TMP/install"
+grep -Fq 'REPO="CherukuPavan/CAPE-INetSim-AutoDeploy"' "$TMP/install"
 grep -Fq 'TAG="v1.0.0-rc.9"' "$TMP/install"
 grep -Fq "SOURCE_NAME=\"$NAME\"" "$TMP/install"
 grep -Fq "SOURCE_SHA256=\"$SHA\"" "$TMP/install"
