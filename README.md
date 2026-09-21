@@ -36,11 +36,18 @@ Operational entry points already implemented are:
 sudo ./install --status
 sudo ./install --verify
 sudo ./install --repair
+sudo ./install --collect
+sudo ./install --acceptance
+sudo ./install --acceptance --positive-task <id> --negative-task <id>
 sudo ./install --rollback
 sudo ./install --rollback --apply
 ```
 
 Do **not** treat the development branch as a production release until `appliance/manifest.json` is published with a versioned artifact URL and SHA-256.
+
+`--collect` is the supported single-command read-only evidence collector. It writes one credential-redacted `.tar.gz` plus SHA-256 without changing CAPE, libvirt, Windows, networking, firewall, snapshots, or services.
+
+`--acceptance` is a post-deployment read-only functional gate. It re-runs the structural verifier, then validates real completed `route=none` task reports and pcaps: one positive task must contain traffic to the configured Ubuntu-VM INetSim server and classify as INetSim; one negative-control task must remain ordinary. Task IDs may be supplied explicitly, or the tool can select the newest locally provable pair.
 
 ## Architecture
 
