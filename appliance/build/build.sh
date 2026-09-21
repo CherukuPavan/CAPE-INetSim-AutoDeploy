@@ -21,14 +21,27 @@ BASE_URL="${BASE[0]}"
 BASE_SHA="${BASE[1]}"
 BASE_NAME="${BASE[2]}"
 BASE_BUILD="${BASE[3]}"
-BASE_FILE="$WORK/$BASE_NAME"
+BASE_CACHE_ROOT="${APPLIANCE_BASE_CACHE:-}"
+if [[ -n "$BASE_CACHE_ROOT" ]]; then
+  mkdir -p "$BASE_CACHE_ROOT"
+  BASE_FILE="$BASE_CACHE_ROOT/$BASE_NAME"
+else
+  BASE_FILE="$WORK/$BASE_NAME"
+fi
 
-echo "[INFO] downloading pinned Ubuntu base release $BASE_BUILD"
-curl --fail --location --proto '=https' --tlsv1.2 --retry 3 -o "$BASE_FILE" "$BASE_URL"
-[[ "$(sha256sum "$BASE_FILE" | awk '{print $1}')" == "$BASE_SHA" ]] || {
-  echo "[FAIL] Ubuntu base image SHA-256 mismatch" >&2
-  exit 3
-}
+if [[ -f "$BASE_FILE" && "$(sha256sum "$BASE_FILE" | awk '{print $1}')" == "$BASE_SHA" ]]; then
+  echo "[INFO] using verified cached Ubuntu base release $BASE_BUILD"
+else
+  rm -f "$BASE_FILE.part"
+  echo "[INFO] downloading pinned Ubuntu base release $BASE_BUILD"
+  curl --fail --location --proto '=https' --tlsv1.2 --retry 3 -o "$BASE_FILE.part" "$BASE_URL"
+  [[ "$(sha256sum "$BASE_FILE.part" | awk '{print $1}')" == "$BASE_SHA" ]] || {
+    rm -f "$BASE_FILE.part"
+    echo "[FAIL] Ubuntu base image SHA-256 mismatch" >&2
+    exit 3
+  }
+  mv "$BASE_FILE.part" "$BASE_FILE"
+fi
 
 rm -f "$OUT" "$OUT.part"
 
