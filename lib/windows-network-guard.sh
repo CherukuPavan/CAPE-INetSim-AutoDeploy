@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+
+WINDOWS_MGMT_FILTER_NAME="${WINDOWS_MGMT_FILTER_NAME:-clean-traffic}"
+
+windows_management_interface_xml() {
+  virsh dumpxml --inactive "$DOMAIN" 2>/dev/null | python3 -c '
+import sys,xml.etree.ElementTree as ET
+mac=sys.argv[1].lower(); net=sys.argv[2]
+try: root=ET.fromstring(sys.stdin.read())
+except Exception: raise SystemExit(2)
+matches=[]
+for i in root.findall("./devices/interface"):
+    m=i.find("mac"); s=i.find("source")
+    if m is None or s is None: continue
+    if (m.get("address") or "").lower()==mac and s.get("network")==net:
+        matches.append(i)
+if len(matches)!=1: raise SystemExit(3)
+print(ET.tostring(matches[0],encoding="unicode"))
+' "$WINDOWS_MANAGEMENT_MAC" "$MANAGEMENT_NETWORK_NAME"
+}
+
+windows_management_guard_backup_path() {
+  printf '%s/windows-management-interface.xml\n' "$AD_BACKUP_ROOT/$DEPLOYMENT_ID"
+}
+
+windows_management_guard_filter_facts() {
+  windows_management_interface_xml | python3 -c '
+import sys,xml.etree.ElementTree as ET
+ip=sys.argv[1]
+try: i=ET.fromstring(sys.stdin.read())
+except Exception: raise SystemExit(2)
+refs=i.findall("filterref")
+if not refs:
+    print("none|")
+    raise SystemExit
+if len(refs)!=1:
+    print("ambiguous|")
+    raise SystemExit
+r=refs[0]
+name=r.get("filter") or ""
+vals=[p.get("value") or "" for p in r.findall("parameter") if (p.get("name") or "").upper()=="IP"]
+print(name+"|"+(",".join(vals)))
+' "$CAPE_MACHINE_IP"
+}
+
+windows_management_guard_exact() {
+  [[ "$(windows_management_guard_filter_facts)" == "$WINDOWS_MGMT_FILTER_NAME|$CAPE_MACHINE_IP" ]]
+}
+
+windows_management_guard_available() {
+  virsh nwfilter-info "$WINDOWS_MGMT_FILTER_NAME" >/dev/null 2>&1
+}
+
+windows_management_guard_apply() {
+  [[ "$(virsh domstate "$DOMAIN" 2>/dev/null | xargs)" == "shut off" ]] || {
+    fail "Windows management anti-spoof guard must be applied while the analysis VM is shut off"
+    return 1
+  }
+  [[ -n "${WINDOWS_MANAGEMENT_MAC:-}" && -n "${MANAGEMENT_NETWORK_NAME:-}" && -n "${CAPE_MACHINE_IP:-}" ]] || {
+    fail "Windows management NIC identity is incomplete"
+    return 1
+  }
+  windows_management_guard_available || {
+    fail "libvirt nwfilter '$WINDOWS_MGMT_FILTER_NAME' is unavailable; refusing a deployment without hypervisor anti-spoofing"
+    return 1
+  }
+
+  local facts backup original guarded
+  facts="$(windows_management_guard_filter_facts)" || {
+    fail "Could not inspect Windows management NIC filter state"
+    return 1
+  }
+
+  if [[ "$facts" == "$WINDOWS_MGMT_FILTER_NAME|$CAPE_MACHINE_IP" ]]; then
+    if state_resource_owned domain-interface-filter "$DOMAIN:$WINDOWS_MANAGEMENT_MAC"; then
+      pass "Windows management anti-spoof guard already applied and owned"
+      return 0
+    fi
+    if state_resource_intended domain-interface-filter "$DOMAIN:$WINDOWS_MANAGEMENT_MAC"; then
+      state_record_resource domain-interface-filter "$DOMAIN:$WINDOWS_MANAGEMENT_MAC" recovered-applied yes "filter=$WINDOWS_MGMT_FILTER_NAME ip=$CAPE_MACHINE_IP"
+      state_write_atomic
+      pass "Recovered deployment-owned Windows management anti-spoof guard"
+      return 0
+    fi
+    # A pre-existing exact clean-traffic/IP policy is protective and remains
+    # operator-owned. AutoDeploy may rely on it but will never remove it.
+    state_record_resource domain-interface-filter "$DOMAIN:$WINDOWS_MANAGEMENT_MAC" preexisting no "filter=$WINDOWS_MGMT_FILTER_NAME ip=$CAPE_MACHINE_IP"
+    pass "Using pre-existing Windows management anti-spoof guard"
+    return 0
+  fi
+
+  [[ "$facts" == "none|" ]] || {
+    fail "Windows management NIC already has an unrecognized libvirt nwfilter ($facts); refusing to overwrite operator policy"
+    return 1
+  }
+
+  backup="$(windows_management_guard_backup_path)"
+  install -d -m 0700 "$(dirname "$backup")"
+  original="$(windows_management_interface_xml)" || return 1
+  printf '%s\n' "$original" >"$backup"
+  chmod 0600 "$backup"
+
+  guarded="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-windows-management-guard.xml"
+  python3 - "$WINDOWS_MGMT_FILTER_NAME" "$CAPE_MACHINE_IP" "$backup" >"$guarded" <<'PY'
+import sys,xml.etree.ElementTree as ET
+name,ip,path=sys.argv[1:]
+root=ET.parse(path).getroot()
+if root.find("filterref") is not None:
+    raise SystemExit("refusing to replace existing filterref")
+ref=ET.SubElement(root,"filterref",{"filter":name})
+ET.SubElement(ref,"parameter",{"name":"IP","value":ip})
+print(ET.tostring(root,encoding="unicode"))
+PY
+  chmod 0600 "$guarded"
+
+  state_record_intent domain-interface-filter "$DOMAIN:$WINDOWS_MANAGEMENT_MAC" applying "filter=$WINDOWS_MGMT_FILTER_NAME ip=$CAPE_MACHINE_IP backup=$backup"
+  virsh update-device "$DOMAIN" "$guarded" --config >/dev/null
+  windows_management_guard_exact || {
+    fail "Could not verify Windows management anti-spoof guard after libvirt update"
+    return 1
+  }
+  state_record_resource domain-interface-filter "$DOMAIN:$WINDOWS_MANAGEMENT_MAC" applied yes "filter=$WINDOWS_MGMT_FILTER_NAME ip=$CAPE_MACHINE_IP backup=$backup"
+  state_write_atomic
+  pass "Applied hypervisor anti-spoof guard to Windows management NIC"
+}
+
+windows_management_guard_verify() {
+  windows_management_guard_available || return 1
+  windows_management_guard_exact
+}
+
+windows_management_guard_restore_if_owned() {
+  state_resource_owned domain-interface-filter "$DOMAIN:$WINDOWS_MANAGEMENT_MAC" || return 0
+
+  local facts backup state args=(--config)
+  facts="$(windows_management_guard_filter_facts 2>/dev/null || true)"
+  if [[ "$facts" == "none|" ]]; then
+    state_record_resource domain-interface-filter "$DOMAIN:$WINDOWS_MANAGEMENT_MAC" restored yes "restored-by-snapshot"
+    return 0
+  fi
+  [[ "$facts" == "$WINDOWS_MGMT_FILTER_NAME|$CAPE_MACHINE_IP" ]] || {
+    fail "Windows management NIC filter changed externally; refusing to overwrite it during rollback"
+    return 1
+  }
+
+  backup="$(windows_management_guard_backup_path)"
+  [[ -s "$backup" ]] || {
+    fail "Windows management NIC backup is missing: $backup"
+    return 1
+  }
+  state="$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)"
+  [[ "$state" == running ]] && args+=(--live)
+  virsh update-device "$DOMAIN" "$backup" "${args[@]}" >/dev/null
+
+  facts="$(windows_management_guard_filter_facts 2>/dev/null || true)"
+  [[ "$facts" == "none|" ]] || {
+    fail "Windows management anti-spoof guard could not be restored to its pre-deployment state"
+    return 1
+  }
+  state_record_resource domain-interface-filter "$DOMAIN:$WINDOWS_MANAGEMENT_MAC" restored yes "backup=$backup"
+  state_write_atomic
+}
