@@ -71,25 +71,33 @@ windows_management_guard_available() {
 }
 
 nwfilter_runtime_definition_closure() {
-  local root="${NWFILTER_DEFINITION_ROOT:-/etc/libvirt/nwfilter}"
-  python3 - "$root" "$WINDOWS_MGMT_FILTER_NAME" <<'PY'
+  local -a roots=()
+  mapfile -t roots < <(nwfilter_definition_roots)
+  (("${#roots[@]}" > 0)) || { fail "No libvirt nwfilter definition roots are available"; return 1; }
+  python3 - "$WINDOWS_MGMT_FILTER_NAME" "${roots[@]}" <<'PY'
 import os,sys,xml.etree.ElementTree as ET
-root,target=sys.argv[1:]
+target=sys.argv[1]
+roots=sys.argv[2:]
 defs={}
 refs={}
-for name in os.listdir(root):
-    if not name.endswith(".xml"):
+for root in roots:
+    if not os.path.isdir(root):
         continue
-    p=os.path.join(root,name)
-    try:
-        r=ET.parse(p).getroot()
-    except Exception:
-        continue
-    if r.tag!="filter" or not r.get("name"):
-        continue
-    n=r.get("name")
-    defs[n]=p
-    refs[n]=[x.get("filter") for x in r.findall(".//filterref") if x.get("filter")]
+    for name in os.listdir(root):
+        if not name.endswith(".xml"):
+            continue
+        p=os.path.join(root,name)
+        try:
+            r=ET.parse(p).getroot()
+        except Exception:
+            continue
+        if r.tag!="filter" or not r.get("name"):
+            continue
+        n=r.get("name")
+        if n in defs:
+            continue
+        defs[n]=p
+        refs[n]=[x.get("filter") for x in r.findall(".//filterref") if x.get("filter")]
 seen=set(); active=set(); order=[]
 def visit(n):
     if n in seen: return
@@ -155,8 +163,14 @@ nwfilter_runtime_prepare() {
     return 0
   fi
 
+  if [[ "${MANAGEMENT_NWFILTER_AVAILABLE:-no}" != activatable ]]; then
+    # Discovery may have run while the modular driver was cold. Re-evaluate
+    # from the actual installed units/definitions before failing the deploy.
+    DISCOVERY_ERRORS=()
+    discover_hypervisor_safety_features
+  fi
   [[ "${MANAGEMENT_NWFILTER_AVAILABLE:-no}" == activatable ]] || {
-    fail "libvirt nwfilter runtime is unavailable and was not proven safely activatable"
+    fail "libvirt nwfilter runtime is unavailable and no standard clean-traffic definition/runtime could be activated"
     return 1
   }
 
