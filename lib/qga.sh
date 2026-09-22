@@ -32,15 +32,27 @@ PY
     return 125
   }
 
+  local status_failures=0
   for ((i=0;i<180;i++)); do
-    status="$(virsh qemu-agent-command "$dom" "{\"execute\":\"guest-exec-status\",\"arguments\":{\"pid\":$pid}}")" || {
-      printf '%s\n' "$status" >&2
-      return 125
-    }
-    exited="$(python3 -c 'import json,sys; print(str(json.load(sys.stdin)["return"].get("exited",False)).lower())' <<<"$status")" || {
-      printf 'Invalid QGA guest-exec-status response: %s\n' "$status" >&2
-      return 125
-    }
+    if ! status="$(virsh qemu-agent-command "$dom" "{\"execute\":\"guest-exec-status\",\"arguments\":{\"pid\":$pid}}" 2>&1)"; then
+      status_failures=$((status_failures+1))
+      if ((status_failures >= 15)); then
+        printf 'QGA guest-exec-status failed %d consecutive times: %s\n' "$status_failures" "$status" >&2
+        return 125
+      fi
+      sleep 1
+      continue
+    fi
+    if ! exited="$(python3 -c 'import json,sys; print(str(json.load(sys.stdin)["return"].get("exited",False)).lower())' <<<"$status" 2>/dev/null)"; then
+      status_failures=$((status_failures+1))
+      if ((status_failures >= 15)); then
+        printf 'QGA returned invalid guest-exec-status %d consecutive times: %s\n' "$status_failures" "$status" >&2
+        return 125
+      fi
+      sleep 1
+      continue
+    fi
+    status_failures=0
     if [[ "$exited" == true ]]; then
       python3 -c 'import base64,json,sys
 r=json.load(sys.stdin)["return"]
