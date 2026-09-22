@@ -28,28 +28,29 @@ PY
 grep -q 'windows-cape-agent.sh' "$ROOT/install"
 [[ -e "$ROOT/lib/windows-cape-agent.sh" ]]
 grep -Fq '/execpy' "$ROOT/lib/windows-cape-agent.sh"
-grep -Fq 'async=yes' "$ROOT/lib/windows-cape-agent.sh"
-grep -Fq '/status' "$ROOT/lib/windows-cape-agent.sh"
-grep -Fq 'cape_agent_wait_async_result' "$ROOT/lib/windows-cape-agent.sh"
-grep -Fq 'cape_agent_candidate_ips' "$ROOT/lib/windows-cape-agent.sh"
-grep -Fq 'cape_agent_try_retrieve_any' "$ROOT/lib/windows-cape-agent.sh"
-grep -Fq 'CAPE_AGENT_CUTOVER_TIMEOUT' "$ROOT/lib/windows-cape-agent.sh"
-grep -Fq 'CAPE_AGENT_GUEST_TIMEOUT' "$ROOT/lib/windows-cape-agent.sh"
-! grep -Fq -- '--max-time 700' "$ROOT/lib/windows-cape-agent.sh"
-! grep -Fq ' 660' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq '/store' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq '/retrieve' "$ROOT/lib/windows-cape-agent.sh"
 ! grep -Fq '/execute' "$ROOT/lib/windows-cape-agent.sh"
-grep -Fq 'rc=50' "$ROOT/lib/windows-cape-agent.sh"
-grep -Fq 'cape_agent_remove_paths_any' "$ROOT/lib/windows-cape-agent.sh"
-grep -Fq 'cape_agent_reap_async_any' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'cape_agent_prepare_client_identity' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq -- '--interface "$CAPE_AGENT_CLIENT_IP"' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'cape_agent_execpy_sync' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'cape_agent_run_powershell_sync' "$ROOT/lib/windows-cape-agent.sh"
+! grep -Fq 'async=yes' "$ROOT/lib/windows-cape-agent.sh"
+! grep -Fq 'cape_agent_wait_async_result' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq '{"execpy","largefile","pinning"}' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'd.get("is_user_admin") is not True' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'windows/stage-isolated-control.ps1' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'cape_agent_wait "$fake_ip" 60' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'control_path=isolated' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'CAPE Agent PowerShell execution failed' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'cape_agent_decode_execpy_log' "$ROOT/lib/windows-cape-agent.sh"
+
 [[ -f "$ROOT/windows/stage-isolated-control.ps1" ]]
-grep -Fq "CAPE-INetSim-AutoDeploy isolated control" "$ROOT/windows/stage-isolated-control.ps1"
-grep -Fq "'advfirewall','firewall','add','rule'" "$ROOT/windows/stage-isolated-control.ps1"
+grep -Fq 'PinnedClientIP' "$ROOT/windows/stage-isolated-control.ps1"
+grep -Fq 'IsolatedGatewayIP' "$ROOT/windows/stage-isolated-control.ps1"
+grep -Fq 'route.exe -p add $PinnedClientIP' "$ROOT/windows/stage-isolated-control.ps1"
 grep -Fq 'remoteip=' "$ROOT/windows/stage-isolated-control.ps1"
+grep -Fq 'pinned_client_ip=$PinnedClientIP' "$ROOT/windows/stage-isolated-control.ps1"
 ! grep -Fq 'ManagementIP' "$ROOT/windows/stage-isolated-control.ps1"
 
 python3 - "$ROOT/lib/windows-cape-agent.sh" <<'PY'
@@ -57,16 +58,16 @@ import sys
 s=open(sys.argv[1],encoding="utf-8").read()
 f=s.index("windows_configure_via_cape_agent()")
 body=s[f:s.index("windows_verify_via_cape_agent()",f)]
+prepare=body.index('cape_agent_prepare_client_identity "$management_ip"')
 stage=body.index("windows/stage-isolated-control.ps1")
 prove=body.index('cape_agent_wait "$fake_ip" 60')
 full=body.index("windows/configure-inetsim.ps1")
-assert stage < prove < full
-assert '"$management_ip" "$AUTODEPLOY_ROOT/windows/stage-isolated-control.ps1"' in body
-assert '"$fake_ip" "$AUTODEPLOY_ROOT/windows/configure-inetsim.ps1"' in body
+assert prepare < stage < prove < full
+assert 'cape_agent_run_powershell_sync \\\n    "$management_ip"' in body
+assert 'cape_agent_run_powershell_sync \\\n    "$fake_ip"' in body
+assert '-PinnedClientIP "$CAPE_AGENT_CLIENT_IP"' in body
 PY
 
-grep -Fq '{"execpy","largefile"}' "$ROOT/lib/windows-cape-agent.sh"
-grep -Fq 'd.get("is_user_admin") is not True' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'subprocess.run(cmd' "$ROOT/tools/windows_agent_runner.py"
 ! grep -Fq 'shell=True' "$ROOT/tools/windows_agent_runner.py"
 
@@ -96,15 +97,15 @@ grep -Fq 'validate_windows_result_path "$local_result"' "$ROOT/lib/windows-qga.s
 [[ "$(grep -Fc 'validate_windows_result_path "$local_result"' "$ROOT/lib/windows-winrm.sh")" -eq 2 ]]
 [[ "$(grep -Fc 'validate_windows_result_path "$local_result"' "$ROOT/lib/windows-cape-agent.sh")" -eq 2 ]]
 
-# Prove runtime identity gating against a tiny local CAPE-Agent-shaped endpoint.
+# CAPE Agent 0.22 pins requests to the CAPE host client IP. Prove that an
+# isolated-path request can keep that same source identity with curl --interface.
 TMP_AGENT="$(mktemp -d)"
 cat >"$TMP_AGENT/server.py" <<'PY'
-import json,sys
+import base64,json,sys
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from urllib.parse import parse_qs
 
-state={"retrieve":0,"saw_async":False,"done":False}
-
+seen=sys.argv[2]
 class H(BaseHTTPRequestHandler):
     def log_message(self,*a): pass
     def send_json(self,obj,code=200):
@@ -114,37 +115,33 @@ class H(BaseHTTPRequestHandler):
         self.send_header("Content-Length",str(len(b)))
         self.end_headers()
         self.wfile.write(b)
+    def mark(self):
+        with open(seen,"a",encoding="utf-8") as fp:
+            fp.write(self.client_address[0]+" "+self.path+"\n")
     def do_GET(self):
+        self.mark()
         if self.path == "/":
-            self.send_json({"status_code":200,"message":"CAPE Agent!","version":"0.22","features":["execpy","largefile"],"is_user_admin":True})
-            return
-        if self.path == "/status":
-            status="complete" if state["done"] else "running"
-            self.send_json({"status_code":200,"message":"Analysis status","status":status,"description":"","exitcode":0 if state["done"] else None})
+            self.send_json({
+                "status_code":200,"message":"CAPE Agent!","version":"0.22",
+                "features":["execpy","largefile","pinning"],"is_user_admin":True
+            })
             return
         self.send_response(404); self.end_headers()
     def do_POST(self):
-        n=int(self.headers.get("Content-Length","0") or "0")
-        body=self.rfile.read(n).decode(errors="replace")
-        form=parse_qs(body)
+        self.mark()
+        n=int(self.headers.get("Content-Length","0") or 0)
+        raw=self.rfile.read(n).decode("utf-8","replace")
+        form=parse_qs(raw)
         if self.path == "/execpy":
-            state["saw_async"] = form.get("async") == ["yes"]
-            if not state["saw_async"]:
-                self.send_json({"status_code":400,"message":"missing async"},400)
+            if "async" in form:
+                self.send_json({"error_code":400,"message":"async forbidden"},400)
                 return
-            self.send_json({"status_code":200,"message":"Successfully spawned command","process_id":1234})
-            return
-        if self.path == "/retrieve":
-            state["retrieve"] += 1
-            if state["retrieve"] < 2:
-                self.send_response(404); self.end_headers(); return
-            state["done"]=True
-            b=b'{"ok":true}\n'
-            self.send_response(200)
-            self.send_header("Content-Type","application/octet-stream")
-            self.send_header("Content-Length",str(len(b)))
-            self.end_headers()
-            self.wfile.write(b)
+            self.send_json({
+                "status_code":200,
+                "message":"Successfully executed command",
+                "stdout":base64.b64encode(b"runner ok\n").decode(),
+                "stderr":""
+            })
             return
         self.send_response(404); self.end_headers()
 
@@ -152,21 +149,23 @@ srv=ThreadingHTTPServer(("127.0.0.1",0),H)
 open(sys.argv[1],"w").write(str(srv.server_address[1]))
 srv.serve_forever()
 PY
-python3 "$TMP_AGENT/server.py" "$TMP_AGENT/port" >/dev/null 2>&1 &
+python3 "$TMP_AGENT/server.py" "$TMP_AGENT/port" "$TMP_AGENT/seen" >/dev/null 2>&1 &
 AGENT_PID=$!
 for _ in {1..50}; do [[ -s "$TMP_AGENT/port" ]] && break; sleep 0.05; done
 [[ -s "$TMP_AGENT/port" ]]
 CAPE_AGENT_PORT="$(cat "$TMP_AGENT/port")"
 source "$ROOT/lib/windows-cape-agent.sh"
+
+WINDOWS_FAKE_IP=""
+CAPE_AGENT_CLIENT_IP=""
 [[ "$(cape_agent_probe 127.0.0.1)" == 0.22 ]]
-cape_agent_execpy_async 127.0.0.1 'C:\Windows\Temp\runner.py' "$TMP_AGENT/execpy.log"
-grep -Fq '"process_id": 1234' "$TMP_AGENT/execpy.log"
-# Simulate the management path disappearing during reconfiguration: the mock
-# server is bound only to 127.0.0.1, while 127.0.0.2 is supplied as primary.
-# Result retrieval must transparently fall through to the alternate path.
-cape_agent_wait_async_result 127.0.0.2 127.0.0.1 'C:\Windows\Temp\result.json' "$TMP_AGENT/result.json" "$TMP_AGENT/execpy.log" 10
-grep -Fq '"ok":true' "$TMP_AGENT/result.json"
-grep -Fq 'via=127.0.0.1' "$TMP_AGENT/execpy.log"
+
+WINDOWS_FAKE_IP=127.0.0.1
+CAPE_AGENT_CLIENT_IP=127.0.0.2
+cape_agent_execpy_sync 127.0.0.1 'C:\Windows\Temp\runner.py' "$TMP_AGENT/execpy.json"
+grep -Fq 'runner ok' "$TMP_AGENT/execpy.txt"
+grep -Fq '127.0.0.2 /execpy' "$TMP_AGENT/seen"
+! grep -Fq 'async' "$TMP_AGENT/execpy.json"
 
 CAPE_AGENT_GUEST_TIMEOUT=180
 cape_agent_write_runner_config "$TMP_AGENT/runner.json" 'C:\Windows\Temp\script.ps1' -ResultPath 'C:\Windows\Temp\result.json'
@@ -238,4 +237,4 @@ if validate_windows_result_path "$TMP/result.json" >/dev/null 2>&1; then
   exit 1
 fi
 
-echo '[PASS] QGA -> approved WinRM -> async dual-path CAPE Agent execpy -> safe-stop zero-touch policy and Windows safety gates'
+echo '[PASS] QGA -> approved WinRM -> pinned-client synchronous CAPE Agent isolated cutover -> Windows safety gates'
