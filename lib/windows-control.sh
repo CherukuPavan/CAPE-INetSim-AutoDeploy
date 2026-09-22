@@ -90,12 +90,26 @@ windows_verify_selected_backend() {
 
 windows_poweroff_selected_backend() {
   case "$WINDOWS_BACKEND_USED" in
-    qemu-guest-agent) windows_poweroff_via_qga ;;
-    winrm) windows_poweroff_via_winrm "$CAPE_MACHINE_IP" ;;
-    cape-agent-execpy|manual-powershell) virsh shutdown "$DOMAIN" >/dev/null 2>&1 || true ;;
-    *) fail "Unknown Windows poweroff backend: ${WINDOWS_BACKEND_USED:-none}"; return 40 ;;
+    qemu-guest-agent)
+      windows_poweroff_via_qga
+      windows_wait_for_domain_state "shut off" 120
+      ;;
+    winrm)
+      windows_poweroff_via_winrm "$CAPE_MACHINE_IP"
+      windows_wait_for_domain_state "shut off" 120
+      ;;
+    cape-agent-execpy)
+      windows_poweroff_via_cape_agent "$CAPE_MACHINE_IP"
+      ;;
+    manual-powershell)
+      virsh shutdown "$DOMAIN" >/dev/null 2>&1 || true
+      windows_wait_for_domain_state "shut off" 120
+      ;;
+    *)
+      fail "Unknown Windows poweroff backend: ${WINDOWS_BACKEND_USED:-none}"
+      return 40
+      ;;
   esac
-  windows_wait_for_domain_state "shut off" 120
 }
 
 windows_manual_callback_command() {
