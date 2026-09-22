@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+IMAGE="${1:-}"
+[[ -n "$IMAGE" && -f "$IMAGE" ]] || { echo "[FAIL] usage: $0 IMAGE.qcow2" >&2; exit 2; }
+
+need(){ command -v "$1" >/dev/null 2>&1 || { echo "[FAIL] missing runtime-smoke command: $1" >&2; exit 2; }; }
+for x in qemu-img qemu-system-x86_64 virt-copy-in guestfish virt-cat timeout; do need "$x"; done
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+OVERLAY="$WORK/runtime-smoke.qcow2"
+WRAPPER="$WORK/cape-inetsim-runtime-smoke"
+UNIT="$WORK/cape-inetsim-runtime-smoke.service"
+CONSOLE="$WORK/console.log"
+MGMT_MAC=52:54:00:aa:00:01
+ISO_MAC=52:54:00:aa:00:02
+ISO_CIDR=192.168.200.2/24
+
+qemu-img create -q -f qcow2 -F qcow2 -b "$(realpath "$IMAGE")" "$OVERLAY"
+
+cat >"$WRAPPER" <<EOF
+#!/bin/bash
+set +e
+/usr/local/sbin/cape-inetsim-guest-configure \
+  --management-mac $MGMT_MAC \
+  --isolated-mac $ISO_MAC \
+  --ip $ISO_CIDR > /var/log/cape-inetsim-runtime-smoke.log 2>&1
+rc=\$?
+if [ "\$rc" -eq 0 ]; then
+  touch /var/lib/cape-inetsim-runtime-smoke-ok
+else
+  printf '%s\n' "\$rc" >/var/lib/cape-inetsim-runtime-smoke-failed
+fi
+sync
+poweroff -f
+exit 0
+EOF
+chmod 0755 "$WRAPPER"
+
+cat >"$UNIT" <<'EOF'
+[Unit]
+Description=CAPE INetSim appliance runtime smoke test
+After=systemd-modules-load.service
+Wants=network.target
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/cape-inetsim-runtime-smoke
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+virt-copy-in -a "$OVERLAY" "$WRAPPER" /usr/local/sbin
+virt-copy-in -a "$OVERLAY" "$UNIT" /etc/systemd/system
+guestfish --rw -a "$OVERLAY" -i <<'EOF'
+ln-s ../cape-inetsim-runtime-smoke.service /etc/systemd/system/multi-user.target.wants/cape-inetsim-runtime-smoke.service
+EOF
+
+QEMU_MACHINE=(-machine type=q35,accel=tcg -cpu max)
+if [[ -r /dev/kvm && -w /dev/kvm ]]; then
+  QEMU_MACHINE=(-machine type=q35,accel=kvm -cpu host)
+fi
+
+set +e
+timeout --signal=TERM --kill-after=20s 240 \
+  qemu-system-x86_64 \
+    "${QEMU_MACHINE[@]}" \
+    -name cape-inetsim-runtime-smoke \
+    -m 2048 -smp 2 \
+    -drive "file=$OVERLAY,if=virtio,format=qcow2,cache=unsafe" \
+    -netdev user,id=mgmt,restrict=off \
+    -device "virtio-net-pci,netdev=mgmt,mac=$MGMT_MAC" \
+    -netdev user,id=isolated,restrict=on \
+    -device "virtio-net-pci,netdev=isolated,mac=$ISO_MAC" \
+    -nographic -monitor none -no-reboot \
+    >"$CONSOLE" 2>&1
+QEMU_RC=$?
+set -e
+
+if virt-cat -a "$OVERLAY" /var/lib/cape-inetsim-runtime-smoke-ok >/dev/null 2>&1; then
+  echo "[PASS] appliance runtime smoke test configured both NICs and started INetSim"
+  exit 0
+fi
+
+echo "[FAIL] appliance runtime smoke test failed (qemu_rc=$QEMU_RC)" >&2
+echo "----- guest runtime smoke log -----" >&2
+virt-cat -a "$OVERLAY" /var/log/cape-inetsim-runtime-smoke.log >&2 || true
+echo "----- failure marker -----" >&2
+virt-cat -a "$OVERLAY" /var/lib/cape-inetsim-runtime-smoke-failed >&2 || true
+echo "----- console tail -----" >&2
+tail -n 250 "$CONSOLE" >&2 || true
+exit 1
