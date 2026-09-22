@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory=$true)][string]$IsolatedMac,
     [Parameter(Mandatory=$true)][string]$FakeIP,
     [Parameter(Mandatory=$true)][int]$PrefixLength,
-    [Parameter(Mandatory=$true)][string]$ControlHostIP,
+    [Parameter(Mandatory=$true)][string]$PinnedClientIP,
+    [Parameter(Mandatory=$true)][string]$IsolatedGatewayIP,
     [Parameter(Mandatory=$true)][int]$AgentPort,
     [Parameter(Mandatory=$true)][string]$ResultPath
 )
@@ -75,6 +76,15 @@ try {
         'store=persistent'
     )|Out-Null
 
+    # CAPE Agent 0.22 can be pinned to the CAPE host IP that contacted it over
+    # the management NIC. Preserve that client identity on the new isolated
+    # path by routing only this /32 through the host-side isolated bridge.
+    & route.exe -p add $PinnedClientIP mask 255.255.255.255 $IsolatedGatewayIP metric 1 if $isoAdapter.InterfaceIndex | Out-Null
+    if($LASTEXITCODE -ne 0){
+        & route.exe change $PinnedClientIP mask 255.255.255.255 $IsolatedGatewayIP metric 1 if $isoAdapter.InterfaceIndex | Out-Null
+        if($LASTEXITCODE -ne 0){throw "could not route pinned CAPE client $PinnedClientIP through isolated adapter"}
+    }
+
     $rule='CAPE-INetSim-AutoDeploy isolated control'
     & netsh.exe advfirewall firewall delete rule name="$rule" protocol=TCP localport=$AgentPort | Out-Null
     Invoke-Netsh @(
@@ -84,7 +94,7 @@ try {
         'action=allow',
         'protocol=TCP',
         ("localport=" + $AgentPort),
-        ("remoteip=" + $ControlHostIP),
+        ("remoteip=" + $PinnedClientIP),
         'profile=any'
     )|Out-Null
 
@@ -96,10 +106,11 @@ try {
     }
     if(-not $seen){throw "isolated IPv4 address $FakeIP was not observed after staging"}
 
-    Write-Result $true 'Isolated CAPE Agent control path staged without changing management networking' @{
+    Write-Result $true 'Isolated CAPE Agent path staged with pinned client identity preserved' @{
         fake_ip=$FakeIP
         isolated_mac=$isoAdapter.MACAddress
-        control_host_ip=$ControlHostIP
+        pinned_client_ip=$PinnedClientIP
+        isolated_gateway_ip=$IsolatedGatewayIP
         agent_port=$AgentPort
     }
     exit 0
