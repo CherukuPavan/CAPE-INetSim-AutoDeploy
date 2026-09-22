@@ -19,9 +19,15 @@ virsh() {
 XML
       ;;
     snapshot-dumpxml)
-      cat <<'XML'
+      if [[ "${3:-}" == ready-external ]]; then
+        cat <<'XML'
+<domainsnapshot><name>ready-external</name><state>running</state><memory snapshot='external' file='/tmp/ready.mem'/></domainsnapshot>
+XML
+      else
+        cat <<'XML'
 <domainsnapshot><name>ready</name><state>running</state><memory snapshot='internal'/></domainsnapshot>
 XML
+      fi
       ;;
     *) return 1 ;;
   esac
@@ -34,8 +40,11 @@ windows_choose_nic_model
 [[ "$WINDOWS_ISOLATED_NIC_MODEL" == e1000e ]]
 [[ "$(windows_find_isolated_mac)" == '52:54:00:aa:bb:cc' ]]
 [[ "$(snapshot_state_memory ready)" == 'running|internal' ]]
+[[ "$(snapshot_state_memory ready-external)" == 'running|external' ]]
+snapshot_is_running_analysis_baseline ready
+snapshot_is_running_analysis_baseline ready-external
 
-echo '[PASS] Windows NIC and running-snapshot discovery logic'
+echo '[PASS] Windows NIC and internal/external running-snapshot discovery logic'
 
 python3 - "$ROOT/lib/windows-vm.sh" <<'PY'
 import sys
