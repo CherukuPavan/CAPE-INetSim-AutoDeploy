@@ -198,8 +198,8 @@ grep -Fq 'targets_discover_all' "$ROOT/lib/plan.sh"
 grep -Fq 'snapshot_capable")=="yes"' "$ROOT/lib/deploy.sh"
 echo "[PASS] Windows internal-snapshot capability safe-stop preflight"
 
-# The configured CAPE snapshot itself must be a running internal-memory
-# baseline and must carry the same proven management NIC identity.
+# The configured CAPE snapshot itself must be running and may store saved
+# memory internally or externally. It must carry the same proven management NIC.
 DOMAIN=testvm
 CAPE_MACHINE_SNAPSHOT=s1
 MANAGEMENT_NETWORK_NAME=default
@@ -225,6 +225,28 @@ discover_cape_analysis_snapshot
 [[ "$CAPE_ANALYSIS_SNAPSHOT_MEMORY" == internal ]]
 [[ "${#DISCOVERY_ERRORS[@]}" -eq 0 ]]
 
+# Running external-memory snapshots are equally valid CAPE baselines.
+virsh() {
+  if [[ "$1" == snapshot-dumpxml ]]; then
+    cat <<'XML'
+<domainsnapshot>
+  <name>s1</name><state>running</state><memory snapshot='external' file='/var/lib/libvirt/qemu/s1.mem'/>
+  <domain><name>testvm</name><devices>
+    <interface type='network'><mac address='52:54:00:11:22:33'/><source network='default'/><model type='e1000e'/></interface>
+  </devices></domain>
+</domainsnapshot>
+XML
+    return 0
+  fi
+  return 1
+}
+DISCOVERY_ERRORS=()
+discover_cape_analysis_snapshot
+[[ "$CAPE_ANALYSIS_SNAPSHOT_STATUS" == proven ]]
+[[ "$CAPE_ANALYSIS_SNAPSHOT_STATE" == running ]]
+[[ "$CAPE_ANALYSIS_SNAPSHOT_MEMORY" == external ]]
+[[ "${#DISCOVERY_ERRORS[@]}" -eq 0 ]]
+
 virsh() {
   if [[ "$1" == snapshot-dumpxml ]]; then
     cat <<'XML'
@@ -243,7 +265,7 @@ DISCOVERY_ERRORS=()
 discover_cape_analysis_snapshot
 [[ "$CAPE_ANALYSIS_SNAPSHOT_STATUS" == unproven ]]
 [[ "${#DISCOVERY_ERRORS[@]}" -eq 1 ]]
-grep -Fq 'not a running-state internal-memory analysis baseline' <<<"${DISCOVERY_ERRORS[0]}"
+grep -Fq 'not a running-state analysis baseline with internal/external saved memory' <<<"${DISCOVERY_ERRORS[0]}"
 
 CAPE_MACHINE_SNAPSHOT=""
 DISCOVERY_ERRORS=()
