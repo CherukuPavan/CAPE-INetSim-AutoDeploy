@@ -23,3 +23,7 @@ grep -Fq 'cape-processor may still be reporting a' "$ROOT/bin/cape-inetsim-repai
 grep -Fq 'MODEL_STATUS_ENUMS=set(getattr(Task.__table__.c.status.type,"enums",()) or ())' "$ROOT/tools/cape_maintenance.py"
 grep -Fq 'ACTIVE=tuple(s for s in ACTIVE_CANDIDATES if not MODEL_STATUS_ENUMS or s in MODEL_STATUS_ENUMS)' "$ROOT/tools/cape_maintenance.py"
 grep -Fq 'cape-maintenance.log' "$ROOT/lib/maintenance.sh"
+
+grep -Fq 'local user_tool="$user_dir/cape_maintenance.py"' "$ROOT/lib/maintenance.sh"
+grep -Fq 'install -m 0500 -o "$CAPE_SERVICE_USER" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" "$user_tool"' "$ROOT/lib/maintenance.sh"
+grep -Fq '"$CAPE_RUNTIME_PYTHON" "$user_tool" "$action"' "$ROOT/lib/maintenance.sh"
