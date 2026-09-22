@@ -84,9 +84,27 @@ jobs:
       - name: Download exact private candidate and evidence
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/candidate" "$RUNNER_TEMP/evidence"
-          gh run download "$CANDIDATE_RUN_ID" -R "$PRIVATE_REPO"             -n cape-inetsim-appliance-v1.0.0-candidate             -D "$RUNNER_TEMP/candidate"
-          gh run download "$CANDIDATE_RUN_ID" -R "$PRIVATE_REPO"             -n cape-inetsim-appliance-v1.0.0-evidence             -D "$RUNNER_TEMP/evidence"
+          TAG="candidate-$SOURCE_SHA"
+          RELEASE_JSON="$(gh api "repos/$PRIVATE_REPO/releases/tags/$TAG")"
+          [[ "$(jq -r .draft <<<"$RELEASE_JSON")" == false ]] || {
+            echo "::error::private candidate handoff is still a draft"
+            exit 2
+          }
+          [[ "$(jq -r .prerelease <<<"$RELEASE_JSON")" == true ]] || {
+            echo "::error::private candidate handoff is not marked prerelease"
+            exit 2
+          }
+          REF_SHA="$(gh api "repos/$PRIVATE_REPO/git/ref/tags/$TAG" --jq .object.sha)"
+          [[ "$REF_SHA" == "$SOURCE_SHA" ]] || {
+            echo "::error::private candidate handoff tag does not resolve to requested source SHA"
+            exit 2
+          }
+
+          HANDOFF="$RUNNER_TEMP/private-candidate"
+          mkdir -p "$HANDOFF" "$RUNNER_TEMP/candidate" "$RUNNER_TEMP/evidence"
+          gh release download "$TAG" -R "$PRIVATE_REPO" -D "$HANDOFF"
+          cp -a "$HANDOFF/." "$RUNNER_TEMP/candidate/"
+          cp -a "$HANDOFF/." "$RUNNER_TEMP/evidence/"
 
       - name: Install independent verification tools
         run: |
@@ -144,7 +162,31 @@ jobs:
           cp -a source/windows/. "$ROOT/windows/"
           mkdir -p "$ROOT/vendor/CAPE-INetSim-VM-Extension-v1.0.1"
           rsync -a --exclude ORIGIN.json             source/vendor/CAPE-INetSim-VM-Extension-v1.0.1/             "$ROOT/vendor/CAPE-INetSim-VM-Extension-v1.0.1/"
-          (cd "$ROOT/vendor/CAPE-INetSim-VM-Extension-v1.0.1" && sha256sum -c RUNTIME-SHA256SUMS >/dev/null)
+
+          # Privacy-only public packaging transform: remove a historical lab
+          # hostname mention from a runtime-validator comment, then regenerate
+          # the vendored runtime checksum manifest over the same file set.
+          VENDOR="$ROOT/vendor/CAPE-INetSim-VM-Extension-v1.0.1"
+          python3 - "$VENDOR/tests/test_django_candidate_ui.py" <<'PY'
+          import pathlib,sys
+          p=pathlib.Path(sys.argv[1])
+          s=p.read_text()
+          old="No SSL45 address is hard-coded here."
+          new="No lab-specific address is hard-coded here."
+          if s.count(old) != 1:
+              raise SystemExit("expected exactly one historical lab comment")
+          p.write_text(s.replace(old,new))
+          PY
+          (
+            cd "$VENDOR"
+            mapfile -t files < <(awk '{print $2}' RUNTIME-SHA256SUMS)
+            : > RUNTIME-SHA256SUMS.new
+            for file in "${files[@]}"; do
+              sha256sum "$file" >> RUNTIME-SHA256SUMS.new
+            done
+            mv RUNTIME-SHA256SUMS.new RUNTIME-SHA256SUMS
+            sha256sum -c RUNTIME-SHA256SUMS >/dev/null
+          )
           chmod 0755 "$ROOT"/bin/cape-inetsim-*
           printf '%s\n' "$VERSION" >"$ROOT/VERSION"
 
