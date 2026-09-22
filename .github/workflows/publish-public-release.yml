@@ -106,6 +106,18 @@ jobs:
           cp -a "$HANDOFF/." "$RUNNER_TEMP/candidate/"
           cp -a "$HANDOFF/." "$RUNNER_TEMP/evidence/"
 
+      - name: Require successful CI for exact source
+        run: |
+          set -euo pipefail
+          gh api "repos/$PRIVATE_REPO/actions/workflows/ci.yml/runs?head_sha=$SOURCE_SHA&event=push&per_page=100" >"$RUNNER_TEMP/source-ci.json"
+          python3 - "$RUNNER_TEMP/source-ci.json" "$SOURCE_SHA" <<'PY'
+          import json,sys
+          runs=json.load(open(sys.argv[1]))["workflow_runs"]
+          matching=[r for r in runs if r["head_sha"]==sys.argv[2] and r["name"]=="AutoDeploy CI"]
+          if not matching or max(matching,key=lambda r:r["id"])["conclusion"]!="success":
+              raise SystemExit("Exact source CI must pass before public release")
+          PY
+
       - name: Install independent verification tools
         run: |
           sudo apt-get update
@@ -292,6 +304,18 @@ jobs:
           python3 -m json.tool "$DIST/appliance-manifest.json" >/dev/null
           grep -Fq "https://github.com/$PUBLIC_REPO/releases/download/$RELEASE_TAG/" "$DIST/appliance-manifest.json"
           [[ "$(stat -c '%s' "$DIST/cape-inetsim-appliance-v1.0.0.qcow2.gz")" -lt 2147483648 ]]
+
+      - name: Execute CAPE runtime regression against stripped package
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/public-root/CAPE-INetSim-AutoDeploy-${RELEASE_TAG#v}"
+          for rel in lib/cape-runtime.sh lib/maintenance.sh lib/cape-configure.sh tools/cape_maintenance.py; do
+            cmp -s "source/$rel" "$ROOT/$rel" || {
+              echo "::error::packaged CAPE runtime differs from tested source: $rel"
+              exit 3
+            }
+          done
+          sudo env CAPE_RUNTIME_TEST_ROOT="$ROOT" CAPE_RUNTIME_TEST_REQUIRE_NONROOT=1 python3 source/tests/cape_runtime.py
 
       - name: Publish immutable public prerelease
         env:
