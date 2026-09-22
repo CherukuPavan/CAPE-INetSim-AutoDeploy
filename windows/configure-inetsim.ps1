@@ -10,6 +10,16 @@ param(
     [Parameter(Mandatory=$true)][string]$ResultPath
 )
 $ErrorActionPreference='Stop'
+$ProgressPath="$ResultPath.progress.txt"
+
+function Set-Stage([string]$Stage) {
+    try {
+        $line=("{0} {1}" -f (Get-Date).ToString('o'),$Stage)
+        [System.IO.File]::AppendAllText($ProgressPath,$line+[Environment]::NewLine,[System.Text.Encoding]::ASCII)
+    } catch {}
+}
+
+Set-Stage 'start'
 
 function Write-Result($ok,$message,$extra) {
     $o=@{ok=[bool]$ok;message=[string]$message;time=(Get-Date).ToString('o')}
@@ -27,6 +37,19 @@ function Write-Result($ok,$message,$extra) {
 }
 
 function Normalize-Mac([string]$m){(($m -replace '[^0-9A-Fa-f]','').ToUpperInvariant())}
+
+function Get-AdapterSelector($Adapter) {
+    $name=[string]$Adapter.NetConnectionID
+    if($name){return $name}
+    return [string]$Adapter.InterfaceIndex
+}
+
+function Invoke-NetshChecked([string[]]$NetshArgs,[string]$Operation) {
+    $output=@(& netsh.exe @NetshArgs 2>&1)
+    if($LASTEXITCODE -ne 0){
+        throw ("{0} failed (netsh exit {1}): {2}" -f $Operation,$LASTEXITCODE,($output -join ' '))
+    }
+}
 
 function Test-TcpPort([string]$Address,[int]$Port,[int]$TimeoutMs=3000){
     $c=New-Object System.Net.Sockets.TcpClient
@@ -122,8 +145,19 @@ try{
         }
     }
 
-    if($mgmtAdapter.NetEnabled -ne $true){$null=$mgmtAdapter.Enable();Start-Sleep -Seconds 1}
-    if($isoAdapter.NetEnabled -ne $true){$null=$isoAdapter.Enable();Start-Sleep -Seconds 1}
+    $mgmtSelector=Get-AdapterSelector $mgmtAdapter
+    $isoSelector=Get-AdapterSelector $isoAdapter
+    if($mgmtAdapter.NetEnabled -ne $true){
+        Set-Stage 'enable-management-adapter'
+        Invoke-NetshChecked @('interface','set','interface',"name=$mgmtSelector",'admin=enabled') 'management adapter enable'
+        Start-Sleep -Seconds 1
+    }
+    if($isoAdapter.NetEnabled -ne $true){
+        Set-Stage 'enable-isolated-adapter'
+        Invoke-NetshChecked @('interface','set','interface',"name=$isoSelector",'admin=enabled') 'isolated adapter enable'
+        Start-Sleep -Seconds 1
+    }
+    Set-Stage 'adapters-enabled'
 
     foreach($remote in @($ResultServerIP,$ControlHostIP)|Where-Object{$_}|Select-Object -Unique){
         if(-not (Same-Subnet $ManagementIP $remote $mgmtMask)){
@@ -136,8 +170,17 @@ try{
         }
     }
 
-    $r=$mgmtCfg.EnableStatic($mgmtIPv4,$mgmtIPv4Masks)
-    if($r.ReturnValue -ne 0 -and $r.ReturnValue -ne 1){throw "management EnableStatic failed: $($r.ReturnValue)"}
+    # Avoid Win32_NetworkAdapterConfiguration mutation methods here. On real
+    # CAPE guests those calls can block for many minutes while reconfiguring the
+    # same NIC that carries CAPE Agent. netsh performs the same persistent
+    # transition without holding an in-process WMI method call open.
+    Set-Stage 'management-static-begin'
+    Invoke-NetshChecked @(
+        'interface','ip','set','address',
+        "name=$mgmtSelector",'source=static',
+        "address=$ManagementIP","mask=$mgmtMask",'gateway=none'
+    ) 'management static IPv4/no-gateway'
+    Set-Stage 'management-static-done'
 
     # Persistently clear management default-gateway values so a future adapter
     # reinitialization cannot recreate Internet egress. Off-subnet CAPE control
@@ -153,20 +196,35 @@ try{
         $ifaceKey.Close()
     }
 
-    $r=$isoCfg.EnableStatic(@($FakeIP),@($isoMask))
-    if($r.ReturnValue -ne 0 -and $r.ReturnValue -ne 1){throw "isolated EnableStatic failed: $($r.ReturnValue)"}
+    Set-Stage 'isolated-static-begin'
+    Invoke-NetshChecked @(
+        'interface','ip','set','address',
+        "name=$isoSelector",'source=static',
+        "address=$FakeIP","mask=$isoMask",'gateway=none'
+    ) 'isolated static IPv4/no-gateway'
+    Set-Stage 'isolated-static-done'
+
+    Set-Stage 'dns-update-begin'
+    Invoke-NetshChecked @(
+        'interface','ip','set','dns',
+        "name=$mgmtSelector",'source=static',"address=$DnsIP",'register=primary'
+    ) 'management DNS update'
+    Invoke-NetshChecked @(
+        'interface','ip','set','dns',
+        "name=$isoSelector",'source=static',"address=$DnsIP",'register=primary'
+    ) 'isolated DNS update'
+    Set-Stage 'dns-update-done'
 
     $mgmtCfg=Refresh-Config $mgmtAdapter.Index
     $isoCfg=Refresh-Config $isoAdapter.Index
-    $r=$mgmtCfg.SetDNSServerSearchOrder(@($DnsIP))
-    if($r.ReturnValue -ne 0 -and $r.ReturnValue -ne 1){throw "management DNS update failed: $($r.ReturnValue)"}
-    $r=$isoCfg.SetDNSServerSearchOrder(@($DnsIP))
-    if($r.ReturnValue -ne 0 -and $r.ReturnValue -ne 1){throw "isolated DNS update failed: $($r.ReturnValue)"}
 
+    Set-Stage 'disable-unexpected-adapters-begin'
     foreach($a in @(Get-WmiObject Win32_NetworkAdapter |
         Where-Object{$_.Index -ne $mgmtAdapter.Index -and $_.Index -ne $isoAdapter.Index -and $_.NetEnabled -eq $true})){
-        $null=$a.Disable()
+        $selector=Get-AdapterSelector $a
+        Invoke-NetshChecked @('interface','set','interface',"name=$selector",'admin=disabled') ("disable unexpected adapter {0}" -f $selector)
     }
+    Set-Stage 'disable-unexpected-adapters-done'
 
     for($i=0;$i -lt 5;$i++){
         if((Get-Default4).Count -eq 0){break}
@@ -182,9 +240,11 @@ try{
     New-Item -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters' -Force|Out-Null
     New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters' -Name DisabledComponents -PropertyType DWord -Value 255 -Force|Out-Null
 
+    Set-Stage 'route-and-ipv6-hardening-done'
     & ipconfig /flushdns|Out-Null
     Start-Sleep -Seconds 2
 
+    Set-Stage 'validation-begin'
     $defaults4=Get-Default4
     $defaults6=Get-Default6Lines
     if($defaults4.Count -ne 0){throw "IPv4 default route removal failed; count=$($defaults4.Count)"}
@@ -219,6 +279,7 @@ try{
     if($public4){throw 'public IPv4 unexpectedly reachable'}
     if($public6){throw 'public IPv6 unexpectedly reachable'}
 
+    Set-Stage 'validation-complete'
     Write-Result $true 'Windows isolated networking configured and safety-verified' @{
         legacy_network_stack=$true
         management_interface=$mgmtAdapter.NetConnectionID
@@ -243,6 +304,7 @@ try{
     }
     exit 0
 } catch {
+    Set-Stage ("failed: " + $_.Exception.Message)
     Write-Result $false $_.Exception.Message @{error=($_|Out-String)}
     exit 1
 }
