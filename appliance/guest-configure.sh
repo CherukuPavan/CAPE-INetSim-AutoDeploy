@@ -97,9 +97,12 @@ systemctl enable inetsim.service >/dev/null
 systemctl restart inetsim.service
 sleep 2
 
-ip -4 addr show dev "$ISO_IF" | grep -Fq "$CIDR"
-ss -lnup | grep -Fq "$IP:53"
-ss -lntp | grep -Eq "$IP:80[[:space:]]"
-ss -lntp | grep -Eq "$IP:443[[:space:]]"
+ISO_ADDRS="$(ip -4 addr show dev "$ISO_IF")"
+UDP_LISTEN="$(ss -lnup)"
+TCP_LISTEN="$(ss -lntp)"
+grep -Fq "$CIDR" <<<"$ISO_ADDRS"
+grep -Fq "$IP:53" <<<"$UDP_LISTEN"
+grep -Eq "$IP:80[[:space:]]" <<<"$TCP_LISTEN"
+grep -Eq "$IP:443[[:space:]]" <<<"$TCP_LISTEN"
 
 echo "INETSIM_GUEST_CONFIG_OK management=$MGMT_IF isolated=$ISO_IF ip=$CIDR"
