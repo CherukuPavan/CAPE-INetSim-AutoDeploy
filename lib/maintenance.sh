@@ -97,18 +97,26 @@ cape_maintenance_tool() {
 
 cape_wait_and_acquire_maintenance() {
   local timeout="${1:-3600}" elapsed=0 rc
+  local log="$AD_LOG_ROOT/${DEPLOYMENT_ID}-cape-maintenance.log"
+  : >"$log"
+  chmod 0600 "$log"
   while ((elapsed < timeout)); do
-    if cape_maintenance_tool acquire; then
+    printf '=== acquire attempt at %s ===\n' "$(date -Is)" >>"$log"
+    if cape_maintenance_tool acquire >>"$log" 2>&1; then
       rc=0
     else
       rc=$?
     fi
+    printf 'exit_code=%s\n' "$rc" >>"$log"
     if [[ "$rc" -eq 0 ]]; then
-      state_record_resource cape-maintenance all-machines acquired yes "$CAPE_MAINTENANCE_GUARD_FILE"
+      state_record_resource cape-maintenance all-machines acquired yes "$CAPE_MAINTENANCE_GUARD_FILE log=$log"
       pass "CAPE machine scheduling paused at a task-safe point"
       return 0
     fi
-    [[ "$rc" -eq 20 ]] || return "$rc"
+    if [[ "$rc" -ne 20 ]]; then
+      fail "CAPE maintenance acquisition failed; diagnostic log: $log"
+      return "$rc"
+    fi
     info "CAPE is busy; waiting for running/distributed/processing work to finish..."
     sleep 15
     elapsed=$((elapsed+15))
