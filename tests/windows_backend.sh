@@ -31,15 +31,30 @@ grep -Fq '/execpy' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq '/store' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq '/retrieve' "$ROOT/lib/windows-cape-agent.sh"
 ! grep -Fq '/execute' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq -- '--data-urlencode "async=yes"' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'cape_agent_candidate_ips' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'cape_agent_try_retrieve_any' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'CAPE_AGENT_CUTOVER_TIMEOUT' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'CAPE_AGENT_GUEST_TIMEOUT' "$ROOT/lib/windows-cape-agent.sh"
+! grep -Fq -- '--max-time 700' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'rc=50' "$ROOT/lib/windows-cape-agent.sh"
-grep -Fq 'cape_agent_remove "$ip" "$remote_runner"' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'cape_agent_remove_any "$remote_runner"' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq '{"execpy","largefile"}' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'd.get("is_user_admin") is not True' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'subprocess.run(cmd' "$ROOT/tools/windows_agent_runner.py"
 ! grep -Fq 'shell=True' "$ROOT/tools/windows_agent_runner.py"
 
+# Network discovery remains WMI-compatible with legacy Windows, but mutations
+# must not use the blocking WMI methods that hung the RC19 CAPE-Agent cutover.
 grep -q 'Get-WmiObject Win32_NetworkAdapterConfiguration' "$ROOT/windows/configure-inetsim.ps1"
 grep -q 'Get-WmiObject Win32_IP4RouteTable' "$ROOT/windows/configure-inetsim.ps1"
+grep -Fq 'Invoke-NetshChecked' "$ROOT/windows/configure-inetsim.ps1"
+grep -Fq "'gateway=none'" "$ROOT/windows/configure-inetsim.ps1"
+grep -Fq "Set-Stage 'management-static-begin'" "$ROOT/windows/configure-inetsim.ps1"
+! grep -Fq '.EnableStatic(' "$ROOT/windows/configure-inetsim.ps1"
+! grep -Fq '.SetDNSServerSearchOrder(' "$ROOT/windows/configure-inetsim.ps1"
+! grep -Fq '.Enable()' "$ROOT/windows/configure-inetsim.ps1"
+! grep -Fq '.Disable()' "$ROOT/windows/configure-inetsim.ps1"
 grep -q "route.exe delete 0.0.0.0" "$ROOT/windows/configure-inetsim.ps1"
 grep -q "netsh interface ipv6 delete route" "$ROOT/windows/configure-inetsim.ps1"
 grep -q 'routerdiscovery=disabled' "$ROOT/windows/configure-inetsim.ps1"
@@ -56,29 +71,87 @@ grep -Fq 'validate_windows_result_path "$local_result"' "$ROOT/lib/windows-qga.s
 [[ "$(grep -Fc 'validate_windows_result_path "$local_result"' "$ROOT/lib/windows-winrm.sh")" -eq 2 ]]
 [[ "$(grep -Fc 'validate_windows_result_path "$local_result"' "$ROOT/lib/windows-cape-agent.sh")" -eq 2 ]]
 
-# Prove runtime identity gating against a tiny local CAPE-Agent-shaped endpoint.
+# Prove runtime identity gating, async /execpy launch, and dual-path result
+# retrieval against a tiny local CAPE-Agent-shaped endpoint.
 TMP_AGENT="$(mktemp -d)"
 cat >"$TMP_AGENT/server.py" <<'PY'
 import json,sys
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+from urllib.parse import parse_qs
+
+seen=sys.argv[2]
+def send_json(h,obj,code=200):
+    b=json.dumps(obj).encode()
+    h.send_response(code)
+    h.send_header("Content-Type","application/json")
+    h.send_header("Content-Length",str(len(b)))
+    h.end_headers()
+    h.wfile.write(b)
+
 class H(BaseHTTPRequestHandler):
     def log_message(self,*a): pass
     def do_GET(self):
-        if self.path != "/":
-            self.send_response(404); self.end_headers(); return
-        b=json.dumps({"message":"CAPE Agent!","version":"0.22","features":["execpy","largefile"],"is_user_admin":True}).encode()
-        self.send_response(200); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(b))); self.end_headers(); self.wfile.write(b)
+        if self.path == "/":
+            send_json(self,{"message":"CAPE Agent!","version":"0.22","features":["execpy","largefile"],"is_user_admin":True,"status_code":200})
+            return
+        if self.path == "/status":
+            send_json(self,{"message":"Analysis status","status":"complete","description":"","status_code":200})
+            return
+        self.send_response(404); self.end_headers()
+    def do_POST(self):
+        n=int(self.headers.get("Content-Length","0") or 0)
+        raw=self.rfile.read(n).decode("utf-8","replace")
+        with open(seen,"a",encoding="utf-8") as fp:
+            fp.write(self.path+" "+raw+"\n")
+        form=parse_qs(raw)
+        if self.path == "/execpy":
+            if form.get("async") != ["yes"]:
+                send_json(self,{"status_code":400,"message":"async missing"},400)
+                return
+            send_json(self,{"status_code":200,"message":"Successfully spawned command","process_id":1234})
+            return
+        if self.path == "/retrieve":
+            body=b'{"ok":true}'
+            self.send_response(200)
+            self.send_header("Content-Type","application/octet-stream")
+            self.send_header("Content-Length",str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path == "/remove":
+            send_json(self,{"status_code":200,"message":"removed"})
+            return
+        self.send_response(404); self.end_headers()
+
 srv=ThreadingHTTPServer(("127.0.0.1",0),H)
 open(sys.argv[1],"w").write(str(srv.server_address[1]))
 srv.serve_forever()
 PY
-python3 "$TMP_AGENT/server.py" "$TMP_AGENT/port" >/dev/null 2>&1 &
+python3 "$TMP_AGENT/server.py" "$TMP_AGENT/port" "$TMP_AGENT/seen" >/dev/null 2>&1 &
 AGENT_PID=$!
 for _ in {1..50}; do [[ -s "$TMP_AGENT/port" ]] && break; sleep 0.05; done
 [[ -s "$TMP_AGENT/port" ]]
 CAPE_AGENT_PORT="$(cat "$TMP_AGENT/port")"
 source "$ROOT/lib/windows-cape-agent.sh"
 [[ "$(cape_agent_probe 127.0.0.1)" == 0.22 ]]
+cape_agent_execpy_async 127.0.0.1 'C:\Windows\Temp\runner.py' "$TMP_AGENT/launch.json"
+grep -Fq 'Successfully spawned command' "$TMP_AGENT/launch.json"
+grep -Fq 'async=yes' "$TMP_AGENT/seen"
+
+CAPE_AGENT_ACTIVE_IP=""
+cape_agent_try_retrieve_any 'C:\Windows\Temp\result.json' "$TMP_AGENT/result.json" 127.0.0.2 127.0.0.1
+[[ "$CAPE_AGENT_ACTIVE_IP" == 127.0.0.1 ]]
+grep -Fq '"ok":true' "$TMP_AGENT/result.json"
+
+CAPE_AGENT_GUEST_TIMEOUT=180
+cape_agent_write_runner_config "$TMP_AGENT/runner.json" 'C:\Windows\Temp\script.ps1' -ResultPath 'C:\Windows\Temp\result.json'
+python3 - "$TMP_AGENT/runner.json" <<'PY'
+import json,sys
+d=json.load(open(sys.argv[1],encoding="utf-8"))
+assert d["timeout"] == 180
+assert d["script"].endswith("script.ps1")
+PY
+
 kill "$AGENT_PID" >/dev/null 2>&1 || true
 wait "$AGENT_PID" 2>/dev/null || true
 rm -rf "$TMP_AGENT"
@@ -141,4 +214,4 @@ if validate_windows_result_path "$TMP/result.json" >/dev/null 2>&1; then
   exit 1
 fi
 
-echo '[PASS] QGA -> approved WinRM -> verified CAPE Agent execpy -> safe-stop zero-touch policy and Windows safety gates'
+echo '[PASS] QGA -> approved WinRM -> async dual-path CAPE Agent execpy -> safe-stop policy and Windows safety gates'
