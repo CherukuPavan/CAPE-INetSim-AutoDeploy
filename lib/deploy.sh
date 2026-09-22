@@ -337,6 +337,7 @@ deploy_windows_target_cutover() {
       info "Preparing CAPE analysis VM $CAPE_MACHINE_SECTION ($DOMAIN)"
       windows_stop_for_cutover
       windows_create_safety_snapshot
+      windows_management_dhcp_align_if_needed
       windows_management_guard_apply
       windows_attach_isolated_nic
       target_state_set_phase nic-attached
