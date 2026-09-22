@@ -118,7 +118,8 @@ PY
       ;;
     nwfilter-binding-list)
       printf '%s\n' ' Port Dev' '----------'
-      [[ "$bindings_mode" == present ]] && printf '%s\n' ' vnet9'
+      if [[ "$bindings_mode" == present ]]; then printf '%s\n' ' vnet9'; fi
+      return 0
       ;;
     *) return 1 ;;
   esac
