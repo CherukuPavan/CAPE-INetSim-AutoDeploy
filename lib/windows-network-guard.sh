@@ -53,16 +53,80 @@ windows_management_guard_available() {
   virsh nwfilter-info "$WINDOWS_MGMT_FILTER_NAME" >/dev/null 2>&1
 }
 
+nwfilter_runtime_definition_closure() {
+  local root="${NWFILTER_DEFINITION_ROOT:-/etc/libvirt/nwfilter}"
+  python3 - "$root" "$WINDOWS_MGMT_FILTER_NAME" <<'PY'
+import os,sys,xml.etree.ElementTree as ET
+root,target=sys.argv[1:]
+defs={}
+refs={}
+for name in os.listdir(root):
+    if not name.endswith(".xml"):
+        continue
+    p=os.path.join(root,name)
+    try:
+        r=ET.parse(p).getroot()
+    except Exception:
+        continue
+    if r.tag!="filter" or not r.get("name"):
+        continue
+    n=r.get("name")
+    defs[n]=p
+    refs[n]=[x.get("filter") for x in r.findall(".//filterref") if x.get("filter")]
+seen=set(); active=set(); order=[]
+def visit(n):
+    if n in seen: return
+    if n in active:
+        raise SystemExit(f"nwfilter dependency cycle at {n}")
+    if n not in defs:
+        raise SystemExit(f"missing packaged nwfilter dependency: {n}")
+    active.add(n)
+    for d in refs.get(n,[]): visit(d)
+    active.remove(n); seen.add(n); order.append((n,defs[n]))
+visit(target)
+for n,p in order:
+    print(n+"|"+p)
+PY
+}
+
+nwfilter_runtime_load_standard_definitions() {
+  local record name path
+  while IFS='|' read -r name path; do
+    [[ -n "$name" && -n "$path" ]] || continue
+    if virsh nwfilter-info "$name" >/dev/null 2>&1; then
+      continue
+    fi
+    [[ -r "$path" ]] || {
+      fail "Standard libvirt nwfilter definition is not readable: $path"
+      return 1
+    }
+    state_record_intent libvirt-nwfilter-definition "$name" loading "source=$path;preexisting-file=yes"
+    virsh nwfilter-define "$path" >/dev/null 2>&1 || {
+      fail "Could not load standard libvirt nwfilter definition '$name' from $path"
+      return 1
+    }
+    virsh nwfilter-info "$name" >/dev/null 2>&1 || {
+      fail "libvirt accepted '$name' but it is still not resolvable"
+      return 1
+    }
+    # The XML was already an operator/package-owned persistent definition on
+    # disk. Loading it into the active libvirt runtime is not an AutoDeploy-owned
+    # persistent filter, so rollback must never nwfilter-undefine it.
+    state_record_resource libvirt-nwfilter-definition "$name" activated no "source=$path;preexisting-file=yes"
+    state_write_atomic
+  done < <(nwfilter_runtime_definition_closure) || return 1
+}
+
 nwfilter_runtime_prepare() {
   local socket_was_active=no service_was_active=no socket_was_enabled=no
+  local socket_loaded=no service_loaded=no
   systemctl is-active --quiet virtnwfilterd.socket && socket_was_active=yes
   systemctl is-active --quiet virtnwfilterd.service && service_was_active=yes
   systemctl is-enabled --quiet virtnwfilterd.socket && socket_was_enabled=yes
+  [[ "$(systemctl show -p LoadState --value virtnwfilterd.socket 2>/dev/null || true)" == loaded ]] && socket_loaded=yes
+  [[ "$(systemctl show -p LoadState --value virtnwfilterd.service 2>/dev/null || true)" == loaded ]] && service_loaded=yes
 
   if windows_management_guard_available; then
-    # If libvirt was already serving nwfilter successfully, do not force a
-    # modular-daemon architecture change. Merely record any modular service
-    # transition caused by this proof probe.
     if [[ "$service_was_active" != yes ]] &&
        systemctl is-active --quiet virtnwfilterd.service &&
        ! state_resource_owned libvirt-service virtnwfilterd.service; then
@@ -74,48 +138,85 @@ nwfilter_runtime_prepare() {
     return 0
   fi
 
-  [[ "${MANAGEMENT_NWFILTER_AVAILABLE:-no}" == activatable &&
-     "${NWFILTER_RUNTIME_MODE:-unavailable}" == modular-socket ]] || {
+  [[ "${MANAGEMENT_NWFILTER_AVAILABLE:-no}" == activatable ]] || {
     fail "libvirt nwfilter runtime is unavailable and was not proven safely activatable"
     return 1
   }
 
-  # Socket activation must survive a host reboot because the Windows management
-  # NIC continues to reference clean-traffic after deployment commits.
-  if [[ "$socket_was_enabled" != yes ]]; then
-    state_record_intent libvirt-unit-enable virtnwfilterd.socket applying "preexisting=disabled"
-    systemctl enable virtnwfilterd.socket >/dev/null
-    systemctl is-enabled --quiet virtnwfilterd.socket || {
-      fail "Could not enable virtnwfilterd.socket for reboot-safe operation"
+  case "${NWFILTER_RUNTIME_MODE:-unavailable}" in
+    modular-socket)
+      # Socket activation must survive reboot because deployed management NICs
+      # retain their clean-traffic filter references.
+      if [[ "$socket_was_enabled" != yes ]]; then
+        state_record_intent libvirt-unit-enable virtnwfilterd.socket applying "preexisting=disabled"
+        systemctl enable virtnwfilterd.socket >/dev/null
+        systemctl is-enabled --quiet virtnwfilterd.socket || {
+          fail "Could not enable virtnwfilterd.socket for reboot-safe operation"
+          return 1
+        }
+        state_record_resource libvirt-unit-enable virtnwfilterd.socket applied yes "preexisting=disabled"
+        state_write_atomic
+      fi
+
+      if [[ "$socket_was_active" != yes ]]; then
+        state_record_intent libvirt-service virtnwfilterd.socket activating "preexisting=inactive"
+        systemctl start virtnwfilterd.socket
+        systemctl is-active --quiet virtnwfilterd.socket || {
+          fail "Could not activate virtnwfilterd.socket"
+          return 1
+        }
+        state_record_resource libvirt-service virtnwfilterd.socket activated yes "preexisting=inactive"
+        state_write_atomic
+      fi
+
+      # Some mixed/transition libvirt installations do not route a normal
+      # virsh request through the newly opened socket automatically. Explicitly
+      # start the modular service when available so it loads persistent filters.
+      if [[ "$service_loaded" == yes && "$service_was_active" != yes ]]; then
+        state_record_intent libvirt-service virtnwfilterd.service activating "preexisting=inactive"
+        systemctl start virtnwfilterd.service >/dev/null 2>&1 || true
+        if systemctl is-active --quiet virtnwfilterd.service; then
+          state_record_resource libvirt-service virtnwfilterd.service activated yes "preexisting=inactive;explicit-start"
+          state_write_atomic
+        fi
+      fi
+      ;;
+    modular-service)
+      if [[ "$service_was_active" != yes ]]; then
+        state_record_intent libvirt-service virtnwfilterd.service activating "preexisting=inactive"
+        systemctl start virtnwfilterd.service
+        systemctl is-active --quiet virtnwfilterd.service || {
+          fail "Could not activate virtnwfilterd.service"
+          return 1
+        }
+        state_record_resource libvirt-service virtnwfilterd.service activated yes "preexisting=inactive"
+        state_write_atomic
+      fi
+      ;;
+    definition-reload)
+      ;;
+    *)
+      fail "Unsupported libvirt nwfilter activation mode: ${NWFILTER_RUNTIME_MODE:-unknown}"
       return 1
-    }
-    state_record_resource libvirt-unit-enable virtnwfilterd.socket applied yes "preexisting=disabled"
-    state_write_atomic
+      ;;
+  esac
+
+  # First see whether service activation loaded the standard filters. If not,
+  # load the dependency closure from the already installed /etc/libvirt/nwfilter
+  # XML definitions using libvirt's supported nwfilter-define API.
+  if ! windows_management_guard_available; then
+    nwfilter_runtime_load_standard_definitions || return 1
   fi
 
-  if [[ "$socket_was_active" != yes ]]; then
-    state_record_intent libvirt-service virtnwfilterd.socket activating "preexisting=inactive"
-    systemctl start virtnwfilterd.socket
-    systemctl is-active --quiet virtnwfilterd.socket || {
-      fail "Could not activate virtnwfilterd.socket"
-      return 1
-    }
-    state_record_resource libvirt-service virtnwfilterd.socket activated yes "preexisting=inactive"
-    state_write_atomic
-  fi
-
-  # This request intentionally triggers the modular service through its socket
-  # and simultaneously proves that the standard clean-traffic definition is
-  # actually usable by libvirt.
   windows_management_guard_available || {
-    fail "virtnwfilterd was activated but libvirt still cannot resolve '$WINDOWS_MGMT_FILTER_NAME'"
+    fail "libvirt still cannot resolve '$WINDOWS_MGMT_FILTER_NAME' after activating/reloading the standard nwfilter runtime"
     return 1
   }
 
   if [[ "$service_was_active" != yes ]] &&
      systemctl is-active --quiet virtnwfilterd.service &&
      ! state_resource_owned libvirt-service virtnwfilterd.service; then
-    state_record_resource libvirt-service virtnwfilterd.service activated yes "preexisting=inactive;socket-activated"
+    state_record_resource libvirt-service virtnwfilterd.service activated yes "preexisting=inactive;runtime-activated"
     state_write_atomic
   fi
 
@@ -123,7 +224,6 @@ nwfilter_runtime_prepare() {
   NWFILTER_RUNTIME_MODE=ready
   pass "libvirt nwfilter runtime ready"
 }
-
 nwfilter_runtime_has_bindings() {
   local out
   out="$(virsh nwfilter-binding-list 2>/dev/null)" || return 2
