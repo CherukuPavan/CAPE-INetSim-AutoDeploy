@@ -111,6 +111,7 @@ fi
 if [[ -d "$AD_STATE_ROOT_CAPTURE/logs" ]]; then
   find "$AD_STATE_ROOT_CAPTURE/logs" -maxdepth 1 -type f \( \
       -name '*diagnostics*.txt' -o \
+      -name '*inetsim-guest-configure.log' -o \
       -name '*windows-result.json' -o \
       -name '*windows-verify.json' -o \
       -name '*cape-agent-execpy.json' \
