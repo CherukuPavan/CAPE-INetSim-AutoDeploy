@@ -366,17 +366,28 @@ discover_hypervisor_safety_features() {
     return 0
   fi
 
-  # Modern libvirt can run nwfilter as a modular socket-activated daemon.
-  # A powered-down virtnwfilterd must not make a read-only plan falsely claim
-  # that clean-traffic is missing when the validated definition and socket unit
-  # are already installed. Deployment activates it transactionally before any
-  # Windows/CAPE cutover.
-  if nwfilter_clean_traffic_definition_present &&
-     [[ "$(systemctl show -p LoadState --value virtnwfilterd.socket 2>/dev/null || true)" == loaded ]]; then
-    MANAGEMENT_NWFILTER_AVAILABLE=activatable
-    NWFILTER_RUNTIME_MODE=modular-socket
-    return 0
+  # Modern libvirt can run nwfilter as a modular daemon. A standard
+  # clean-traffic XML already installed on disk is a valid source of truth even
+  # when the daemon has not loaded it yet. Deployment may transactionally start
+  # the modular runtime and, if necessary, ask libvirt to define the packaged
+  # dependency closure before any Windows/CAPE cutover.
+  if nwfilter_clean_traffic_definition_present; then
+    if [[ "$(systemctl show -p LoadState --value virtnwfilterd.socket 2>/dev/null || true)" == loaded ]]; then
+      MANAGEMENT_NWFILTER_AVAILABLE=activatable
+      NWFILTER_RUNTIME_MODE=modular-socket
+      return 0
+    fi
+    if [[ "$(systemctl show -p LoadState --value virtnwfilterd.service 2>/dev/null || true)" == loaded ]]; then
+      MANAGEMENT_NWFILTER_AVAILABLE=activatable
+      NWFILTER_RUNTIME_MODE=modular-service
+      return 0
+    fi
+    if virsh help nwfilter-define >/dev/null 2>&1; then
+      MANAGEMENT_NWFILTER_AVAILABLE=activatable
+      NWFILTER_RUNTIME_MODE=definition-reload
+      return 0
+    fi
   fi
 
-  add_error "libvirt nwfilter 'clean-traffic' is unavailable and no activatable standard virtnwfilterd configuration was proven; hypervisor anti-spoofing cannot be guaranteed"
+  add_error "libvirt nwfilter 'clean-traffic' is unavailable and no safely activatable standard definition/runtime was proven; hypervisor anti-spoofing cannot be guaranteed"
 }
