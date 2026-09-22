@@ -12,7 +12,7 @@ qga_wait() {
 qga_exec_wait() {
   local dom="$1" path="$2"
   shift 2
-  local json pid status exited i args_json
+  local json pid status exited i args_json response
   args_json="$(python3 - "$@" <<'PY'
 import json,sys
 print(json.dumps(sys.argv[1:]))
@@ -23,17 +23,30 @@ import json,sys
 print(json.dumps({"execute":"guest-exec","arguments":{"path":sys.argv[1],"arg":json.loads(sys.argv[2]),"capture-output":True}}))
 PY
 )"
-  pid="$(virsh qemu-agent-command "$dom" "$json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["return"]["pid"])')"
+  response="$(virsh qemu-agent-command "$dom" "$json")" || {
+    printf '%s\n' "$response" >&2
+    return 125
+  }
+  pid="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["return"]["pid"])' <<<"$response")" || {
+    printf 'Invalid QGA guest-exec response: %s\n' "$response" >&2
+    return 125
+  }
 
   for ((i=0;i<180;i++)); do
-    status="$(virsh qemu-agent-command "$dom" "{\"execute\":\"guest-exec-status\",\"arguments\":{\"pid\":$pid}}")"
-    exited="$(python3 -c 'import json,sys; print(str(json.load(sys.stdin)["return"].get("exited",False)).lower())' <<<"$status")"
+    status="$(virsh qemu-agent-command "$dom" "{\"execute\":\"guest-exec-status\",\"arguments\":{\"pid\":$pid}}")" || {
+      printf '%s\n' "$status" >&2
+      return 125
+    }
+    exited="$(python3 -c 'import json,sys; print(str(json.load(sys.stdin)["return"].get("exited",False)).lower())' <<<"$status")" || {
+      printf 'Invalid QGA guest-exec-status response: %s\n' "$status" >&2
+      return 125
+    }
     if [[ "$exited" == true ]]; then
       python3 -c 'import base64,json,sys
 r=json.load(sys.stdin)["return"]
 if r.get("out-data"): sys.stdout.write(base64.b64decode(r["out-data"]).decode(errors="replace"))
 if r.get("err-data"): sys.stderr.write(base64.b64decode(r["err-data"]).decode(errors="replace"))
-raise SystemExit(r.get("exitcode",1))' <<<"$status"
+raise SystemExit(int(r.get("exitcode",1)))' <<<"$status"
       return $?
     fi
     sleep 1
