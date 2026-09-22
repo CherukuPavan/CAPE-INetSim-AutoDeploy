@@ -46,8 +46,8 @@ cape_agent_store() {
 }
 
 cape_agent_retrieve() {
-  local ip="$1" remote_path="$2" local_file="$3"
-  curl -fsS --max-time 30     --data-urlencode "filepath=$remote_path"     "$(cape_agent_url "$ip")/retrieve" >"$local_file"
+  local ip="$1" remote_path="$2" local_file="$3" timeout="${4:-30}"
+  curl -fsS --max-time "$timeout"     --data-urlencode "filepath=$remote_path"     "$(cape_agent_url "$ip")/retrieve" >"$local_file"
 }
 
 cape_agent_remove() {
@@ -55,10 +55,10 @@ cape_agent_remove() {
   curl -fsS --max-time 15     --data-urlencode "path=$remote_path"     "$(cape_agent_url "$ip")/remove" >/dev/null 2>&1 || true
 }
 
-cape_agent_execpy() {
+cape_agent_execpy_async() {
   local ip="$1" remote_python="$2" log_file="$3"
   local response
-  response="$(curl -fsS --max-time 700     --data-urlencode "filepath=$remote_python"     --data-urlencode "encoding=base64"     "$(cape_agent_url "$ip")/execpy")" || return 1
+  response="$(curl -fsS --max-time 20     --data-urlencode "filepath=$remote_python"     --data-urlencode "async=yes"     "$(cape_agent_url "$ip")/execpy")" || return 1
   printf '%s\n' "$response" >"$log_file"
   python3 - "$response" <<'PY'
 import json,sys
@@ -68,7 +68,74 @@ except Exception:
     raise SystemExit(1)
 if int(d.get("status_code",0)) != 200:
     raise SystemExit(2)
+if not str(d.get("process_id","")).isdigit():
+    raise SystemExit(3)
 PY
+}
+
+cape_agent_status() {
+  local ip="$1" response
+  response="$(curl -fsS --max-time 5 "$(cape_agent_url "$ip")/status" 2>/dev/null)" || return 1
+  python3 - "$response" <<'PY'
+import json,sys
+try:
+    d=json.loads(sys.argv[1])
+except Exception:
+    raise SystemExit(1)
+if int(d.get("status_code",0)) != 200:
+    raise SystemExit(2)
+status=str(d.get("status") or "")
+if status not in {"init","running","complete","failed","exception"}:
+    raise SystemExit(3)
+exitcode=d.get("exitcode")
+description=str(d.get("description") or "").replace("\n"," ").replace("|","/")
+print(f"{status}|{'' if exitcode is None else exitcode}|{description}")
+PY
+}
+
+cape_agent_wait_async_result() {
+  local ip="$1" remote_result="$2" local_result="$3" log_file="$4" timeout="${5:-660}"
+  local elapsed=0 status_line="" status="" exitcode="" description="" last_status=""
+  local tmp="${local_result}.partial"
+  rm -f "$tmp"
+
+  while ((elapsed < timeout)); do
+    if cape_agent_retrieve "$ip" "$remote_result" "$tmp" 5 >/dev/null 2>&1 && [[ -s "$tmp" ]]; then
+      mv -f "$tmp" "$local_result"
+      printf 'result=retrieved elapsed=%s\n' "$elapsed" >>"$log_file"
+      return 0
+    fi
+    rm -f "$tmp"
+
+    if status_line="$(cape_agent_status "$ip" 2>/dev/null)"; then
+      IFS='|' read -r status exitcode description <<<"$status_line"
+      if [[ "$status_line" != "$last_status" ]]; then
+        printf 'status=%s elapsed=%s\n' "$status_line" "$elapsed" >>"$log_file"
+        last_status="$status_line"
+      fi
+      case "$status" in
+        failed|exception)
+          # A failing PowerShell script writes its signed validation result
+          # before exiting non-zero. Give that result one short race window.
+          sleep 2
+          elapsed=$((elapsed+2))
+          if cape_agent_retrieve "$ip" "$remote_result" "$tmp" 5 >/dev/null 2>&1 && [[ -s "$tmp" ]]; then
+            mv -f "$tmp" "$local_result"
+            printf 'result=retrieved-after-%s elapsed=%s\n' "$status" "$elapsed" >>"$log_file"
+            return 0
+          fi
+          rm -f "$tmp"
+          return 2
+          ;;
+      esac
+    fi
+
+    sleep 2
+    elapsed=$((elapsed+2))
+  done
+
+  rm -f "$tmp"
+  return 3
 }
 
 cape_agent_write_runner_config() {
@@ -90,14 +157,25 @@ cape_agent_run_powershell() {
   local remote_runner="C:\\Windows\\Temp\\${stem}.py"
   local remote_cfg="C:\\Windows\\Temp\\${stem}.json"
   local remote_result="C:\\Windows\\Temp\\${stem}-result.json"
+  local remote_progress="${remote_result}.progress"
   local cfg="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-$(ad_safe_token "$DOMAIN")-${stem}.json"
   local log="$AD_LOG_ROOT/${DEPLOYMENT_ID}-$(ad_safe_token "$DOMAIN")-${stem}-cape-agent-execpy.json"
+  local progress_log="$AD_LOG_ROOT/${DEPLOYMENT_ID}-$(ad_safe_token "$DOMAIN")-${stem}-progress.txt"
 
   cape_agent_write_runner_config "$cfg" "$remote_ps" "$@" -ResultPath "$remote_result"
 
-  # Every branch converges on the cleanup block below. Do not leave the
-  # privileged helper/config behind in the analysis snapshot if a transfer,
-  # execution, or result retrieval step fails.
+  # Remove only known AutoDeploy temporary paths from a previous interrupted
+  # attempt. This prevents a stale result from being accepted after async launch.
+  cape_agent_remove "$ip" "$remote_ps"
+  cape_agent_remove "$ip" "$remote_runner"
+  cape_agent_remove "$ip" "$remote_cfg"
+  cape_agent_remove "$ip" "$remote_result"
+  cape_agent_remove "$ip" "$remote_progress"
+  rm -f "$local_result" "$progress_log"
+
+  # Network cutover must not be tied to one long-lived HTTP request. Launch the
+  # runner asynchronously, then tolerate management-NIC link churn while polling
+  # CAPE Agent and retrieving the signed result file when the guest settles.
   local rc=0
   if ! cape_agent_store "$ip" "$ps1" "$remote_ps"; then
     rc=50
@@ -105,16 +183,21 @@ cape_agent_run_powershell() {
     rc=51
   elif ! cape_agent_store "$ip" "$cfg" "$remote_cfg"; then
     rc=52
-  elif ! cape_agent_execpy "$ip" "$remote_runner" "$log"; then
+  elif ! cape_agent_execpy_async "$ip" "$remote_runner" "$log"; then
     rc=53
-  elif ! cape_agent_retrieve "$ip" "$remote_result" "$local_result"; then
-    rc=54
+  elif ! cape_agent_wait_async_result "$ip" "$remote_result" "$local_result" "$log" 660; then
+    rc=55
   fi
+
+  # Best-effort progress capture is diagnostic only and never changes the
+  # safety decision. Validation still relies solely on the signed result JSON.
+  cape_agent_retrieve "$ip" "$remote_progress" "$progress_log" 5 >/dev/null 2>&1 || rm -f "$progress_log"
 
   cape_agent_remove "$ip" "$remote_ps"
   cape_agent_remove "$ip" "$remote_runner"
   cape_agent_remove "$ip" "$remote_cfg"
   cape_agent_remove "$ip" "$remote_result"
+  cape_agent_remove "$ip" "$remote_progress"
   rm -f "$cfg"
   return "$rc"
 }
