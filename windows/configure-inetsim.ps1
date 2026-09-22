@@ -26,6 +26,27 @@ function Write-Result($ok,$message,$extra) {
     [System.IO.File]::WriteAllText($ResultPath,$json,[System.Text.Encoding]::UTF8)
 }
 
+$ProgressPath="$ResultPath.progress"
+
+function Write-Progress([string]$Stage) {
+    try {
+        [System.IO.File]::WriteAllText(
+            $ProgressPath,
+            ((Get-Date).ToString('o') + " stage=" + $Stage + [Environment]::NewLine),
+            [System.Text.Encoding]::UTF8
+        )
+    } catch {}
+}
+
+function Invoke-Netsh([string[]]$Arguments) {
+    $output=@(& netsh.exe @Arguments 2>&1)
+    $rc=$LASTEXITCODE
+    if($rc -ne 0){
+        throw ("netsh failed ({0}) for [{1}]: {2}" -f $rc,($Arguments -join ' '),($output -join ' '))
+    }
+    return $output
+}
+
 function Normalize-Mac([string]$m){(($m -replace '[^0-9A-Fa-f]','').ToUpperInvariant())}
 
 function Test-TcpPort([string]$Address,[int]$Port,[int]$TimeoutMs=3000){
@@ -122,8 +143,15 @@ try{
         }
     }
 
-    if($mgmtAdapter.NetEnabled -ne $true){$null=$mgmtAdapter.Enable();Start-Sleep -Seconds 1}
-    if($isoAdapter.NetEnabled -ne $true){$null=$isoAdapter.Enable();Start-Sleep -Seconds 1}
+    Write-Progress 'adapters-discovered'
+    foreach($adapter in @($mgmtAdapter,$isoAdapter)){
+        if($adapter.NetEnabled -ne $true){
+            if(-not $adapter.NetConnectionID){throw "network adapter $($adapter.Index) has no controllable connection name"}
+            Invoke-Netsh @('interface','set','interface',("name=" + $adapter.NetConnectionID),'admin=enabled')|Out-Null
+            Start-Sleep -Seconds 1
+        }
+    }
+    Write-Progress 'adapters-enabled'
 
     foreach($remote in @($ResultServerIP,$ControlHostIP)|Where-Object{$_}|Select-Object -Unique){
         if(-not (Same-Subnet $ManagementIP $remote $mgmtMask)){
@@ -136,8 +164,16 @@ try{
         }
     }
 
-    $r=$mgmtCfg.EnableStatic($mgmtIPv4,$mgmtIPv4Masks)
-    if($r.ReturnValue -ne 0 -and $r.ReturnValue -ne 1){throw "management EnableStatic failed: $($r.ReturnValue)"}
+    Invoke-Netsh @(
+        'interface','ipv4','set','address',
+        ("name=" + $mgmtAdapter.InterfaceIndex),
+        'source=static',
+        ("address=" + $ManagementIP),
+        ("mask=" + $mgmtMask),
+        'gateway=none',
+        'store=persistent'
+    )|Out-Null
+    Write-Progress 'management-static'
 
     # Persistently clear management default-gateway values so a future adapter
     # reinitialization cannot recreate Internet egress. Off-subnet CAPE control
@@ -153,26 +189,52 @@ try{
         $ifaceKey.Close()
     }
 
-    $r=$isoCfg.EnableStatic(@($FakeIP),@($isoMask))
-    if($r.ReturnValue -ne 0 -and $r.ReturnValue -ne 1){throw "isolated EnableStatic failed: $($r.ReturnValue)"}
+    Invoke-Netsh @(
+        'interface','ipv4','set','address',
+        ("name=" + $isoAdapter.InterfaceIndex),
+        'source=static',
+        ("address=" + $FakeIP),
+        ("mask=" + $isoMask),
+        'gateway=none',
+        'store=persistent'
+    )|Out-Null
+    Write-Progress 'isolated-static'
+
+    Invoke-Netsh @(
+        'interface','ipv4','set','dnsservers',
+        ("name=" + $mgmtAdapter.InterfaceIndex),
+        'source=static',
+        ("address=" + $DnsIP),
+        'register=none',
+        'validate=no'
+    )|Out-Null
+    Invoke-Netsh @(
+        'interface','ipv4','set','dnsservers',
+        ("name=" + $isoAdapter.InterfaceIndex),
+        'source=static',
+        ("address=" + $DnsIP),
+        'register=none',
+        'validate=no'
+    )|Out-Null
+    Write-Progress 'dns-static'
 
     $mgmtCfg=Refresh-Config $mgmtAdapter.Index
     $isoCfg=Refresh-Config $isoAdapter.Index
-    $r=$mgmtCfg.SetDNSServerSearchOrder(@($DnsIP))
-    if($r.ReturnValue -ne 0 -and $r.ReturnValue -ne 1){throw "management DNS update failed: $($r.ReturnValue)"}
-    $r=$isoCfg.SetDNSServerSearchOrder(@($DnsIP))
-    if($r.ReturnValue -ne 0 -and $r.ReturnValue -ne 1){throw "isolated DNS update failed: $($r.ReturnValue)"}
 
     foreach($a in @(Get-WmiObject Win32_NetworkAdapter |
         Where-Object{$_.Index -ne $mgmtAdapter.Index -and $_.Index -ne $isoAdapter.Index -and $_.NetEnabled -eq $true})){
-        $null=$a.Disable()
+        if(-not $a.NetConnectionID){throw "unexpected active adapter $($a.Index) cannot be safely disabled by name"}
+        Invoke-Netsh @('interface','set','interface',("name=" + $a.NetConnectionID),'admin=disabled')|Out-Null
     }
+    Write-Progress 'unexpected-adapters-disabled'
 
     for($i=0;$i -lt 5;$i++){
         if((Get-Default4).Count -eq 0){break}
         & route.exe delete 0.0.0.0|Out-Null
         Start-Sleep -Milliseconds 300
     }
+
+    Write-Progress 'ipv4-default-route-removed'
 
     foreach($a in @(Get-WmiObject Win32_NetworkAdapter | Where-Object{$_.InterfaceIndex})){
         & netsh interface ipv6 set interface $a.InterfaceIndex routerdiscovery=disabled store=persistent 2>$null|Out-Null
@@ -205,6 +267,8 @@ try{
         Where-Object{$_}|Sort-Object -Unique)
     if($dns.Count -ne 1 -or $dns[0] -ne $DnsIP){throw "active-adapter DNS is not exclusively $DnsIP"}
 
+    Write-Progress 'network-state-validated'
+
     if(-not (Test-TcpPort $ResultServerIP $ResultServerPort)){
         throw ("ResultServer {0}:{1} is not reachable" -f $ResultServerIP,$ResultServerPort)
     }
@@ -219,6 +283,7 @@ try{
     if($public4){throw 'public IPv4 unexpectedly reachable'}
     if($public6){throw 'public IPv6 unexpectedly reachable'}
 
+    Write-Progress 'connectivity-validated'
     Write-Result $true 'Windows isolated networking configured and safety-verified' @{
         legacy_network_stack=$true
         management_interface=$mgmtAdapter.NetConnectionID
@@ -243,6 +308,7 @@ try{
     }
     exit 0
 } catch {
+    Write-Progress ('failed: ' + $_.Exception.Message)
     Write-Result $false $_.Exception.Message @{error=($_|Out-String)}
     exit 1
 }
