@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 IMAGE="${1:-}"
 [[ -n "$IMAGE" && -f "$IMAGE" ]] || { echo "[FAIL] usage: $0 IMAGE.qcow2" >&2; exit 2; }
 
@@ -18,6 +19,15 @@ ISO_MAC=52:54:00:aa:00:02
 ISO_CIDR=192.168.200.2/24
 
 qemu-img create -q -f qcow2 -F qcow2 -b "$(realpath "$IMAGE")" "$OVERLAY"
+
+# The host deployer may use this baked helper only when QGA guest-file transport
+# is unavailable, so release promotion must prove it is byte-identical to source.
+virt-cat -a "$OVERLAY" /usr/local/sbin/cape-inetsim-guest-configure >"$WORK/baked-guest-configure"
+cmp -s "$ROOT/appliance/guest-configure.sh" "$WORK/baked-guest-configure" || {
+  echo "[FAIL] baked guest configurator does not match release source" >&2
+  exit 1
+}
+echo "[PASS] baked guest configurator matches release source"
 
 cat >"$WRAPPER" <<EOF
 #!/bin/bash
