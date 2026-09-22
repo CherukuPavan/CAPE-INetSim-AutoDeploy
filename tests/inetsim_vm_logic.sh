@@ -35,3 +35,46 @@ grep -Fq 'transport="baked-release-match"' "$ROOT/lib/inetsim-vm.sh"
 grep -Fq '/bin/bash -x "$selected_script"' "$ROOT/lib/inetsim-vm.sh"
 grep -Fq 'RELEASE_TAG="$d_release_tag"' "$ROOT/lib/deploy.sh"
 grep -Fq 'RELEASE_SOURCE_COMMIT="$d_release_commit"' "$ROOT/lib/deploy.sh"
+
+
+# Regression: a host may expose QGA guest-exec while denying guest-file-*.
+# The deployer must then use only a byte-identical baked configurator.
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+AD_LOG_ROOT="$TMP"
+DEPLOYMENT_ID="qga-file-denied"
+INETSIM_DOMAIN_NAME="cape-inetsim-appliance"
+INETSIM_MANAGEMENT_MAC="52:54:00:aa:00:01"
+INETSIM_ISOLATED_MAC="52:54:00:aa:00:02"
+INETSIM_IP="192.168.200.2"
+
+virsh(){ return 0; }
+qga_wait(){ return 0; }
+qga_file_write(){ echo "guest-file-open denied" >&2; return 1; }
+inetsim_capture_guest_diagnostics(){ :; }
+state_record_resource(){ printf '%s\n' "$*" >"$TMP/resource-record"; }
+state_write_atomic(){ :; }
+
+qga_exec_wait(){
+  local dom="$1" path="$2"
+  shift 2
+  case "$path" in
+    /usr/bin/sha256sum)
+      sha256sum "$ROOT/appliance/guest-configure.sh"
+      ;;
+    /bin/bash)
+      [[ "$1" == -x ]]
+      [[ "$2" == /usr/local/sbin/cape-inetsim-guest-configure ]]
+      ;;
+    /bin/rm)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+inetsim_configure_guest
+grep -Fq 'CONFIGURATOR_TRANSPORT=baked-release-match' "$TMP/${DEPLOYMENT_ID}-inetsim-guest-configure.log"
+grep -Fq 'transport=baked-release-match' "$TMP/resource-record"
