@@ -53,8 +53,11 @@ cape_maintenance_tool() {
         fi
       fi
 
-      if ! runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$user_tool" "$action" --label "$CAPE_MACHINE_LABEL" --deployment-id "$DEPLOYMENT_ID" --guard-file "$user_guard"; then
-        local rc=$?
+      local rc
+      if runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$user_tool" "$action" --label "$CAPE_MACHINE_LABEL" --deployment-id "$DEPLOYMENT_ID" --guard-file "$user_guard"; then
+        rc=0
+      else
+        rc=$?
         rm -f "$user_tool"
         return "$rc"
       fi
