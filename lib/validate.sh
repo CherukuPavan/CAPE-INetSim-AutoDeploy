@@ -121,7 +121,9 @@ isolated_mac=isolated_mac.lower(); mgmt_mac=mgmt_mac.lower()
 r=ET.fromstring(sys.stdin.read())
 if (r.findtext("state") or "")!="running": raise SystemExit("snapshot state is not running")
 mem=r.find("memory")
-if mem is None or mem.get("snapshot")!="internal": raise SystemExit("snapshot has no internal memory state")
+memory=(mem.get("snapshot") if mem is not None else "") or ""
+if memory not in ("internal","external"):
+    raise SystemExit(f"snapshot saved-memory mode is unsupported: {memory or 'missing'}")
 dom=r.find("domain")
 if dom is None: raise SystemExit("snapshot has no embedded domain XML")
 isolated=False
