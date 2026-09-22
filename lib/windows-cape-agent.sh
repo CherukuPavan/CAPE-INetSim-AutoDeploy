@@ -128,47 +128,135 @@ for k in ("stdout","stderr"):
     v=d.get(k)
     if not v:
         continue
+    raw=str(v)
+    data=raw
     try:
-        data=base64.b64decode(v).decode("utf-8","replace")
+        decoded=base64.b64decode(raw,validate=True).decode("utf-8","replace")
+        if "CAPE_INETSIM_RUNNER_V1:" in decoded or decoded.strip():
+            data=decoded
     except Exception:
-        data=str(v)
+        pass
     lines.append(f"{k}:\n{data}")
 pathlib.Path(dst).write_text("\n".join(lines)+"\n",encoding="utf-8")
 PY
 }
 
-cape_agent_execpy_sync() {
-  local ip="$1" remote_python="$2" json_log="$3"
-  local text_log="${json_log%.json}.txt"
-  local tmp="${json_log}.tmp.$$" http rc=0
-  rm -f "$tmp" "$json_log" "$text_log"
+cape_agent_extract_runner_envelope() {
+  local json_log="$1" local_result="$2" text_log="$3"
+  python3 - "$json_log" "$local_result" "$text_log" <<'PY'
+import base64,json,pathlib,sys
+src,result_path,text_path=sys.argv[1:]
+prefix="CAPE_INETSIM_RUNNER_V1:"
 
-  # Once the isolated path is proven stable, a synchronous execpy request is
-  # preferable: CAPE Agent returns the runner's stdout/stderr and exit code
-  # directly instead of hiding failures behind async status polling.
-  if ! http="$(cape_agent_curl "$ip" -sS --connect-timeout 3 \
+try:
+    outer=json.load(open(src,encoding="utf-8"))
+except Exception as exc:
+    with open(text_path,"a",encoding="utf-8") as fp:
+        fp.write(f"runner_envelope_error=invalid agent JSON: {exc}\n")
+    raise SystemExit(1)
+
+stdout=outer.get("stdout")
+if stdout is None:
+    stdout=""
+if isinstance(stdout,bytes):
+    stdout=stdout.decode("utf-8","replace")
+else:
+    stdout=str(stdout)
+
+candidates=[stdout]
+try:
+    candidates.append(base64.b64decode(stdout,validate=True).decode("utf-8","replace"))
+except Exception:
+    pass
+
+payload=None
+for text in candidates:
+    for line in text.splitlines():
+        if line.startswith(prefix):
+            payload=line[len(prefix):].strip()
+            break
+    if payload:
+        break
+
+if not payload:
+    with open(text_path,"a",encoding="utf-8") as fp:
+        fp.write("runner_envelope_error=missing versioned runner envelope\n")
+    raise SystemExit(2)
+
+try:
+    env=json.loads(base64.b64decode(payload,validate=True).decode("utf-8"))
+except Exception as exc:
+    with open(text_path,"a",encoding="utf-8") as fp:
+        fp.write(f"runner_envelope_error=invalid envelope: {exc}\n")
+    raise SystemExit(3)
+
+def dec(name):
+    try:
+        return base64.b64decode(env.get(name,"") or "").decode("utf-8","replace")
+    except Exception:
+        return "<decode failed>"
+
+with open(text_path,"a",encoding="utf-8") as fp:
+    fp.write(f"runner_schema={env.get('schema')}\n")
+    fp.write(f"runner_returncode={env.get('returncode')}\n")
+    if env.get("runner_error"):
+        fp.write(f"runner_error={env.get('runner_error')}\n")
+    out=dec("stdout_b64")
+    err=dec("stderr_b64")
+    if out:
+        fp.write("runner_stdout:\n"+out+("\n" if not out.endswith("\n") else ""))
+    if err:
+        fp.write("runner_stderr:\n"+err+("\n" if not err.endswith("\n") else ""))
+
+result_present=env.get("result_present") is True
+if result_present:
+    try:
+        result=base64.b64decode(env.get("result_b64","") or "",validate=True)
+        pathlib.Path(result_path).write_bytes(result)
+    except Exception as exc:
+        with open(text_path,"a",encoding="utf-8") as fp:
+            fp.write(f"runner_result_error={exc}\n")
+        raise SystemExit(4)
+else:
+    pathlib.Path(result_path).unlink(missing_ok=True)
+
+try:
+    rc=int(env.get("returncode"))
+except Exception:
+    raise SystemExit(5)
+
+# A valid result is required even when PowerShell exits non-zero; the caller
+# can then surface the script's own structured error instead of a transport
+# ambiguity.
+if not result_present:
+    raise SystemExit(6)
+raise SystemExit(0 if rc == 0 else 7)
+PY
+}
+
+cape_agent_execpy_sync() {
+  local ip="$1" remote_python="$2" json_log="$3" local_result="$4"
+  local text_log="${json_log%.json}.txt"
+  local tmp="${json_log}.tmp.$$" http curl_rc=0
+  rm -f "$tmp" "$json_log" "$text_log" "$local_result"
+
+  # Do not trust CAPE Agent JSON schema for child success. Older agents return
+  # HTTP 200 and omit status_code even when the child process exits non-zero.
+  # The uploaded runner emits a versioned envelope containing the real
+  # PowerShell return code, stdout/stderr and result JSON.
+  http="$(cape_agent_curl "$ip" -sS --connect-timeout 3 \
       --max-time "$((CAPE_AGENT_GUEST_TIMEOUT + 30))" \
       -o "$tmp" -w '%{http_code}' \
       --data-urlencode "filepath=$remote_python" \
       --data-urlencode "encoding=base64" \
-      "$(cape_agent_url "$ip")/execpy")"; then
-    rc=$?
-    [[ -f "$tmp" ]] && mv -f "$tmp" "$json_log" || : >"$json_log"
-    printf 'curl_transport_error=%s\n' "$rc" >"$text_log"
-    return 1
-  fi
-  mv -f "$tmp" "$json_log"
-  cape_agent_decode_execpy_log "$json_log" "$text_log"
+      "$(cape_agent_url "$ip")/execpy")" || curl_rc=$?
 
-  [[ "$http" == 200 ]] || return 1
-  python3 - "$json_log" <<'PY'
-import json,sys
-try:
-    d=json.load(open(sys.argv[1],encoding="utf-8"))
-except Exception:
-    raise SystemExit(1)
-raise SystemExit(0 if int(d.get("status_code",0))==200 else 2)
-PY
+  [[ -f "$tmp" ]] && mv -f "$tmp" "$json_log" || : >"$json_log"
+  cape_agent_decode_execpy_log "$json_log" "$text_log"
+  printf 'http_status=%s\ncurl_rc=%s\n' "${http:-000}" "$curl_rc" >>"$text_log"
+
+  ((curl_rc == 0)) || return 1
+  cape_agent_extract_runner_envelope "$json_log" "$local_result" "$text_log"
 }
 
 cape_agent_run_powershell_sync() {
@@ -199,13 +287,11 @@ cape_agent_run_powershell_sync() {
     exec_rc=51
   elif ! cape_agent_store "$ip" "$cfg" "$remote_cfg"; then
     exec_rc=52
-  elif ! cape_agent_execpy_sync "$ip" "$remote_runner" "$exec_log"; then
+  elif ! cape_agent_execpy_sync "$ip" "$remote_runner" "$exec_log" "$local_result"; then
     exec_rc=53
   fi
 
-  if cape_agent_retrieve "$ip" "$remote_result" "$local_result" 8 >/dev/null 2>&1 && [[ -s "$local_result" ]]; then
-    result_ok=yes
-  fi
+  [[ -s "$local_result" ]] && result_ok=yes
   cape_agent_retrieve "$ip" "$remote_progress" "$progress_log" 5 >/dev/null 2>&1 || rm -f "$progress_log"
 
   cape_agent_remove "$ip" "$remote_ps" 2

@@ -44,6 +44,9 @@ grep -Fq 'cape_agent_wait "$fake_ip" 60' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'control_path=isolated' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'CAPE Agent PowerShell execution failed' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'cape_agent_decode_execpy_log' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'cape_agent_extract_runner_envelope' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'CAPE_INETSIM_RUNNER_V1:' "$ROOT/tools/windows_agent_runner.py"
+grep -Fq 'result_present' "$ROOT/tools/windows_agent_runner.py"
 
 [[ -f "$ROOT/windows/stage-isolated-control.ps1" ]]
 grep -Fq 'PinnedClientIP' "$ROOT/windows/stage-isolated-control.ps1"
@@ -68,7 +71,7 @@ assert 'cape_agent_run_powershell_sync \\\n    "$fake_ip"' in body
 assert '-PinnedClientIP "$CAPE_AGENT_CLIENT_IP"' in body
 PY
 
-grep -Fq 'subprocess.run(cmd' "$ROOT/tools/windows_agent_runner.py"
+grep -Fq 'proc = subprocess.run(' "$ROOT/tools/windows_agent_runner.py"
 ! grep -Fq 'shell=True' "$ROOT/tools/windows_agent_runner.py"
 
 grep -q 'Get-WmiObject Win32_NetworkAdapterConfiguration' "$ROOT/windows/configure-inetsim.ps1"
@@ -136,10 +139,22 @@ class H(BaseHTTPRequestHandler):
             if "async" in form:
                 self.send_json({"error_code":400,"message":"async forbidden"},400)
                 return
+            result=b'{"ok":true,"from":"runner-envelope"}\n'
+            env={
+                "schema":1,
+                "returncode":0,
+                "stdout_b64":base64.b64encode(b"runner ok\n").decode(),
+                "stderr_b64":"",
+                "result_present":True,
+                "result_b64":base64.b64encode(result).decode(),
+                "runner_error":""
+            }
+            payload=base64.b64encode(json.dumps(env,separators=(",",":")).encode()).decode()
+            # RC23 guest compatibility shape: HTTP 200 success with no
+            # status_code field; stdout is not Agent-wrapped base64.
             self.send_json({
-                "status_code":200,
                 "message":"Successfully executed command",
-                "stdout":base64.b64encode(b"runner ok\n").decode(),
+                "stdout":"CAPE_INETSIM_RUNNER_V1:"+payload+"\n",
                 "stderr":""
             })
             return
@@ -162,9 +177,12 @@ CAPE_AGENT_CLIENT_IP=""
 
 WINDOWS_FAKE_IP=127.0.0.1
 CAPE_AGENT_CLIENT_IP=127.0.0.2
-cape_agent_execpy_sync 127.0.0.1 'C:\Windows\Temp\runner.py' "$TMP_AGENT/execpy.json"
+cape_agent_execpy_sync 127.0.0.1 'C:\Windows\Temp\runner.py' "$TMP_AGENT/execpy.json" "$TMP_AGENT/result.json"
 grep -Fq 'runner ok' "$TMP_AGENT/execpy.txt"
+grep -Fq 'runner_returncode=0' "$TMP_AGENT/execpy.txt"
+grep -Fq '"from":"runner-envelope"' "$TMP_AGENT/result.json"
 grep -Fq '127.0.0.2 /execpy' "$TMP_AGENT/seen"
+! grep -Fq 'status_code' "$TMP_AGENT/execpy.json"
 ! grep -Fq 'async' "$TMP_AGENT/execpy.json"
 
 CAPE_AGENT_GUEST_TIMEOUT=180
