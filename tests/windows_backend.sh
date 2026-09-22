@@ -56,6 +56,8 @@ grep -Fq 'IsolatedGatewayIP' "$ROOT/windows/stage-isolated-control.ps1"
 grep -Fq 'route.exe -p add $PinnedClientIP' "$ROOT/windows/stage-isolated-control.ps1"
 grep -Fq 'remoteip=' "$ROOT/windows/stage-isolated-control.ps1"
 grep -Fq 'pinned_client_ip=$PinnedClientIP' "$ROOT/windows/stage-isolated-control.ps1"
+grep -Fq 'refusing to overwrite pre-existing /32 route' "$ROOT/windows/stage-isolated-control.ps1"
+grep -Fq 'refusing to replace pre-existing Windows Firewall rule' "$ROOT/windows/stage-isolated-control.ps1"
 ! grep -Fq 'ManagementIP' "$ROOT/windows/stage-isolated-control.ps1"
 [[ -f "$ROOT/tools/windows_agent_finalize.py" ]]
 grep -Fq 'delay_seconds' "$ROOT/tools/windows_agent_finalize.py"
