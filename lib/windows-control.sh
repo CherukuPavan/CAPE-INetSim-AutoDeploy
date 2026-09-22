@@ -35,7 +35,7 @@ windows_select_live_backend() {
     pass "Windows control backend: approved WinRM"
     return 0
   fi
-  if cape_agent_wait "$CAPE_MACHINE_IP" 45 >/dev/null 2>&1; then
+  if cape_agent_wait "$CAPE_MACHINE_IP" 180 >/dev/null 2>&1; then
     WINDOWS_BACKEND_USED=cape-agent-execpy
     pass "Windows control backend: constrained CAPE Agent execpy"
     return 0
