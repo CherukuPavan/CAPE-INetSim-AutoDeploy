@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+WINDOWS_CONTROL_BOOT_TIMEOUT="${WINDOWS_CONTROL_BOOT_TIMEOUT:-300}"
+
 windows_wait_for_domain_state() {
   local want="$1" timeout="${2:-120}" elapsed=0 got
   while ((elapsed < timeout)); do
@@ -35,7 +37,7 @@ windows_select_live_backend() {
     pass "Windows control backend: approved WinRM"
     return 0
   fi
-  if cape_agent_wait "$CAPE_MACHINE_IP" 180 >/dev/null 2>&1; then
+  if cape_agent_wait "$CAPE_MACHINE_IP" "$WINDOWS_CONTROL_BOOT_TIMEOUT" >/dev/null 2>&1; then
     WINDOWS_BACKEND_USED=cape-agent-execpy
     pass "Windows control backend: constrained CAPE Agent execpy"
     return 0
@@ -90,12 +92,26 @@ windows_verify_selected_backend() {
 
 windows_poweroff_selected_backend() {
   case "$WINDOWS_BACKEND_USED" in
-    qemu-guest-agent) windows_poweroff_via_qga ;;
-    winrm) windows_poweroff_via_winrm "$CAPE_MACHINE_IP" ;;
-    cape-agent-execpy|manual-powershell) virsh shutdown "$DOMAIN" >/dev/null 2>&1 || true ;;
-    *) fail "Unknown Windows poweroff backend: ${WINDOWS_BACKEND_USED:-none}"; return 40 ;;
+    qemu-guest-agent)
+      windows_poweroff_via_qga
+      windows_wait_for_domain_state "shut off" 120
+      ;;
+    winrm)
+      windows_poweroff_via_winrm "$CAPE_MACHINE_IP"
+      windows_wait_for_domain_state "shut off" 120
+      ;;
+    cape-agent-execpy)
+      windows_poweroff_via_cape_agent "$CAPE_MACHINE_IP"
+      ;;
+    manual-powershell)
+      virsh shutdown "$DOMAIN" >/dev/null 2>&1 || true
+      windows_wait_for_domain_state "shut off" 120
+      ;;
+    *)
+      fail "Unknown Windows poweroff backend: ${WINDOWS_BACKEND_USED:-none}"
+      return 40
+      ;;
   esac
-  windows_wait_for_domain_state "shut off" 120
 }
 
 windows_manual_callback_command() {

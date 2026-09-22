@@ -259,10 +259,53 @@ cape_agent_execpy_sync() {
   cape_agent_extract_runner_envelope "$json_log" "$local_result" "$text_log"
 }
 
+cape_agent_status() {
+  local ip="$1" timeout="${2:-5}"
+  cape_agent_curl "$ip" -fsS --connect-timeout 2 --max-time "$timeout" \
+    "$(cape_agent_url "$ip")/status"
+}
+
+cape_agent_reap_async_state() {
+  local ip="$1" timeout="${2:-30}" elapsed=0 body="" status=""
+  while ((elapsed < timeout)); do
+    if body="$(cape_agent_status "$ip" 5 2>/dev/null)"; then
+      status="$(python3 - "$body" <<'PY'
+import json,sys
+try:
+    d=json.loads(sys.argv[1])
+except Exception:
+    raise SystemExit(1)
+print(str(d.get("status") or "").lower())
+PY
+)" || status=""
+      case "$status" in
+        complete) return 0 ;;
+        failed|exception)
+          fail "Previous CAPE Agent async job ended in terminal state: $status"
+          return 1
+          ;;
+        running|init|"") ;;
+        *)
+          fail "Unexpected CAPE Agent async status: $status"
+          return 1
+          ;;
+      esac
+    fi
+    sleep 1
+    elapsed=$((elapsed+1))
+  done
+  fail "Timed out waiting for previous CAPE Agent async job to clear"
+  return 1
+}
+
 cape_agent_execpy_async_detached() {
   local ip="$1" remote_python="$2" log_file="$3"
   local tmp="${log_file}.tmp.$" http curl_rc=0
   rm -f "$tmp" "$log_file"
+
+  # CAPE Agent 0.22 keeps the previous async subprocess slot until /status is
+  # polled. Reap any completed detached helper before launching another one.
+  cape_agent_reap_async_state "$ip" 20 || return 1
 
   http="$(cape_agent_curl "$ip" -sS --connect-timeout 3 --max-time 20 \
       -o "$tmp" -w '%{http_code}' \
@@ -336,10 +379,75 @@ PY
     fail "CAPE Agent did not return on the normal management path after isolated-control finalization"
     return 61
   }
+  cape_agent_reap_async_state "$management_ip" 30 || {
+    fail "CAPE Agent isolated-control finalizer did not complete cleanly"
+    return 61
+  }
 
   cape_agent_remove "$management_ip" "$remote_py" 3
   cape_agent_remove "$management_ip" "$remote_cfg" 3
   pass "Returned CAPE Agent control to the management path after Windows hardening"
+}
+
+windows_poweroff_via_cape_agent() {
+  local management_ip="$1"
+  local stem="cape-inetsim-autodeploy-poweroff"
+  local remote_py="C:\\Windows\\Temp\\${stem}.py"
+  local log="$AD_LOG_ROOT/${DEPLOYMENT_ID}-$(ad_safe_token "$DOMAIN")-${stem}-cape-agent-execpy.json"
+  local state="" elapsed=0
+
+  state="$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)"
+  [[ "$state" == "shut off" ]] && return 0
+  [[ "$state" == running ]] || {
+    fail "Cannot request CAPE Agent poweroff from Windows domain state: ${state:-unknown}"
+    return 62
+  }
+
+  cape_agent_prepare_client_identity "$management_ip" || return 62
+  cape_agent_wait "$management_ip" 60 || {
+    fail "CAPE Agent is unavailable on management IP $management_ip for guest-driven shutdown"
+    return 62
+  }
+
+  cape_agent_remove "$management_ip" "$remote_py" 2
+  cape_agent_store "$management_ip" "$AUTODEPLOY_ROOT/tools/windows_agent_poweroff.py" "$remote_py" || {
+    fail "Could not stage CAPE Agent Windows shutdown helper"
+    return 63
+  }
+
+  # ACPI-only virsh shutdown is not reliable on every sandbox image. Launch
+  # shutdown.exe inside the guest, asynchronously, so the Agent can return the
+  # spawn response before Windows tears down networking/processes.
+  if cape_agent_execpy_async_detached "$management_ip" "$remote_py" "$log"; then
+    while ((elapsed < 120)); do
+      state="$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)"
+      if [[ "$state" == "shut off" ]]; then
+        pass "Windows shut down through CAPE Agent guest command"
+        return 0
+      fi
+      sleep 2
+      elapsed=$((elapsed+2))
+    done
+  else
+    warn "CAPE Agent shutdown helper did not launch; trying libvirt ACPI shutdown fallback"
+  fi
+
+  # Last graceful fallback only. Never destroy the guest during normal
+  # deployment because the working snapshot must be based on a clean shutdown.
+  virsh shutdown "$DOMAIN" >/dev/null 2>&1 || true
+  elapsed=0
+  while ((elapsed < 90)); do
+    state="$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)"
+    if [[ "$state" == "shut off" ]]; then
+      pass "Windows shut down through libvirt ACPI fallback"
+      return 0
+    fi
+    sleep 2
+    elapsed=$((elapsed+2))
+  done
+
+  fail "Windows did not shut down after CAPE Agent guest shutdown and ACPI fallback; refusing forced snapshot"
+  return 64
 }
 
 cape_agent_run_powershell_sync() {

@@ -3,7 +3,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AUTODEPLOY_ROOT="$ROOT"
 
-python3 -m py_compile "$ROOT/tools/winrm_exec.py" "$ROOT/tools/windows_agent_runner.py" "$ROOT/tools/windows_agent_finalize.py"
+python3 -m py_compile "$ROOT/tools/winrm_exec.py" "$ROOT/tools/windows_agent_runner.py" "$ROOT/tools/windows_agent_finalize.py" "$ROOT/tools/windows_agent_poweroff.py"
 grep -q 'windows_winrm_ready' "$ROOT/lib/windows-winrm.sh"
 grep -q 'configured-via-winrm' "$ROOT/lib/windows-winrm.sh"
 grep -q 'CAPE_INETSIM_WINRM_PASSWORD_FILE' "$ROOT/lib/windows-winrm.sh"
@@ -18,11 +18,15 @@ import sys
 s=open(sys.argv[1],encoding="utf-8").read()
 q=s.index('if qga_wait "$DOMAIN" 10; then')
 w=s.index('if windows_winrm_ready "$CAPE_MACHINE_IP"')
-a=s.index('if cape_agent_wait "$CAPE_MACHINE_IP" 180', w)
+a=s.index('if cape_agent_wait "$CAPE_MACHINE_IP" "$WINDOWS_CONTROL_BOOT_TIMEOUT"', w)
 z=s.index('No supported zero-touch Windows control channel is available', a)
 assert q < w < a < z
 assert "WINDOWS_BACKEND_USED=cape-agent-execpy" in s
 assert "WINDOWS_BACKEND_USED=manual-powershell" not in s[s.index("windows_select_live_backend()"):s.index("windows_configure_selected_backend()")]
+assert 'WINDOWS_CONTROL_BOOT_TIMEOUT="${WINDOWS_CONTROL_BOOT_TIMEOUT:-300}"' in s
+power=s[s.index("windows_poweroff_selected_backend()"):s.index("windows_manual_callback_command()")]
+assert 'cape-agent-execpy)' in power
+assert 'windows_poweroff_via_cape_agent "$CAPE_MACHINE_IP"' in power
 PY
 
 grep -q 'windows-cape-agent.sh' "$ROOT/install"
@@ -38,6 +42,15 @@ grep -Fq 'cape_agent_run_powershell_sync' "$ROOT/lib/windows-cape-agent.sh"
 [[ "$(grep -Fc 'async=yes' "$ROOT/lib/windows-cape-agent.sh")" -eq 1 ]]
 grep -Fq 'cape_agent_execpy_async_detached' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'cape_agent_finalize_isolated_control' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'cape_agent_status' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'cape_agent_reap_async_state' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'Previous CAPE Agent async job ended in terminal state' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'windows_poweroff_via_cape_agent' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'tools/windows_agent_poweroff.py' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'Windows shut down through CAPE Agent guest command' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'refusing forced snapshot' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'local tmp="${log_file}.tmp.$"' "$ROOT/lib/windows-cape-agent.sh"
+! grep -Fq 'local tmp="${log_file}.tmp.$"' "$ROOT/lib/windows-cape-agent.sh"
 ! grep -Fq 'cape_agent_wait_async_result' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq '{"execpy","largefile","pinning"}' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'd.get("is_user_admin") is not True' "$ROOT/lib/windows-cape-agent.sh"
@@ -63,6 +76,14 @@ grep -Fq 'refusing to replace pre-existing Windows Firewall rule' "$ROOT/windows
 grep -Fq 'delay_seconds' "$ROOT/tools/windows_agent_finalize.py"
 grep -Fq 'route.exe' "$ROOT/tools/windows_agent_finalize.py"
 grep -Fq 'CAPE-INetSim-AutoDeploy isolated control' "$ROOT/tools/windows_agent_finalize.py"
+[[ -f "$ROOT/tools/windows_agent_poweroff.py" ]]
+grep -Fq 'Path(__file__).unlink()' "$ROOT/tools/windows_agent_poweroff.py"
+grep -Fq '"shutdown.exe", "/s", "/t", "0", "/f"' "$ROOT/tools/windows_agent_poweroff.py"
+python3 - "$ROOT/tools/windows_agent_poweroff.py" <<'PY'
+import sys
+s=open(sys.argv[1],encoding="utf-8").read()
+assert s.index("Path(__file__).unlink()") < s.index("time.sleep(2)") < s.index('"shutdown.exe"')
+PY
 
 python3 - "$ROOT/lib/windows-cape-agent.sh" <<'PY'
 import sys

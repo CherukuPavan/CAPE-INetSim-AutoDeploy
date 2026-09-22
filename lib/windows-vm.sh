@@ -258,13 +258,28 @@ windows_stop_for_cutover() {
   case "$state" in
     "shut off") return 0 ;;
     running)
-      virsh shutdown "$DOMAIN" >/dev/null 2>&1 || true
+      # Prefer an in-guest shutdown channel when available. Some Windows images
+      # ignore or delay the libvirt ACPI power-button event even though CAPE
+      # Agent/WinRM/QGA are healthy.
+      if declare -F qga_wait >/dev/null 2>&1 && qga_wait "$DOMAIN" 5; then
+        windows_poweroff_via_qga
+      elif declare -F windows_winrm_ready >/dev/null 2>&1 &&
+           windows_winrm_ready "$CAPE_MACHINE_IP" >/dev/null 2>&1; then
+        windows_poweroff_via_winrm "$CAPE_MACHINE_IP"
+      elif declare -F cape_agent_wait >/dev/null 2>&1 &&
+           cape_agent_wait "$CAPE_MACHINE_IP" 15 >/dev/null 2>&1; then
+        windows_poweroff_via_cape_agent "$CAPE_MACHINE_IP"
+        return $?
+      else
+        virsh shutdown "$DOMAIN" >/dev/null 2>&1 || true
+      fi
+
       local i
-      for ((i=0;i<60;i+=2)); do
+      for ((i=0;i<120;i+=2)); do
         [[ "$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)" == "shut off" ]] && return 0
         sleep 2
       done
-      fail "Windows domain is running but did not shut down cleanly; refusing forced cutover"
+      fail "Windows domain is running but did not shut down cleanly through the available guest/ACPI control path; refusing forced cutover"
       return 1
       ;;
     *)
