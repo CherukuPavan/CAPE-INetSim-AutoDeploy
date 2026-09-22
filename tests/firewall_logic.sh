@@ -14,8 +14,8 @@ grep -Fq 'oifname "capeisim7" drop' <<<"$base"
 ! grep -Fq 'table bridge cape_inetsim_autodeploy_l2' <<<"$base"
 
 CAPE_TARGETS_JSON='[
-  {"section":"win10","domain":"win10","management_bridge":"virbr0","management_mac":"52:54:00:11:22:33","ip":"192.168.122.100","phase":"nic-attached"},
-  {"section":"win7","domain":"win7","management_bridge":"virbr0","management_mac":"52:54:00:11:22:44","ip":"192.168.122.101","phase":"cape-configured"}
+  {"section":"win10","domain":"win10","management_bridge":"virbr0","management_mac":"52:54:00:11:22:33","ip":"192.168.122.100","fake_ip":"192.168.200.10","resultserver_ip":"192.168.122.1","resultserver_port":"2042","phase":"nic-attached"},
+  {"section":"win7","domain":"win7","management_bridge":"virbr0","management_mac":"52:54:00:11:22:44","ip":"192.168.122.101","fake_ip":"192.168.200.11","resultserver_ip":"192.168.122.1","resultserver_port":"2042","phase":"cape-configured"}
 ]'
 full="$(firewall_render_rules capeisim7 yes)"
 grep -Fq 'iifname "virbr0" ether saddr 52:54:00:11:22:33 drop' <<<"$full"
@@ -25,6 +25,9 @@ grep -Fq 'iifname "virbr0" ip saddr 192.168.122.101 drop' <<<"$full"
 grep -Fq 'table bridge cape_inetsim_autodeploy_l2' <<<"$full"
 grep -Fq 'ether saddr 52:54:00:11:22:33 drop' <<<"$full"
 grep -Fq 'ether saddr 52:54:00:11:22:44 drop' <<<"$full"
+grep -Fq 'iifname "capeisim7" ip saddr 192.168.200.10 ip daddr 192.168.122.1 tcp dport 2042 accept' <<<"$full"
+grep -Fq 'iifname "capeisim7" ip saddr 192.168.200.11 ip daddr 192.168.122.1 tcp dport 2042 accept' <<<"$full"
+! grep -Fq 'iifname "capeisim7" accept' <<<"$full"
 ! grep -Eq '\baccept\b.*(52:54:00:11:22:33|52:54:00:11:22:44|192\.168\.122\.10[01])' <<<"$full"
 
 unit="$(firewall_render_unit)"
@@ -85,6 +88,9 @@ grep -Fq 'firewall_activate_rules "$tmp_runtime_batch"' "$ROOT/lib/firewall.sh"
 echo '[PASS] active firewall rules are atomically replaced during management-guard upgrade'
 
 grep -q 'firewall_management_records' "$ROOT/lib/firewall.sh"
+grep -q 'firewall_isolated_resultserver_records' "$ROOT/lib/firewall.sh"
+grep -q 'firewall_file_has_resultserver_exceptions_all' "$ROOT/lib/firewall.sh"
+grep -q 'firewall_resultserver_exceptions_match_all' "$ROOT/lib/firewall.sh"
 grep -q 'firewall_management_guards_match_all' "$ROOT/lib/firewall.sh"
 grep -q 'Restored firewall is missing one or more Windows management egress guards' "$ROOT/lib/firewall.sh"
 python3 - "$ROOT/bin/cape-inetsim-repair" <<'PY'
