@@ -91,7 +91,11 @@ req(d.get("ok") is True,"Windows result is not ok")
 req(int(d.get("default_routes",-1)) == 0,"default route count is not zero")
 req(int(d.get("ipv4_default_routes",-1)) == 0,"IPv4 default route count is not zero")
 req(int(d.get("ipv6_default_routes",-1)) == 0,"IPv6 default route count is not zero")
-req(int(d.get("ipv6_bindings_enabled",-1)) == 0,"IPv6 bindings remain enabled")
+legacy=d.get("legacy_network_stack") is True
+if legacy:
+    req(d.get("ipv6_router_discovery_disabled") is True,"legacy IPv6 router discovery is not disabled")
+else:
+    req(int(d.get("ipv6_bindings_enabled",-1)) == 0,"IPv6 bindings remain enabled")
 req(int(d.get("unexpected_active_adapters",-1)) == 0,"unexpected active adapter remains")
 req(d.get("resultserver_reachable") is True,"ResultServer is not reachable")
 req(d.get("inetsim_http_reachable") is True,"INetSim HTTP is not reachable")
