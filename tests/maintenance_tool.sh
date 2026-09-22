@@ -19,3 +19,7 @@ grep -Fq 'verify --label "$CAPE_MACHINE_LABEL"' "$ROOT/lib/maintenance.sh"
 
 grep -Fq 'REPAIR_CAPE_ACTIVE" == yes || "$REPAIR_PROCESSOR_ACTIVE" == yes' "$ROOT/bin/cape-inetsim-repair"
 grep -Fq 'cape-processor may still be reporting a' "$ROOT/bin/cape-inetsim-repair"
+
+grep -Fq 'MODEL_STATUS_ENUMS=set(getattr(Task.__table__.c.status.type,"enums",()) or ())' "$ROOT/tools/cape_maintenance.py"
+grep -Fq 'ACTIVE=tuple(s for s in ACTIVE_CANDIDATES if not MODEL_STATUS_ENUMS or s in MODEL_STATUS_ENUMS)' "$ROOT/tools/cape_maintenance.py"
+grep -Fq 'cape-maintenance.log' "$ROOT/lib/maintenance.sh"
