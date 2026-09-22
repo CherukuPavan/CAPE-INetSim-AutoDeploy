@@ -20,7 +20,17 @@ from lib.cuckoo.core.data.task import (
 
 # COMPLETED / DISTRIBUTED_COMPLETED are deliberately treated as busy because
 # CAPE may still be processing/reporting them. This is conservative by design.
-ACTIVE={TASK_RUNNING,TASK_DISTRIBUTED,TASK_COMPLETED,TASK_DISTRIBUTED_COMPLETED}
+#
+# CAPE versions are not perfectly uniform here: some define the
+# TASK_DISTRIBUTED_COMPLETED constant while omitting that literal from the
+# SQLAlchemy/PostgreSQL status_type enum. Sending an unsupported enum literal
+# to PostgreSQL aborts the maintenance query before we can acquire a safe lock.
+# Filter the candidate set through the installed model's declared enum values.
+ACTIVE_CANDIDATES=(TASK_RUNNING,TASK_DISTRIBUTED,TASK_COMPLETED,TASK_DISTRIBUTED_COMPLETED)
+MODEL_STATUS_ENUMS=set(getattr(Task.__table__.c.status.type,"enums",()) or ())
+ACTIVE=tuple(s for s in ACTIVE_CANDIDATES if not MODEL_STATUS_ENUMS or s in MODEL_STATUS_ENUMS)
+if not ACTIVE:
+    raise RuntimeError("CAPE task model exposes no supported active task statuses")
 init_database(exists_ok=True)
 db=Database()
 session=db.session
