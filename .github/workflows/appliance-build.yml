@@ -58,7 +58,7 @@ jobs:
 
       - name: Boot/runtime smoke test
         id: appliance_runtime_smoke
-        if: steps.appliance_build.outcome == 'success' && steps.appliance_verify.outcome == 'success' && steps.appliance_runtime_smoke.outcome == 'success'
+        if: steps.appliance_build.outcome == 'success' && steps.appliance_verify.outcome == 'success'
         continue-on-error: true
         run: |
           chmod +x appliance/build/runtime-smoke-test.sh
@@ -104,6 +104,7 @@ jobs:
           cp "$RUNNER_TEMP/cape-inetsim-appliance-v1.0.0.qcow2.gz.sha256" "$EVIDENCE/"
           cp "$RUNNER_TEMP/cape-inetsim-appliance-v1.0.0.qcow2.gz.size.txt" "$EVIDENCE/"
           cp "$RUNNER_TEMP/appliance-diag/artifact-verify.log" "$EVIDENCE/"
+          cp "$RUNNER_TEMP/appliance-diag/runtime-smoke.log" "$EVIDENCE/"
           cp appliance/build/base-image.json "$EVIDENCE/base-image.json"
           python3 -c '
           import json,pathlib,sys
