@@ -103,9 +103,14 @@ PY
   }
 
   # A brand-new deployment needs the scheduler/ResultServer alive so the
-  # management path can be proven before Windows is changed. A resumed
+  # management path can be proven before Windows is changed. A completed
+  # rollback is also a fresh deployment boundary; only an actually resumable
   # transaction may legitimately have cape.service stopped at handoff.
-  if [[ ! -f "$AD_STATE_FILE" ]]; then
+  local existing_phase=""
+  if [[ -f "$AD_STATE_FILE" ]]; then
+    existing_phase="$( (state_load >/dev/null 2>&1 && printf '%s' "$DEPLOYMENT_PHASE") || true )"
+  fi
+  if [[ ! -f "$AD_STATE_FILE" || "$existing_phase" == rolled-back ]]; then
     systemctl is-active --quiet cape.service || {
       fail "cape.service must be active before a new deployment"
       return 1
