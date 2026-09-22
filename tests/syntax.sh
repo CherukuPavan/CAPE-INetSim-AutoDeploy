@@ -14,4 +14,20 @@ for f in "$VENDOR/install.sh" "$VENDOR"/scripts/*.sh; do
   bash -n "$f"
 done
 python3 -m py_compile "$VENDOR/scripts/prepare_install_candidate.py" "$VENDOR/src/inetsim_vm_logic.py" "$VENDOR/tests/test_django_candidate_ui.py"
-echo "[PASS] bash syntax"
+
+if command -v pwsh >/dev/null 2>&1; then
+  for f in "$ROOT"/windows/*.ps1; do
+    pwsh -NoProfile -NonInteractive -Command '
+      $tokens=$null; $errors=$null
+      [System.Management.Automation.Language.Parser]::ParseFile($args[0],[ref]$tokens,[ref]$errors) | Out-Null
+      if($errors.Count){ $errors | ForEach-Object { Write-Error $_.Message }; exit 1 }
+    ' "$f"
+  done
+fi
+
+grep -Fq 'legacy_network_stack' "$ROOT/windows/configure-inetsim.ps1"
+grep -Fq 'legacy_network_stack' "$ROOT/windows/verify-inetsim.ps1"
+grep -Fq 'Get-WmiObject Win32_NetworkAdapterConfiguration' "$ROOT/windows/configure-inetsim.ps1"
+grep -Fq 'Get-WmiObject Win32_NetworkAdapterConfiguration' "$ROOT/windows/verify-inetsim.ps1"
+
+echo "[PASS] shell/Python/PowerShell syntax and legacy Windows guards"
