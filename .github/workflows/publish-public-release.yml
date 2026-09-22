@@ -55,6 +55,35 @@ jobs:
               f.write(f"CANDIDATE_RUN_ID={run}\nSOURCE_SHA={sha}\nRELEASE_TAG={tag}\nPRERELEASE={'true' if pre else 'false'}\n")
           PY
 
+      - name: Resolve exact candidate workflow run
+        if: env.CANDIDATE_RUN_ID == '0'
+        run: |
+          set -euo pipefail
+          RUNS="$RUNNER_TEMP/candidate-runs.json"
+          gh api "repos/$PRIVATE_REPO/actions/workflows/appliance-build.yml/runs?head_sha=$SOURCE_SHA&event=push&per_page=100" >"$RUNS"
+          RESOLVED="$(python3 - "$RUNS" "$SOURCE_SHA" <<'PY'
+          import json,sys
+          runs=json.load(open(sys.argv[1])).get("workflow_runs",[])
+          sha=sys.argv[2]
+          matching=[
+              r for r in runs
+              if r.get("head_sha")==sha
+              and r.get("name")=="Build generalized INetSim appliance"
+              and r.get("event")=="push"
+              and r.get("conclusion")=="success"
+          ]
+          if not matching:
+              raise SystemExit("no successful exact-SHA generalized appliance workflow run exists")
+          print(max(matching,key=lambda r:int(r["id"]))["id"])
+          PY
+          )"
+          [[ "$RESOLVED" =~ ^[1-9][0-9]*$ ]] || {
+            echo "::error::could not resolve a valid successful candidate workflow run"
+            exit 2
+          }
+          echo "CANDIDATE_RUN_ID=$RESOLVED" >>"$GITHUB_ENV"
+          echo "Resolved exact-SHA appliance candidate run: $RESOLVED"
+
       - name: Materialize exact candidate source
         run: |
           set -euo pipefail
