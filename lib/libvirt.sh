@@ -223,8 +223,8 @@ print(state, memory, dname, matches, sep="|")
     add_error "Configured CAPE snapshot '$CAPE_MACHINE_SNAPSHOT' does not embed the selected domain identity"
     return 0
   }
-  [[ "$snap_state" == running && "$snap_memory" == internal ]] || {
-    add_error "Configured CAPE snapshot '$CAPE_MACHINE_SNAPSHOT' is not a running-state internal-memory analysis baseline (found state=${snap_state:-unknown} memory=${snap_memory:-unknown})"
+  [[ "$snap_state" == running && ( "$snap_memory" == internal || "$snap_memory" == external ) ]] || {
+    add_error "Configured CAPE snapshot '$CAPE_MACHINE_SNAPSHOT' is not a running-state analysis baseline with internal/external saved memory (found state=${snap_state:-unknown} memory=${snap_memory:-unknown})"
     return 0
   }
   [[ "$mgmt_matches" == 1 ]] || {
