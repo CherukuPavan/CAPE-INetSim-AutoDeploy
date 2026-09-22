@@ -144,31 +144,7 @@ jobs:
           cp -a source/windows/. "$ROOT/windows/"
           mkdir -p "$ROOT/vendor/CAPE-INetSim-VM-Extension-v1.0.1"
           rsync -a --exclude ORIGIN.json             source/vendor/CAPE-INetSim-VM-Extension-v1.0.1/             "$ROOT/vendor/CAPE-INetSim-VM-Extension-v1.0.1/"
-
-          # Privacy-only public packaging transform: remove a historical lab
-          # hostname mention from a runtime-validator comment, then regenerate
-          # the vendored runtime checksum manifest over the same file set.
-          VENDOR="$ROOT/vendor/CAPE-INetSim-VM-Extension-v1.0.1"
-          python3 - "$VENDOR/tests/test_django_candidate_ui.py" <<'PY'
-          import pathlib,sys
-          p=pathlib.Path(sys.argv[1])
-          s=p.read_text()
-          old="No SSL45 address is hard-coded here."
-          new="No lab-specific address is hard-coded here."
-          if s.count(old) != 1:
-              raise SystemExit("expected exactly one historical lab comment")
-          p.write_text(s.replace(old,new))
-          PY
-          (
-            cd "$VENDOR"
-            mapfile -t files < <(awk '{print $2}' RUNTIME-SHA256SUMS)
-            : > RUNTIME-SHA256SUMS.new
-            for file in "${files[@]}"; do
-              sha256sum "$file" >> RUNTIME-SHA256SUMS.new
-            done
-            mv RUNTIME-SHA256SUMS.new RUNTIME-SHA256SUMS
-            sha256sum -c RUNTIME-SHA256SUMS >/dev/null
-          )
+          (cd "$ROOT/vendor/CAPE-INetSim-VM-Extension-v1.0.1" && sha256sum -c RUNTIME-SHA256SUMS >/dev/null)
           chmod 0755 "$ROOT"/bin/cape-inetsim-*
           printf '%s\n' "$VERSION" >"$ROOT/VERSION"
 
@@ -180,6 +156,11 @@ jobs:
 
           python3 source/appliance/build/render-manifest.py             --artifact "$RAW"             --transport-artifact "$PKG"             --url "$ASSET_URL"             --output "$MANIFEST"
           cp "$MANIFEST" "$ROOT/appliance/manifest.json"
+          install -m 0755 source/appliance/guest-configure.sh "$ROOT/appliance/guest-configure.sh"
+          cmp -s source/appliance/guest-configure.sh "$ROOT/appliance/guest-configure.sh" || {
+            echo "::error::runtime guest configurator does not match release source"
+            exit 3
+          }
 
           # Release-only allowlist: development workflows/tests/docs/build tooling never enter ROOT.
           for forbidden in .github tests docs release; do
