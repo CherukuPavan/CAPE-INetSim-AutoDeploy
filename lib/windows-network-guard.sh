@@ -63,11 +63,11 @@ nwfilter_virsh() {
 
 windows_management_guard_available_default() {
   # Read-only initial probe before AutoDeploy owns any daemon activation.
-  virsh nwfilter-info "$WINDOWS_MGMT_FILTER_NAME" >/dev/null 2>&1
+  virsh nwfilter-dumpxml "$WINDOWS_MGMT_FILTER_NAME" >/dev/null 2>&1
 }
 
 windows_management_guard_available() {
-  nwfilter_virsh nwfilter-info "$WINDOWS_MGMT_FILTER_NAME" >/dev/null 2>&1
+  nwfilter_virsh nwfilter-dumpxml "$WINDOWS_MGMT_FILTER_NAME" >/dev/null 2>&1
 }
 
 nwfilter_runtime_definition_closure() {
@@ -110,7 +110,7 @@ nwfilter_runtime_load_standard_definitions() {
   local record name path
   while IFS='|' read -r name path; do
     [[ -n "$name" && -n "$path" ]] || continue
-    if nwfilter_virsh nwfilter-info "$name" >/dev/null 2>&1; then
+    if nwfilter_virsh nwfilter-dumpxml "$name" >/dev/null 2>&1; then
       continue
     fi
     [[ -r "$path" ]] || {
@@ -122,7 +122,7 @@ nwfilter_runtime_load_standard_definitions() {
       fail "Could not load standard libvirt nwfilter definition '$name' from $path"
       return 1
     }
-    nwfilter_virsh nwfilter-info "$name" >/dev/null 2>&1 || {
+    nwfilter_virsh nwfilter-dumpxml "$name" >/dev/null 2>&1 || {
       fail "libvirt accepted '$name' but it is still not resolvable"
       return 1
     }
