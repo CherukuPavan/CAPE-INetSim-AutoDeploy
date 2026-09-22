@@ -27,6 +27,7 @@ rollback_cutover_resources_exist() {
   state_has_owned_kind windows-config && return 0
   state_has_owned_kind domain-interface && return 0
   state_has_owned_kind snapshot && return 0
+  state_has_owned_kind management-dhcp-host && return 0
   return 1
 }
 
@@ -49,7 +50,7 @@ rollback_restore_cutover() {
     rollback_try_critical "restore CAPE configuration/source files" cape_restore_integration_files
   fi
 
-  if state_has_owned_kind windows-config || state_has_owned_kind domain-interface || state_has_owned_kind snapshot || state_has_owned_kind domain-interface-filter; then
+  if state_has_owned_kind windows-config || state_has_owned_kind domain-interface || state_has_owned_kind snapshot || state_has_owned_kind domain-interface-filter || state_has_owned_kind management-dhcp-host; then
     local i
     CAPE_TARGETS_COUNT="$(targets_count)"
     for ((i=CAPE_TARGETS_COUNT-1;i>=0;i--)); do
