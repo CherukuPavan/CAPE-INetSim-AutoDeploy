@@ -15,11 +15,13 @@ grep -A8 '^  push:' "$AP" | grep -q 'dev/v1-orchestrator-hardening'
 ! grep -A8 '^  push:' "$AP" | grep -q 'paths:'
 ! grep -q '^  pull_request:' "$AP"
 grep -q 'cancel-in-progress: true' "$AP"
-grep -q 'cape-inetsim-appliance-v1.0.0-evidence' "$AP"
+grep -Fq 'TAG="candidate-${GITHUB_SHA}"' "$AP"
 grep -q 'candidate-provenance.json' "$AP"
 grep -Fq '},indent=2)+"\n")' "$AP"
 ! grep -Fq '},indent=2)+"\\n")' "$AP"
-[[ "$(grep -Fc 'retention-days: 30' "$AP")" -ge 2 ]]
+grep -Fq 'gh release create "$TAG"' "$AP"
+grep -Fq 'candidate_handoff_outcome=' "$AP"
+grep -A3 '^permissions:' "$AP" | grep -Fq 'contents: write'
 grep -q 'No candidate is publishable' "$AP"
 grep -q 'exit 1' "$AP"
 
@@ -47,5 +49,8 @@ grep -Fq 'source/vendor/CAPE-INetSim-VM-Extension-v1.0.1/' "$PUB"
 grep -Fq 'private extension repository reference leaked into public runtime' "$PUB"
 grep -Fq 'install -m 0755 source/appliance/guest-configure.sh "$ROOT/appliance/guest-configure.sh"' "$PUB"
 grep -Fq 'runtime guest configurator does not match release source' "$PUB"
+grep -Fq 'TAG="candidate-$SOURCE_SHA"' "$PUB"
+grep -Fq 'gh release download "$TAG"' "$PUB"
+grep -Fq 'private candidate handoff tag does not resolve to requested source SHA' "$PUB"
 
 echo '[PASS] workflow policy keeps appliance candidates exact-source-bound and pins third-party action commits'
