@@ -280,7 +280,7 @@ deploy_verify_windows_nic() {
     fail "Windows isolated NIC is not owned by this deployment"
     return 1
   }
-  windows_find_isolated_mac | grep -Fqi "$WINDOWS_ISOLATED_MAC" || {
+  windows_isolated_mac_present "$WINDOWS_ISOLATED_MAC" || {
     fail "Deployment-owned Windows isolated NIC is missing from persistent domain XML"
     return 1
   }
