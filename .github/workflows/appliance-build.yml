@@ -7,7 +7,7 @@ on:
       - dev/v1-orchestrator-hardening
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: appliance-build-${{ github.ref }}
@@ -130,27 +130,52 @@ jobs:
           ' "$EVIDENCE" "$SOURCE_SHA"
           python3 -m json.tool "$EVIDENCE/candidate-provenance.json" >/dev/null
 
-      - name: Upload candidate verification evidence
+      - name: Publish private candidate handoff
+        id: candidate_handoff
         if: steps.appliance_build.outcome == 'success' && steps.appliance_verify.outcome == 'success' && steps.appliance_runtime_smoke.outcome == 'success' && steps.appliance_package.outcome == 'success'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: cape-inetsim-appliance-v1.0.0-evidence
-          path: ${{ runner.temp }}/appliance-evidence
-          retention-days: 30
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="candidate-${GITHUB_SHA}"
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::private candidate handoff already exists; refusing overwrite"
+            exit 1
+          fi
 
-      - name: Upload build candidate
-        if: steps.appliance_build.outcome == 'success' && steps.appliance_verify.outcome == 'success' && steps.appliance_runtime_smoke.outcome == 'success' && steps.appliance_package.outcome == 'success'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: cape-inetsim-appliance-v1.0.0-candidate
-          path: |
-            ${{ runner.temp }}/cape-inetsim-appliance-v1.0.0.qcow2.gz
-            ${{ runner.temp }}/cape-inetsim-appliance-v1.0.0.qcow2.gz.sha256
-            ${{ runner.temp }}/cape-inetsim-appliance-v1.0.0.qcow2.gz.size.txt
-            ${{ runner.temp }}/cape-inetsim-appliance-v1.0.0.qcow2.sha256
-            ${{ runner.temp }}/cape-inetsim-appliance-v1.0.0.qcow2.info.txt
-          retention-days: 30
-          compression-level: 0
+          gh release create "$TAG" -R "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --prerelease \
+            --title "CAPE INetSim candidate ${GITHUB_SHA}" \
+            --notes "Exact-source verified appliance candidate for ${GITHUB_SHA}."
+
+          REF_SHA="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.sha)"
+          [[ "$REF_SHA" == "$GITHUB_SHA" ]] || {
+            echo "::error::private candidate tag does not resolve to the workflow source SHA"
+            exit 1
+          }
+
+          E="$RUNNER_TEMP/appliance-evidence"
+          gh release upload "$TAG" -R "$GITHUB_REPOSITORY" \
+            "$RUNNER_TEMP/cape-inetsim-appliance-v1.0.0.qcow2.gz" \
+            "$RUNNER_TEMP/cape-inetsim-appliance-v1.0.0.qcow2.gz.sha256" \
+            "$RUNNER_TEMP/cape-inetsim-appliance-v1.0.0.qcow2.gz.size.txt" \
+            "$RUNNER_TEMP/cape-inetsim-appliance-v1.0.0.qcow2.sha256" \
+            "$RUNNER_TEMP/cape-inetsim-appliance-v1.0.0.qcow2.info.txt" \
+            "$E/artifact-verify.log" \
+            "$E/runtime-smoke.log" \
+            "$E/base-image.json" \
+            "$E/candidate-provenance.json"
+
+          for asset in \
+            cape-inetsim-appliance-v1.0.0.qcow2.gz \
+            cape-inetsim-appliance-v1.0.0.qcow2.gz.sha256 \
+            cape-inetsim-appliance-v1.0.0.qcow2.gz.size.txt \
+            cape-inetsim-appliance-v1.0.0.qcow2.sha256 \
+            cape-inetsim-appliance-v1.0.0.qcow2.info.txt \
+            artifact-verify.log runtime-smoke.log base-image.json candidate-provenance.json; do
+            gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -Fxq "$asset"
+          done
 
       - name: Upload failure diagnostics
         if: steps.appliance_build.outcome != 'success' || steps.appliance_verify.outcome == 'failure' || steps.appliance_runtime_smoke.outcome == 'failure' || steps.appliance_package.outcome == 'failure'
@@ -168,9 +193,10 @@ jobs:
           echo "appliance_verify_outcome=${{ steps.appliance_verify.outcome }}"
           echo "appliance_runtime_smoke_outcome=${{ steps.appliance_runtime_smoke.outcome }}"
           echo "appliance_package_outcome=${{ steps.appliance_package.outcome }}"
+          echo "candidate_handoff_outcome=${{ steps.candidate_handoff.outcome }}"
           echo "transport_size=${{ steps.appliance_package.outputs.transport_size }}"
-          if [[ "${{ steps.appliance_build.outcome }}" != "success" || "${{ steps.appliance_verify.outcome }}" != "success" || "${{ steps.appliance_runtime_smoke.outcome }}" != "success" || "${{ steps.appliance_package.outcome }}" != "success" ]]; then
+          if [[ "${{ steps.appliance_build.outcome }}" != "success" || "${{ steps.appliance_verify.outcome }}" != "success" || "${{ steps.appliance_runtime_smoke.outcome }}" != "success" || "${{ steps.appliance_package.outcome }}" != "success" || "${{ steps.candidate_handoff.outcome }}" != "success" ]]; then
             echo "::error::Appliance candidate build/verification/release packaging did not pass. No candidate is publishable."
             exit 1
           fi
-          echo "Appliance candidate build, runtime smoke test, independent verification, and release-size packaging passed."
+          echo "Appliance candidate build, runtime smoke test, independent verification, release-size packaging, and private SHA-bound handoff passed."
