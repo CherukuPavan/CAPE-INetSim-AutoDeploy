@@ -56,9 +56,19 @@ jobs:
           appliance/build/verify-artifact.sh "$RUNNER_TEMP/cape-inetsim-appliance-v1.0.0.qcow2" \
             2>&1 | tee "$RUNNER_TEMP/appliance-diag/artifact-verify.log"
 
+      - name: Boot/runtime smoke test
+        id: appliance_runtime_smoke
+        if: steps.appliance_build.outcome == 'success' && steps.appliance_verify.outcome == 'success' && steps.appliance_runtime_smoke.outcome == 'success'
+        continue-on-error: true
+        run: |
+          chmod +x appliance/build/runtime-smoke-test.sh
+          set -o pipefail
+          appliance/build/runtime-smoke-test.sh "$RUNNER_TEMP/cape-inetsim-appliance-v1.0.0.qcow2" \
+            2>&1 | tee "$RUNNER_TEMP/appliance-diag/runtime-smoke.log"
+
       - name: Package release transport
         id: appliance_package
-        if: steps.appliance_build.outcome == 'success' && steps.appliance_verify.outcome == 'success'
+        if: steps.appliance_build.outcome == 'success' && steps.appliance_verify.outcome == 'success' && steps.appliance_runtime_smoke.outcome == 'success'
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -82,7 +92,7 @@ jobs:
           echo "transport_size=$PKG_SIZE" >>"$GITHUB_OUTPUT"
 
       - name: Create candidate verification evidence
-        if: steps.appliance_build.outcome == 'success' && steps.appliance_verify.outcome == 'success' && steps.appliance_package.outcome == 'success'
+        if: steps.appliance_build.outcome == 'success' && steps.appliance_verify.outcome == 'success' && steps.appliance_runtime_smoke.outcome == 'success' && steps.appliance_package.outcome == 'success'
         env:
           SOURCE_SHA: ${{ github.sha }}
         run: |
@@ -120,7 +130,7 @@ jobs:
           python3 -m json.tool "$EVIDENCE/candidate-provenance.json" >/dev/null
 
       - name: Upload candidate verification evidence
-        if: steps.appliance_build.outcome == 'success' && steps.appliance_verify.outcome == 'success' && steps.appliance_package.outcome == 'success'
+        if: steps.appliance_build.outcome == 'success' && steps.appliance_verify.outcome == 'success' && steps.appliance_runtime_smoke.outcome == 'success' && steps.appliance_package.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: cape-inetsim-appliance-v1.0.0-evidence
@@ -128,7 +138,7 @@ jobs:
           retention-days: 30
 
       - name: Upload build candidate
-        if: steps.appliance_build.outcome == 'success' && steps.appliance_verify.outcome == 'success' && steps.appliance_package.outcome == 'success'
+        if: steps.appliance_build.outcome == 'success' && steps.appliance_verify.outcome == 'success' && steps.appliance_runtime_smoke.outcome == 'success' && steps.appliance_package.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: cape-inetsim-appliance-v1.0.0-candidate
@@ -142,7 +152,7 @@ jobs:
           compression-level: 0
 
       - name: Upload failure diagnostics
-        if: steps.appliance_build.outcome != 'success' || steps.appliance_verify.outcome == 'failure' || steps.appliance_package.outcome == 'failure'
+        if: steps.appliance_build.outcome != 'success' || steps.appliance_verify.outcome == 'failure' || steps.appliance_runtime_smoke.outcome == 'failure' || steps.appliance_package.outcome == 'failure'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: cape-inetsim-appliance-build-diagnostics
@@ -155,10 +165,11 @@ jobs:
         run: |
           echo "appliance_build_outcome=${{ steps.appliance_build.outcome }}"
           echo "appliance_verify_outcome=${{ steps.appliance_verify.outcome }}"
+          echo "appliance_runtime_smoke_outcome=${{ steps.appliance_runtime_smoke.outcome }}"
           echo "appliance_package_outcome=${{ steps.appliance_package.outcome }}"
           echo "transport_size=${{ steps.appliance_package.outputs.transport_size }}"
-          if [[ "${{ steps.appliance_build.outcome }}" != "success" || "${{ steps.appliance_verify.outcome }}" != "success" || "${{ steps.appliance_package.outcome }}" != "success" ]]; then
+          if [[ "${{ steps.appliance_build.outcome }}" != "success" || "${{ steps.appliance_verify.outcome }}" != "success" || "${{ steps.appliance_runtime_smoke.outcome }}" != "success" || "${{ steps.appliance_package.outcome }}" != "success" ]]; then
             echo "::error::Appliance candidate build/verification/release packaging did not pass. No candidate is publishable."
             exit 1
           fi
-          echo "Appliance candidate build, independent verification, and release-size packaging passed."
+          echo "Appliance candidate build, runtime smoke test, independent verification, and release-size packaging passed."
