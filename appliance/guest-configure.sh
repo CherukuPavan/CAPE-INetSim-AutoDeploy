@@ -95,14 +95,38 @@ sysctl --system >/dev/null
 [[ "$(sysctl -n net.ipv6.conf.all.forwarding)" == 0 ]]
 systemctl enable inetsim.service >/dev/null
 systemctl restart inetsim.service
-sleep 2
 
-ISO_ADDRS="$(ip -4 addr show dev "$ISO_IF")"
-UDP_LISTEN="$(ss -lnup)"
-TCP_LISTEN="$(ss -lntp)"
-grep -Fq "$CIDR" <<<"$ISO_ADDRS"
-grep -Fq "$IP:53" <<<"$UDP_LISTEN"
-grep -Eq "$IP:80[[:space:]]" <<<"$TCP_LISTEN"
-grep -Eq "$IP:443[[:space:]]" <<<"$TCP_LISTEN"
+ready=no
+ISO_ADDRS=""
+UDP_LISTEN=""
+TCP_LISTEN=""
+for _ in $(seq 1 30); do
+  ISO_ADDRS="$(ip -4 addr show dev "$ISO_IF" 2>/dev/null || true)"
+  UDP_LISTEN="$(ss -lnup 2>/dev/null || true)"
+  TCP_LISTEN="$(ss -lntp 2>/dev/null || true)"
+  if grep -Fq "$CIDR" <<<"$ISO_ADDRS" &&
+     grep -Fq "$IP:53" <<<"$UDP_LISTEN" &&
+     grep -Eq "$IP:80[[:space:]]" <<<"$TCP_LISTEN" &&
+     grep -Eq "$IP:443[[:space:]]" <<<"$TCP_LISTEN"; then
+    ready=yes
+    break
+  fi
+  sleep 1
+done
+
+if [[ "$ready" != yes ]]; then
+  echo "INetSim services did not become ready within 30 seconds" >&2
+  echo "--- ip -4 addr ---" >&2
+  ip -4 addr >&2 || true
+  echo "--- ip -4 route ---" >&2
+  ip -4 route >&2 || true
+  echo "--- listeners ---" >&2
+  ss -lnupt >&2 || true
+  echo "--- inetsim status ---" >&2
+  systemctl status inetsim.service --no-pager -l >&2 || true
+  echo "--- inetsim journal ---" >&2
+  journalctl -u inetsim.service -n 100 --no-pager >&2 || true
+  exit 36
+fi
 
 echo "INETSIM_GUEST_CONFIG_OK management=$MGMT_IF isolated=$ISO_IF ip=$CIDR"
