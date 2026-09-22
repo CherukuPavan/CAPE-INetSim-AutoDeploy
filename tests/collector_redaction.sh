@@ -49,3 +49,7 @@ grep -Fq "'*windows-isolated-control-stage.json'" "$ROOT/bin/cape-inetsim-collec
 grep -Fq "'*cape-agent-execpy.txt'" "$ROOT/bin/cape-inetsim-collect"
 grep -Fq "'*progress.txt'" "$ROOT/bin/cape-inetsim-collect"
 grep -Fq "'*windows-finalize*.json'" "$ROOT/bin/cape-inetsim-collect"
+grep -Fq "'*poweroff*.json'" "$ROOT/bin/cape-inetsim-collect"
+grep -Fq 'for name in machines:' "$ROOT/bin/cape-inetsim-collect"
+grep -Fq 'machine=$label target=$ip port=$p' "$ROOT/bin/cape-inetsim-collect"
+! grep -Fq 'tail -1 | cut -d= -f2-' "$ROOT/bin/cape-inetsim-collect"
