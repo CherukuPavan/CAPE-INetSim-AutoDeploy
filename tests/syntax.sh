@@ -17,11 +17,11 @@ python3 -m py_compile "$VENDOR/scripts/prepare_install_candidate.py" "$VENDOR/sr
 
 if command -v pwsh >/dev/null 2>&1; then
   for f in "$ROOT"/windows/*.ps1; do
-    pwsh -NoProfile -NonInteractive -Command '
+    PS_PARSE_FILE="$f" pwsh -NoProfile -NonInteractive -Command '
       $tokens=$null; $errors=$null
-      [System.Management.Automation.Language.Parser]::ParseFile($args[0],[ref]$tokens,[ref]$errors) | Out-Null
+      [System.Management.Automation.Language.Parser]::ParseFile($env:PS_PARSE_FILE,[ref]$tokens,[ref]$errors) | Out-Null
       if($errors.Count){ $errors | ForEach-Object { Write-Error $_.Message }; exit 1 }
-    ' "$f"
+    '
   done
 fi
 
