@@ -87,7 +87,7 @@ discover_hypervisor_safety_features
 grep -Fq 'no safely activatable standard definition/runtime was proven' <<<"${DISCOVERY_ERRORS[0]}"
 
 virsh() {
-  [[ "$1" == nwfilter-info && "$2" == clean-traffic ]]
+  [[ "$1" == nwfilter-dumpxml && "$2" == clean-traffic ]]
 }
 DISCOVERY_ERRORS=()
 discover_hypervisor_safety_features
