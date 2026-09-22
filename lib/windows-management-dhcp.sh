@@ -84,7 +84,7 @@ windows_management_dhcp_update() {
   if windows_management_network_is_active; then
     args+=(--live)
   fi
-  virsh net-update "$MANAGEMENT_NETWORK_NAME" "$command" ip-dhcp-host "$xml" "\${args[@]}" >/dev/null
+  virsh net-update "$MANAGEMENT_NETWORK_NAME" "$command" ip-dhcp-host "$xml" "${args[@]}" >/dev/null
 }
 
 windows_management_dhcp_verify_expected() {
