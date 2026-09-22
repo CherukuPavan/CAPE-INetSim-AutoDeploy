@@ -117,10 +117,11 @@ windows_management_dhcp_align_if_needed() {
   }
   [[ "$old_ip" != "$CAPE_MACHINE_IP" ]] || return 0
 
-  set +e
-  conflict="$(windows_management_dhcp_ip_conflict)"
-  rc=$?
-  set -e
+  if conflict="$(windows_management_dhcp_ip_conflict)"; then
+    rc=0
+  else
+    rc=$?
+  fi
   if [[ "$rc" -eq 0 ]]; then
     fail "CAPE management IP $CAPE_MACHINE_IP is already reserved to another MAC on $MANAGEMENT_NETWORK_NAME ($conflict)"
     return 1
