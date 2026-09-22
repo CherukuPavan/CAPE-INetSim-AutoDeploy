@@ -162,10 +162,57 @@ windows_management_dhcp_align_if_needed() {
   pass "Aligned management DHCP reservation for $DOMAIN: $old_ip -> $CAPE_MACHINE_IP"
 }
 
-windows_management_dhcp_restore_if_owned() {
-  state_resource_owned management-dhcp-host "$MANAGEMENT_NETWORK_NAME:$WINDOWS_MANAGEMENT_MAC" || return 0
+windows_management_dhcp_verify_if_owned() {
+  if state_resource_owned management-dhcp-host "$MANAGEMENT_NETWORK_NAME:$WINDOWS_MANAGEMENT_MAC"; then
+    windows_management_dhcp_verify_expected
+  else
+    return 0
+  fi
+}
 
-  local current backup old
+windows_management_dhcp_restore_if_owned() {
+  local key="$MANAGEMENT_NETWORK_NAME:$WINDOWS_MANAGEMENT_MAC"
+  local current backup old old_ip
+
+  if ! state_resource_owned management-dhcp-host "$key"; then
+    if ! state_resource_intended management-dhcp-host "$key"; then
+      return 0
+    fi
+
+    backup="$(windows_management_dhcp_backup_path)"
+    [[ -s "$backup" ]] || {
+      fail "Intended management DHCP change has no rollback backup for $DOMAIN"
+      return 1
+    }
+    old="$(cat "$backup")"
+    old_ip="$(windows_management_dhcp_host_ip "$old")"
+    current="$(windows_management_dhcp_host_xml)" || {
+      fail "Could not inspect intended management DHCP change during rollback for $DOMAIN"
+      return 1
+    }
+
+    if [[ -n "$current" && "$(windows_management_dhcp_host_ip "$current")" == "$CAPE_MACHINE_IP" ]]; then
+      state_record_resource management-dhcp-host "$key" recovered-aligned yes "rollback-adoption"
+      state_write_atomic
+    elif [[ -n "$current" && "$(windows_management_dhcp_host_ip "$current")" == "$old_ip" ]]; then
+      state_record_resource management-dhcp-host "$key" restored yes "already-original backup=$backup"
+      state_write_atomic
+      return 0
+    elif [[ -z "$current" ]]; then
+      if ! windows_management_dhcp_update add-last "$old"; then
+        fail "Could not recover the original DHCP reservation after an interrupted alignment for $DOMAIN"
+        return 1
+      fi
+      state_record_resource management-dhcp-host "$key" restored yes "recovered-from-intent backup=$backup"
+      state_write_atomic
+      pass "Recovered original management DHCP reservation for $DOMAIN"
+      return 0
+    else
+      fail "Management DHCP reservation changed externally during an interrupted alignment; refusing rollback overwrite for $DOMAIN"
+      return 1
+    fi
+  fi
+
   current="$(windows_management_dhcp_host_xml)" || {
     fail "Could not inspect aligned management DHCP reservation during rollback for $DOMAIN"
     return 1
@@ -190,7 +237,7 @@ windows_management_dhcp_restore_if_owned() {
     return 1
   fi
 
-  state_record_resource management-dhcp-host "$MANAGEMENT_NETWORK_NAME:$WINDOWS_MANAGEMENT_MAC" restored yes "backup=$backup"
+  state_record_resource management-dhcp-host "$key" restored yes "backup=$backup"
   state_write_atomic
   pass "Restored original management DHCP reservation for $DOMAIN"
 }
