@@ -89,7 +89,9 @@ s=set_one(s,'dns_default_ip',ip)
 open(p,'w').write(s)
 PY
 
-sysctl --system >/dev/null
+sysctl -w net.ipv4.ip_unprivileged_port_start=53 >/dev/null
+sysctl -w net.ipv4.ip_forward=0 >/dev/null
+sysctl -w net.ipv6.conf.all.forwarding=0 >/dev/null
 [[ "$(sysctl -n net.ipv4.ip_unprivileged_port_start)" == 53 ]]
 [[ "$(sysctl -n net.ipv4.ip_forward)" == 0 ]]
 [[ "$(sysctl -n net.ipv6.conf.all.forwarding)" == 0 ]]
