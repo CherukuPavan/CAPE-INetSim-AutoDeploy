@@ -30,10 +30,8 @@ DOMAIN=win7
 DEPLOYMENT_ID=test-dhcp
 AD_BACKUP_ROOT="$TMP/backups"
 
-declare -A OWNED=()
 state_write_atomic(){ :; }
 state_record_intent(){ :; }
-state_resource_owned(){ [[ "$(printf '%s' "$1:$2" | tr '[:upper:]' '[:lower:]')" == "$(printf '%s' "$3" 2>/dev/null)" ]]; return 1; }
 state_resource_owned(){
   local key="$1:$2"
   [[ "$(printf '%s' "$OWNED_KEYS" | grep -Fxc "$key" || true)" -gt 0 ]]
