@@ -76,17 +76,27 @@ try {
         'store=persistent'
     )|Out-Null
 
-    # CAPE Agent 0.22 can be pinned to the CAPE host IP that contacted it over
-    # the management NIC. Preserve that client identity on the new isolated
-    # path by routing only this /32 through the host-side isolated bridge.
-    & route.exe -p add $PinnedClientIP mask 255.255.255.255 $IsolatedGatewayIP metric 1 if $isoAdapter.InterfaceIndex | Out-Null
-    if($LASTEXITCODE -ne 0){
-        & route.exe change $PinnedClientIP mask 255.255.255.255 $IsolatedGatewayIP metric 1 if $isoAdapter.InterfaceIndex | Out-Null
-        if($LASTEXITCODE -ne 0){throw "could not route pinned CAPE client $PinnedClientIP through isolated adapter"}
+    # Preserve the CAPE host client identity on the isolated path using a
+    # temporary /32 route. Never replace an unknown pre-existing route: this
+    # route is deployment scaffolding and must be unambiguously ours.
+    $preExistingPinnedRoutes=@(Get-WmiObject Win32_IP4RouteTable -ErrorAction SilentlyContinue |
+        Where-Object{$_.Destination -eq $PinnedClientIP -and $_.Mask -eq '255.255.255.255'})
+    if($preExistingPinnedRoutes.Count -ne 0){
+        throw "refusing to overwrite pre-existing /32 route for CAPE client $PinnedClientIP"
     }
+    & route.exe -p add $PinnedClientIP mask 255.255.255.255 $IsolatedGatewayIP metric 1 if $isoAdapter.InterfaceIndex | Out-Null
+    if($LASTEXITCODE -ne 0){throw "could not route CAPE client $PinnedClientIP through isolated adapter"}
 
     $rule='CAPE-INetSim-AutoDeploy isolated control'
-    & netsh.exe advfirewall firewall delete rule name="$rule" protocol=TCP localport=$AgentPort | Out-Null
+    try{
+        $fw=New-Object -ComObject HNetCfg.FwPolicy2
+        $preExistingRules=@($fw.Rules | Where-Object{$_.Name -eq $rule})
+        if($preExistingRules.Count -ne 0){
+            throw "refusing to replace pre-existing Windows Firewall rule '$rule'"
+        }
+    } catch {
+        throw ('could not prove isolated-control firewall ownership: ' + $_.Exception.Message)
+    }
     Invoke-Netsh @(
         'advfirewall','firewall','add','rule',
         ("name=" + $rule),

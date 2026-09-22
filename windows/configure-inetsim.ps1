@@ -7,6 +7,8 @@ param(
     [Parameter(Mandatory=$true)][string]$ResultServerIP,
     [Parameter(Mandatory=$true)][int]$ResultServerPort,
     [Parameter(Mandatory=$true)][string]$ControlHostIP,
+    [string]$PinnedClientIP='',
+    [string]$IsolatedGatewayIP='',
     [Parameter(Mandatory=$true)][string]$ResultPath
 )
 $ErrorActionPreference='Stop'
@@ -97,6 +99,25 @@ function Refresh-Config([int]$Index){
     Get-WmiObject Win32_NetworkAdapterConfiguration -Filter "Index=$Index" -ErrorAction Stop
 }
 
+function Ensure-TemporaryControlRoute([int]$InterfaceIndex){
+    if(-not $PinnedClientIP){return}
+    if(-not $IsolatedGatewayIP){throw 'isolated gateway is required when preserving CAPE Agent control'}
+
+    $routes=@(Get-WmiObject Win32_IP4RouteTable -ErrorAction SilentlyContinue |
+        Where-Object{$_.Destination -eq $PinnedClientIP -and $_.Mask -eq '255.255.255.255'})
+    $exact=@($routes | Where-Object{
+        [int]$_.InterfaceIndex -eq $InterfaceIndex -and
+        [string]$_.NextHop -eq $IsolatedGatewayIP
+    })
+    if($exact.Count -eq 1 -and $routes.Count -eq 1){return}
+    if($routes.Count -ne 0){
+        throw "temporary CAPE control route for $PinnedClientIP changed unexpectedly"
+    }
+
+    & route.exe -p add $PinnedClientIP mask 255.255.255.255 $IsolatedGatewayIP metric 1 if $InterfaceIndex | Out-Null
+    if($LASTEXITCODE -ne 0){throw "could not restore temporary CAPE control route for $PinnedClientIP"}
+}
+
 try{
     $mgmtCfg=Get-WmiObject Win32_NetworkAdapterConfiguration -ErrorAction Stop |
         Where-Object{$_.IPAddress -and ($_.IPAddress -contains $ManagementIP)} |
@@ -152,6 +173,8 @@ try{
         }
     }
     Write-Progress 'adapters-enabled'
+    Ensure-TemporaryControlRoute $isoAdapter.InterfaceIndex
+    Write-Progress 'control-route-proven'
 
     foreach($remote in @($ResultServerIP,$ControlHostIP)|Where-Object{$_}|Select-Object -Unique){
         if(-not (Same-Subnet $ManagementIP $remote $mgmtMask)){
@@ -174,6 +197,7 @@ try{
         'store=persistent'
     )|Out-Null
     Write-Progress 'management-static'
+    Ensure-TemporaryControlRoute $isoAdapter.InterfaceIndex
 
     # Persistently clear management default-gateway values so a future adapter
     # reinitialization cannot recreate Internet egress. Off-subnet CAPE control
@@ -189,16 +213,38 @@ try{
         $ifaceKey.Close()
     }
 
-    Invoke-Netsh @(
-        'interface','ipv4','set','address',
-        ("name=" + $isoAdapter.InterfaceIndex),
-        'source=static',
-        ("address=" + $FakeIP),
-        ("mask=" + $isoMask),
-        'gateway=none',
-        'store=persistent'
-    )|Out-Null
-    Write-Progress 'isolated-static'
+    # CAPE-Agent cutover pre-stages the isolated address and a temporary
+    # pinned-client /32 route before this script is launched over that path.
+    # Re-applying the isolated address with netsh can flush interface routes
+    # and tear down the HTTP connection carrying /execpy. Preserve an already
+    # correct staged address; QGA/WinRM paths still configure it here.
+    $isoCfg=Refresh-Config $isoAdapter.Index
+    $isolatedAlreadyStaged=($isoCfg.IPAddress -and ($isoCfg.IPAddress -contains $FakeIP))
+    if($isolatedAlreadyStaged){
+        $stagedMask=$null
+        for($i=0;$i -lt @($isoCfg.IPAddress).Count;$i++){
+            if([string]$isoCfg.IPAddress[$i] -eq $FakeIP){
+                $stagedMask=[string]$isoCfg.IPSubnet[$i]
+                break
+            }
+        }
+        if($stagedMask -ne $isoMask){
+            throw "pre-staged isolated address $FakeIP has unexpected mask $stagedMask (wanted $isoMask)"
+        }
+        Write-Progress 'isolated-static-preserved'
+    } else {
+        Invoke-Netsh @(
+            'interface','ipv4','set','address',
+            ("name=" + $isoAdapter.InterfaceIndex),
+            'source=static',
+            ("address=" + $FakeIP),
+            ("mask=" + $isoMask),
+            'gateway=none',
+            'store=persistent'
+        )|Out-Null
+        Write-Progress 'isolated-static'
+    }
+    Ensure-TemporaryControlRoute $isoAdapter.InterfaceIndex
 
     Invoke-Netsh @(
         'interface','ipv4','set','dnsservers',
@@ -217,6 +263,7 @@ try{
         'validate=no'
     )|Out-Null
     Write-Progress 'dns-static'
+    Ensure-TemporaryControlRoute $isoAdapter.InterfaceIndex
 
     $mgmtCfg=Refresh-Config $mgmtAdapter.Index
     $isoCfg=Refresh-Config $isoAdapter.Index
@@ -235,6 +282,7 @@ try{
     }
 
     Write-Progress 'ipv4-default-route-removed'
+    Ensure-TemporaryControlRoute $isoAdapter.InterfaceIndex
 
     foreach($a in @(Get-WmiObject Win32_NetworkAdapter | Where-Object{$_.InterfaceIndex})){
         & netsh interface ipv6 set interface $a.InterfaceIndex routerdiscovery=disabled store=persistent 2>$null|Out-Null

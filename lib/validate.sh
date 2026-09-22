@@ -97,6 +97,10 @@ if legacy:
 else:
     req(int(d.get("ipv6_bindings_enabled",-1)) == 0,"IPv6 bindings remain enabled")
 req(int(d.get("unexpected_active_adapters",-1)) == 0,"unexpected active adapter remains")
+if "temporary_control_routes" in d:
+    req(int(d.get("temporary_control_routes",-1)) == 0,"temporary isolated control route remains")
+if "isolated_agent_rules" in d:
+    req(int(d.get("isolated_agent_rules",-1)) == 0,"temporary isolated CAPE Agent firewall rule remains")
 req(d.get("resultserver_reachable") is True,"ResultServer is not reachable")
 req(d.get("inetsim_http_reachable") is True,"INetSim HTTP is not reachable")
 req(d.get("inetsim_https_reachable") is True,"INetSim HTTPS is not reachable")

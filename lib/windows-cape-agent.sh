@@ -259,6 +259,89 @@ cape_agent_execpy_sync() {
   cape_agent_extract_runner_envelope "$json_log" "$local_result" "$text_log"
 }
 
+cape_agent_execpy_async_detached() {
+  local ip="$1" remote_python="$2" log_file="$3"
+  local tmp="${log_file}.tmp.$" http curl_rc=0
+  rm -f "$tmp" "$log_file"
+
+  http="$(cape_agent_curl "$ip" -sS --connect-timeout 3 --max-time 20 \
+      -o "$tmp" -w '%{http_code}' \
+      --data-urlencode "filepath=$remote_python" \
+      --data-urlencode "async=yes" \
+      "$(cape_agent_url "$ip")/execpy")" || curl_rc=$?
+
+  [[ -f "$tmp" ]] && mv -f "$tmp" "$log_file" || : >"$log_file"
+  ((curl_rc == 0)) || return 1
+  [[ "$http" == 200 ]] || return 1
+
+  python3 - "$log_file" <<'PY'
+import json,sys
+try:
+    d=json.load(open(sys.argv[1],encoding="utf-8"))
+except Exception:
+    raise SystemExit(1)
+pid=d.get("process_id")
+if not str(pid or "").isdigit():
+    raise SystemExit(2)
+msg=str(d.get("message") or "").lower()
+if "spawn" not in msg and "execut" not in msg:
+    raise SystemExit(3)
+PY
+}
+
+cape_agent_finalize_isolated_control() {
+  local isolated_ip="$1" management_ip="$2"
+  local stem="cape-inetsim-autodeploy-finalize"
+  local remote_py="C:\\Windows\\Temp\\${stem}.py"
+  local remote_cfg="C:\\Windows\\Temp\\${stem}.json"
+  local cfg="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-$(ad_safe_token "$DOMAIN")-${stem}.json"
+  local log="$AD_LOG_ROOT/${DEPLOYMENT_ID}-$(ad_safe_token "$DOMAIN")-${stem}-cape-agent-execpy.json"
+
+  python3 - "$cfg" "$CAPE_AGENT_CLIENT_IP" <<'PY'
+import json,pathlib,sys
+path,client=sys.argv[1:]
+pathlib.Path(path).write_text(json.dumps({
+    "schema":1,
+    "pinned_client_ip":client,
+    "delay_seconds":5
+},indent=2)+"\n",encoding="utf-8")
+PY
+  chmod 0600 "$cfg"
+
+  cape_agent_remove "$isolated_ip" "$remote_py" 2
+  cape_agent_remove "$isolated_ip" "$remote_cfg" 2
+
+  if ! cape_agent_store "$isolated_ip" "$AUTODEPLOY_ROOT/tools/windows_agent_finalize.py" "$remote_py"; then
+    rm -f "$cfg"
+    fail "Could not stage deferred CAPE Agent control-path finalizer"
+    return 58
+  fi
+  if ! cape_agent_store "$isolated_ip" "$cfg" "$remote_cfg"; then
+    rm -f "$cfg"
+    fail "Could not stage deferred CAPE Agent finalizer configuration"
+    return 59
+  fi
+  rm -f "$cfg"
+
+  # The finalizer sleeps before deleting the temporary /32 route and Windows
+  # Firewall rule. Async launch lets this HTTP response leave over the still-
+  # valid isolated path before the route is removed.
+  cape_agent_execpy_async_detached "$isolated_ip" "$remote_py" "$log" || {
+    fail "CAPE Agent refused deferred isolated-control finalization"
+    return 60
+  }
+
+  sleep 7
+  cape_agent_wait "$management_ip" 45 || {
+    fail "CAPE Agent did not return on the normal management path after isolated-control finalization"
+    return 61
+  }
+
+  cape_agent_remove "$management_ip" "$remote_py" 3
+  cape_agent_remove "$management_ip" "$remote_cfg" 3
+  pass "Returned CAPE Agent control to the management path after Windows hardening"
+}
+
 cape_agent_run_powershell_sync() {
   local ip="$1" ps1="$2" stem="$3" local_result="$4"
   shift 4
@@ -375,37 +458,41 @@ windows_configure_via_cape_agent() {
     -DnsIP "$dns_ip" \
     -ResultServerIP "$result_ip" \
     -ResultServerPort "$result_port" \
-    -ControlHostIP "$control_host_ip"
+    -ControlHostIP "$control_host_ip" \
+    -PinnedClientIP "$CAPE_AGENT_CLIENT_IP" \
+    -IsolatedGatewayIP "$BRIDGE_IP"
   validate_windows_result_path "$local_result"
+
+  # The pinned-client /32 route is transport scaffolding only. Remove it after
+  # the full hardening response has returned so normal CAPE traffic resumes on
+  # the management NIC, then prove that management control is healthy again.
+  cape_agent_finalize_isolated_control "$fake_ip" "$management_ip"
+
   WINDOWS_BACKEND_USED=cape-agent-execpy
   state_record_resource windows-config "$DOMAIN" configured-via-cape-agent-execpy yes \
-    "isolated_mac=$isolated_mac fake_ip=$fake_ip control_path=isolated pinned_client=$CAPE_AGENT_CLIENT_IP agent_version=${CAPE_AGENT_VERSION:-unknown}"
+    "isolated_mac=$isolated_mac fake_ip=$fake_ip control_path=management-finalized pinned_client=$CAPE_AGENT_CLIENT_IP agent_version=${CAPE_AGENT_VERSION:-unknown}"
   state_write_atomic
 }
 
 windows_verify_via_cape_agent() {
   local management_ip="$1" isolated_mac="$2" fake_ip="$3" dns_ip="$4" result_ip="$5" result_port="$6"
-  local control_ip=""
   local local_result="$AD_LOG_ROOT/${DEPLOYMENT_ID}-$(ad_safe_token "$DOMAIN")-windows-verify.json"
 
   cape_agent_prepare_client_identity "$management_ip" || return 1
-  if cape_agent_wait "$fake_ip" 30; then
-    control_ip="$fake_ip"
-  elif cape_agent_wait "$management_ip" 30; then
-    control_ip="$management_ip"
-  else
-    fail "CAPE Agent unavailable on both isolated and management paths for Windows safety verification"
+  cape_agent_wait "$management_ip" 60 || {
+    fail "CAPE Agent is not reachable on the management path after isolated-control finalization"
     return 1
-  fi
+  }
 
   cape_agent_run_powershell_sync \
-    "$control_ip" "$AUTODEPLOY_ROOT/windows/verify-inetsim.ps1" \
+    "$management_ip" "$AUTODEPLOY_ROOT/windows/verify-inetsim.ps1" \
     "cape-inetsim-autodeploy-verify" "$local_result" \
     -ManagementIP "$management_ip" \
     -IsolatedMac "$isolated_mac" \
     -FakeIP "$fake_ip" \
     -DnsIP "$dns_ip" \
     -ResultServerIP "$result_ip" \
-    -ResultServerPort "$result_port"
+    -ResultServerPort "$result_port" \
+    -PinnedClientIP "$CAPE_AGENT_CLIENT_IP"
   validate_windows_result_path "$local_result"
 }

@@ -3,7 +3,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AUTODEPLOY_ROOT="$ROOT"
 
-python3 -m py_compile "$ROOT/tools/winrm_exec.py" "$ROOT/tools/windows_agent_runner.py"
+python3 -m py_compile "$ROOT/tools/winrm_exec.py" "$ROOT/tools/windows_agent_runner.py" "$ROOT/tools/windows_agent_finalize.py"
 grep -q 'windows_winrm_ready' "$ROOT/lib/windows-winrm.sh"
 grep -q 'configured-via-winrm' "$ROOT/lib/windows-winrm.sh"
 grep -q 'CAPE_INETSIM_WINRM_PASSWORD_FILE' "$ROOT/lib/windows-winrm.sh"
@@ -35,13 +35,15 @@ grep -Fq 'cape_agent_prepare_client_identity' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq -- '--interface "$CAPE_AGENT_CLIENT_IP"' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'cape_agent_execpy_sync' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'cape_agent_run_powershell_sync' "$ROOT/lib/windows-cape-agent.sh"
-! grep -Fq 'async=yes' "$ROOT/lib/windows-cape-agent.sh"
+[[ "$(grep -Fc 'async=yes' "$ROOT/lib/windows-cape-agent.sh")" -eq 1 ]]
+grep -Fq 'cape_agent_execpy_async_detached' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'cape_agent_finalize_isolated_control' "$ROOT/lib/windows-cape-agent.sh"
 ! grep -Fq 'cape_agent_wait_async_result' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq '{"execpy","largefile","pinning"}' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'd.get("is_user_admin") is not True' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'windows/stage-isolated-control.ps1' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'cape_agent_wait "$fake_ip" 60' "$ROOT/lib/windows-cape-agent.sh"
-grep -Fq 'control_path=isolated' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'control_path=management-finalized' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'CAPE Agent PowerShell execution failed' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'cape_agent_decode_execpy_log' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'cape_agent_extract_runner_envelope' "$ROOT/lib/windows-cape-agent.sh"
@@ -54,7 +56,13 @@ grep -Fq 'IsolatedGatewayIP' "$ROOT/windows/stage-isolated-control.ps1"
 grep -Fq 'route.exe -p add $PinnedClientIP' "$ROOT/windows/stage-isolated-control.ps1"
 grep -Fq 'remoteip=' "$ROOT/windows/stage-isolated-control.ps1"
 grep -Fq 'pinned_client_ip=$PinnedClientIP' "$ROOT/windows/stage-isolated-control.ps1"
+grep -Fq 'refusing to overwrite pre-existing /32 route' "$ROOT/windows/stage-isolated-control.ps1"
+grep -Fq 'refusing to replace pre-existing Windows Firewall rule' "$ROOT/windows/stage-isolated-control.ps1"
 ! grep -Fq 'ManagementIP' "$ROOT/windows/stage-isolated-control.ps1"
+[[ -f "$ROOT/tools/windows_agent_finalize.py" ]]
+grep -Fq 'delay_seconds' "$ROOT/tools/windows_agent_finalize.py"
+grep -Fq 'route.exe' "$ROOT/tools/windows_agent_finalize.py"
+grep -Fq 'CAPE-INetSim-AutoDeploy isolated control' "$ROOT/tools/windows_agent_finalize.py"
 
 python3 - "$ROOT/lib/windows-cape-agent.sh" <<'PY'
 import sys
@@ -65,10 +73,16 @@ prepare=body.index('cape_agent_prepare_client_identity "$management_ip"')
 stage=body.index("windows/stage-isolated-control.ps1")
 prove=body.index('cape_agent_wait "$fake_ip" 60')
 full=body.index("windows/configure-inetsim.ps1")
-assert prepare < stage < prove < full
+finalize=body.index('cape_agent_finalize_isolated_control "$fake_ip" "$management_ip"')
+assert prepare < stage < prove < full < finalize
 assert 'cape_agent_run_powershell_sync \\\n    "$management_ip"' in body
 assert 'cape_agent_run_powershell_sync \\\n    "$fake_ip"' in body
 assert '-PinnedClientIP "$CAPE_AGENT_CLIENT_IP"' in body
+assert '-IsolatedGatewayIP "$BRIDGE_IP"' in body
+verify=s[s.index("windows_verify_via_cape_agent()"):]
+assert 'cape_agent_wait "$management_ip" 60' in verify
+assert 'cape_agent_wait "$fake_ip"' not in verify
+assert '-PinnedClientIP "$CAPE_AGENT_CLIENT_IP"' in verify
 PY
 
 grep -Fq 'proc = subprocess.run(' "$ROOT/tools/windows_agent_runner.py"
@@ -80,6 +94,19 @@ grep -Fq "'interface','ipv4','set','address'" "$ROOT/windows/configure-inetsim.p
 grep -Fq "'interface','ipv4','set','dnsservers'" "$ROOT/windows/configure-inetsim.ps1"
 grep -Fq "Write-Progress 'management-static'" "$ROOT/windows/configure-inetsim.ps1"
 grep -Fq "Write-Progress 'isolated-static'" "$ROOT/windows/configure-inetsim.ps1"
+grep -Fq '$isolatedAlreadyStaged' "$ROOT/windows/configure-inetsim.ps1"
+grep -Fq 'Ensure-TemporaryControlRoute' "$ROOT/windows/configure-inetsim.ps1"
+grep -Fq "Write-Progress 'control-route-proven'" "$ROOT/windows/configure-inetsim.ps1"
+grep -Fq "Write-Progress 'isolated-static-preserved'" "$ROOT/windows/configure-inetsim.ps1"
+python3 - "$ROOT/windows/configure-inetsim.ps1" <<'PY'
+import sys
+s=open(sys.argv[1],encoding="utf-8").read()
+p=s.index("$isolatedAlreadyStaged=")
+pres=s.index("Write-Progress 'isolated-static-preserved'",p)
+elsepos=s.index("} else {",p)
+setaddr=s.index("'interface','ipv4','set','address'",elsepos)
+assert p < pres < elsepos < setaddr
+PY
 grep -Fq "Write-Progress 'connectivity-validated'" "$ROOT/windows/configure-inetsim.ps1"
 ! grep -Fq '.EnableStatic(' "$ROOT/windows/configure-inetsim.ps1"
 ! grep -Fq '.SetDNSServerSearchOrder(' "$ROOT/windows/configure-inetsim.ps1"
@@ -96,6 +123,9 @@ grep -q 'legacy_network_stack' "$ROOT/windows/verify-inetsim.ps1"
 grep -q 'public_ipv6_reachable' "$ROOT/windows/verify-inetsim.ps1"
 grep -q 'inetsim_https_reachable' "$ROOT/windows/configure-inetsim.ps1"
 grep -q 'inetsim_https_reachable' "$ROOT/windows/verify-inetsim.ps1"
+grep -Fq 'temporary_control_routes' "$ROOT/windows/verify-inetsim.ps1"
+grep -Fq 'isolated_agent_rules' "$ROOT/windows/verify-inetsim.ps1"
+grep -Fq 'HNetCfg.FwPolicy2' "$ROOT/windows/verify-inetsim.ps1"
 grep -Fq 'validate_windows_result_path "$local_result"' "$ROOT/lib/windows-qga.sh"
 [[ "$(grep -Fc 'validate_windows_result_path "$local_result"' "$ROOT/lib/windows-winrm.sh")" -eq 2 ]]
 [[ "$(grep -Fc 'validate_windows_result_path "$local_result"' "$ROOT/lib/windows-cape-agent.sh")" -eq 2 ]]
@@ -211,6 +241,8 @@ cat >"$TMP/result.json" <<'EOF'
   "ipv6_default_routes": 0,
   "ipv6_bindings_enabled": 0,
   "unexpected_active_adapters": 0,
+  "temporary_control_routes": 0,
+  "isolated_agent_rules": 0,
   "resultserver_reachable": true,
   "inetsim_http_reachable": true,
   "inetsim_https_reachable": true,
@@ -252,6 +284,19 @@ json.dump(d,open(p,"w"))
 PY
 if validate_windows_result_path "$TMP/result.json" >/dev/null 2>&1; then
   echo 'Windows validator accepted missing HTTPS safety gate' >&2
+  exit 1
+fi
+
+cp "$TMP/legacy-result.json" "$TMP/cleanup-result.json"
+python3 - "$TMP/cleanup-result.json" <<'PY'
+import json,sys
+p=sys.argv[1]
+d=json.load(open(p))
+d["temporary_control_routes"]=1
+json.dump(d,open(p,"w"))
+PY
+if validate_windows_result_path "$TMP/cleanup-result.json" >/dev/null 2>&1; then
+  echo 'Windows validator accepted a lingering temporary control route' >&2
   exit 1
 fi
 

@@ -45,3 +45,7 @@ echo '[PASS] supported read-only collector redacts bundle-wide credentials and i
 
 grep -Fq "'*inetsim-host-verify.log'" "$ROOT/bin/cape-inetsim-collect"
 grep -Fq "'*cape-maintenance.log'" "$ROOT/bin/cape-inetsim-collect"
+grep -Fq "'*windows-isolated-control-stage.json'" "$ROOT/bin/cape-inetsim-collect"
+grep -Fq "'*cape-agent-execpy.txt'" "$ROOT/bin/cape-inetsim-collect"
+grep -Fq "'*progress.txt'" "$ROOT/bin/cape-inetsim-collect"
+grep -Fq "'*windows-finalize*.json'" "$ROOT/bin/cape-inetsim-collect"
