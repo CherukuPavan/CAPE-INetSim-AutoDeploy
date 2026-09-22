@@ -102,7 +102,19 @@ systemctl() {
 }
 
 virsh() {
-  case "$1" in
+  local dedicated=no
+  if [[ "${1:-}" == -c && "${2:-}" == nwfilter:///system ]]; then
+    dedicated=yes
+    shift 2
+    if [[ "${1:-}" == uri ]]; then
+      [[ "$socket_active" == yes || "$service_active" == yes ]] || return 1
+      echo nwfilter:///system
+      return 0
+    fi
+    [[ "$socket_active" == yes || "$service_active" == yes ]] || return 1
+  fi
+
+  case "${1:-}" in
     nwfilter-info)
       [[ "${LOADED[$2]:-no}" == yes ]]
       ;;
@@ -123,10 +135,6 @@ PY
       ;;
     *) return 1 ;;
   esac
-}
-
-windows_management_guard_available() {
-  virsh nwfilter-info clean-traffic >/dev/null 2>&1
 }
 
 # Case 1: explicit modular service start loads the packaged definitions.
@@ -206,5 +214,6 @@ grep -Fq 'nwfilter_runtime_prepare' "$ROOT/lib/deploy.sh"
 grep -Fq 'nwfilter_runtime_rollback' "$ROOT/lib/rollback.sh"
 grep -Fq 'yes|activatable' "$ROOT/lib/deploy.sh"
 grep -Fq 'nwfilter-define' "$ROOT/lib/windows-network-guard.sh"
+grep -Fq 'nwfilter:///system' "$ROOT/lib/windows-network-guard.sh"
 
 echo '[PASS] nwfilter runtime activation/reload is transactional, dependency-aware and rollback-safe'
