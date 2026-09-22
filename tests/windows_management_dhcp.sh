@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euxo pipefail
+set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 AUTODEPLOY_ROOT="$ROOT"
