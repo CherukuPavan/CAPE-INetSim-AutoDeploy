@@ -28,6 +28,10 @@ PY
 grep -q 'windows-cape-agent.sh' "$ROOT/install"
 [[ -e "$ROOT/lib/windows-cape-agent.sh" ]]
 grep -Fq '/execpy' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'async=yes' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq '/status' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'cape_agent_wait_async_result' "$ROOT/lib/windows-cape-agent.sh"
+! grep -Fq -- '--max-time 700' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq '/store' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq '/retrieve' "$ROOT/lib/windows-cape-agent.sh"
 ! grep -Fq '/execute' "$ROOT/lib/windows-cape-agent.sh"
@@ -40,6 +44,14 @@ grep -Fq 'subprocess.run(cmd' "$ROOT/tools/windows_agent_runner.py"
 
 grep -q 'Get-WmiObject Win32_NetworkAdapterConfiguration' "$ROOT/windows/configure-inetsim.ps1"
 grep -q 'Get-WmiObject Win32_IP4RouteTable' "$ROOT/windows/configure-inetsim.ps1"
+grep -Fq "'interface','ipv4','set','address'" "$ROOT/windows/configure-inetsim.ps1"
+grep -Fq "'interface','ipv4','set','dnsservers'" "$ROOT/windows/configure-inetsim.ps1"
+grep -Fq "Write-Progress 'management-static'" "$ROOT/windows/configure-inetsim.ps1"
+grep -Fq "Write-Progress 'isolated-static'" "$ROOT/windows/configure-inetsim.ps1"
+grep -Fq "Write-Progress 'connectivity-validated'" "$ROOT/windows/configure-inetsim.ps1"
+! grep -Fq '.EnableStatic(' "$ROOT/windows/configure-inetsim.ps1"
+! grep -Fq '.SetDNSServerSearchOrder(' "$ROOT/windows/configure-inetsim.ps1"
+! grep -Fq '$a.Disable()' "$ROOT/windows/configure-inetsim.ps1"
 grep -q "route.exe delete 0.0.0.0" "$ROOT/windows/configure-inetsim.ps1"
 grep -q "netsh interface ipv6 delete route" "$ROOT/windows/configure-inetsim.ps1"
 grep -q 'routerdiscovery=disabled' "$ROOT/windows/configure-inetsim.ps1"
@@ -61,13 +73,51 @@ TMP_AGENT="$(mktemp -d)"
 cat >"$TMP_AGENT/server.py" <<'PY'
 import json,sys
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+from urllib.parse import parse_qs
+
+state={"retrieve":0,"saw_async":False}
+
 class H(BaseHTTPRequestHandler):
     def log_message(self,*a): pass
+    def send_json(self,obj,code=200):
+        b=json.dumps(obj).encode()
+        self.send_response(code)
+        self.send_header("Content-Type","application/json")
+        self.send_header("Content-Length",str(len(b)))
+        self.end_headers()
+        self.wfile.write(b)
     def do_GET(self):
-        if self.path != "/":
-            self.send_response(404); self.end_headers(); return
-        b=json.dumps({"message":"CAPE Agent!","version":"0.22","features":["execpy","largefile"],"is_user_admin":True}).encode()
-        self.send_response(200); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(b))); self.end_headers(); self.wfile.write(b)
+        if self.path == "/":
+            self.send_json({"status_code":200,"message":"CAPE Agent!","version":"0.22","features":["execpy","largefile"],"is_user_admin":True})
+            return
+        if self.path == "/status":
+            self.send_json({"status_code":200,"message":"Analysis status","status":"running","description":""})
+            return
+        self.send_response(404); self.end_headers()
+    def do_POST(self):
+        n=int(self.headers.get("Content-Length","0") or "0")
+        body=self.rfile.read(n).decode(errors="replace")
+        form=parse_qs(body)
+        if self.path == "/execpy":
+            state["saw_async"] = form.get("async") == ["yes"]
+            if not state["saw_async"]:
+                self.send_json({"status_code":400,"message":"missing async"},400)
+                return
+            self.send_json({"status_code":200,"message":"Successfully spawned command","process_id":1234})
+            return
+        if self.path == "/retrieve":
+            state["retrieve"] += 1
+            if state["retrieve"] < 2:
+                self.send_response(404); self.end_headers(); return
+            b=b'{"ok":true}\n'
+            self.send_response(200)
+            self.send_header("Content-Type","application/octet-stream")
+            self.send_header("Content-Length",str(len(b)))
+            self.end_headers()
+            self.wfile.write(b)
+            return
+        self.send_response(404); self.end_headers()
+
 srv=ThreadingHTTPServer(("127.0.0.1",0),H)
 open(sys.argv[1],"w").write(str(srv.server_address[1]))
 srv.serve_forever()
@@ -79,6 +129,10 @@ for _ in {1..50}; do [[ -s "$TMP_AGENT/port" ]] && break; sleep 0.05; done
 CAPE_AGENT_PORT="$(cat "$TMP_AGENT/port")"
 source "$ROOT/lib/windows-cape-agent.sh"
 [[ "$(cape_agent_probe 127.0.0.1)" == 0.22 ]]
+cape_agent_execpy_async 127.0.0.1 'C:\Windows\Temp\runner.py' "$TMP_AGENT/execpy.log"
+grep -Fq '"process_id": 1234' "$TMP_AGENT/execpy.log"
+cape_agent_wait_async_result 127.0.0.1 'C:\Windows\Temp\result.json' "$TMP_AGENT/result.json" "$TMP_AGENT/execpy.log" 10
+grep -Fq '"ok":true' "$TMP_AGENT/result.json"
 kill "$AGENT_PID" >/dev/null 2>&1 || true
 wait "$AGENT_PID" 2>/dev/null || true
 rm -rf "$TMP_AGENT"
