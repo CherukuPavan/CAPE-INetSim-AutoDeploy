@@ -42,3 +42,6 @@ grep -Fq '***REDACTED***' "$TMP/secrets.txt"
 grep -Fq 'redact_inventory.py' "$ROOT/bin/cape-inetsim-collect"
 
 echo '[PASS] supported read-only collector redacts bundle-wide credentials and is exposed as --collect'
+
+grep -Fq "'*inetsim-host-verify.log'" "$ROOT/bin/cape-inetsim-collect"
+grep -Fq "'*cape-maintenance.log'" "$ROOT/bin/cape-inetsim-collect"
