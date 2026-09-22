@@ -78,6 +78,7 @@ assert prepare < stage < prove < full < finalize
 assert 'cape_agent_run_powershell_sync \\\n    "$management_ip"' in body
 assert 'cape_agent_run_powershell_sync \\\n    "$fake_ip"' in body
 assert '-PinnedClientIP "$CAPE_AGENT_CLIENT_IP"' in body
+assert '-IsolatedGatewayIP "$BRIDGE_IP"' in body
 verify=s[s.index("windows_verify_via_cape_agent()"):]
 assert 'cape_agent_wait "$management_ip" 60' in verify
 assert 'cape_agent_wait "$fake_ip"' not in verify
@@ -94,6 +95,8 @@ grep -Fq "'interface','ipv4','set','dnsservers'" "$ROOT/windows/configure-inetsi
 grep -Fq "Write-Progress 'management-static'" "$ROOT/windows/configure-inetsim.ps1"
 grep -Fq "Write-Progress 'isolated-static'" "$ROOT/windows/configure-inetsim.ps1"
 grep -Fq '$isolatedAlreadyStaged' "$ROOT/windows/configure-inetsim.ps1"
+grep -Fq 'Ensure-TemporaryControlRoute' "$ROOT/windows/configure-inetsim.ps1"
+grep -Fq "Write-Progress 'control-route-proven'" "$ROOT/windows/configure-inetsim.ps1"
 grep -Fq "Write-Progress 'isolated-static-preserved'" "$ROOT/windows/configure-inetsim.ps1"
 python3 - "$ROOT/windows/configure-inetsim.ps1" <<'PY'
 import sys
