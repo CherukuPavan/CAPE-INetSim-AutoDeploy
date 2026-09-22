@@ -5,6 +5,7 @@ param(
     [Parameter(Mandatory=$true)][string]$DnsIP,
     [Parameter(Mandatory=$true)][string]$ResultServerIP,
     [Parameter(Mandatory=$true)][int]$ResultServerPort,
+    [string]$PinnedClientIP='',
     [Parameter(Mandatory=$true)][string]$ResultPath
 )
 $ErrorActionPreference='Stop'
@@ -72,6 +73,28 @@ try{
         Where-Object{$_.Index -ne $mgmtAdapter.Index -and $_.Index -ne $isoAdapter.Index})
     if($unexpected.Count -ne 0){throw 'unexpected active adapter remains'}
 
+    $temporaryControlRoutes=0
+    if($PinnedClientIP){
+        $temporaryControlRoutes=@(Get-WmiObject Win32_IP4RouteTable -ErrorAction SilentlyContinue |
+            Where-Object{
+                $_.Destination -eq $PinnedClientIP -and
+                $_.Mask -eq '255.255.255.255' -and
+                [int]$_.InterfaceIndex -eq [int]$isoAdapter.InterfaceIndex
+            }).Count
+        if($temporaryControlRoutes -ne 0){
+            throw "temporary isolated CAPE control route still exists for $PinnedClientIP"
+        }
+    }
+
+    $isolatedAgentRules=0
+    try{
+        $fw=New-Object -ComObject HNetCfg.FwPolicy2
+        $isolatedAgentRules=@($fw.Rules | Where-Object{$_.Name -eq 'CAPE-INetSim-AutoDeploy isolated control'}).Count
+    } catch {
+        throw ('could not verify temporary Windows Firewall cleanup: ' + $_.Exception.Message)
+    }
+    if($isolatedAgentRules -ne 0){throw 'temporary isolated CAPE Agent firewall rule still exists'}
+
     $dns=@($mgmtCfg.DNSServerSearchOrder + $isoCfg.DNSServerSearchOrder |
         Where-Object{$_}|Sort-Object -Unique)
     if($dns.Count -ne 1 -or $dns[0] -ne $DnsIP){throw "active-adapter DNS is not exclusively $DnsIP"}
@@ -104,6 +127,8 @@ try{
         ipv6_bindings_enabled=-1
         ipv6_router_discovery_disabled=$true
         unexpected_active_adapters=0
+        temporary_control_routes=$temporaryControlRoutes
+        isolated_agent_rules=$isolatedAgentRules
         resultserver_reachable=$true
         inetsim_http_reachable=$true
         inetsim_https_reachable=$true
