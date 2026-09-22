@@ -52,11 +52,13 @@ windows_management_guard_exact() {
 nwfilter_virsh() {
   # On split-daemon libvirt hosts, nwfilter APIs belong to virtnwfilterd and
   # must use the dedicated nwfilter:///system connection. qemu:///system may
-  # accept the CLI command yet query a different driver namespace.
-  if virsh -c nwfilter:///system "$@" >/dev/null 2>&1; then
-    return 0
+  # accept the CLI command yet query a different driver namespace. Probe the
+  # driver connection itself, not the requested object's success/failure.
+  if virsh -c nwfilter:///system uri >/dev/null 2>&1; then
+    virsh -c nwfilter:///system "$@"
+  else
+    virsh "$@"
   fi
-  virsh "$@"
 }
 
 windows_management_guard_available_default() {
@@ -120,7 +122,7 @@ nwfilter_runtime_load_standard_definitions() {
       fail "Could not load standard libvirt nwfilter definition '$name' from $path"
       return 1
     }
-    nwfilter_nwfilter_virsh nwfilter-info "$name" >/dev/null 2>&1 || {
+    nwfilter_virsh nwfilter-info "$name" >/dev/null 2>&1 || {
       fail "libvirt accepted '$name' but it is still not resolvable"
       return 1
     }
