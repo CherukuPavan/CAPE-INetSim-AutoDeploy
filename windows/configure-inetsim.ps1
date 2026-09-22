@@ -96,7 +96,15 @@ try{
     $mgmtIPv4Masks=@()
     for($i=0;$i -lt @($mgmtCfg.IPAddress).Count;$i++){
         $addr=[string]$mgmtCfg.IPAddress[$i]
-        if($addr -match '^\d+\.\d+\.\d+\.\d+
+        if($addr -match '^\d+\.\d+\.\d+\.\d+$'){
+            $mgmtIPv4 += $addr
+            $mgmtIPv4Masks += [string]$mgmtCfg.IPSubnet[$i]
+        }
+        if($addr -eq $ManagementIP){$mgmtMask=[string]$mgmtCfg.IPSubnet[$i]}
+    }
+    if(-not $mgmtMask){throw 'could not determine management IPv4 subnet mask'}
+    if($mgmtIPv4.Count -eq 0){throw 'management adapter has no IPv4 addresses to preserve'}
+    $isoMask=Prefix-ToMask $PrefixLength
     $gateway=@($mgmtCfg.DefaultIPGateway | Where-Object{$_ -match '^\d+\.\d+\.\d+\.\d+$'} | Select-Object -First 1)
 
     $backupDir='C:\ProgramData\CAPE-INetSim-AutoDeploy'
@@ -145,141 +153,6 @@ try{
         $ifaceKey.Close()
     }
 
-    $r=$isoCfg.EnableStatic(@($FakeIP),@($isoMask))
-    if($r.ReturnValue -ne 0 -and $r.ReturnValue -ne 1){throw "isolated EnableStatic failed: $($r.ReturnValue)"}
-
-    $mgmtCfg=Refresh-Config $mgmtAdapter.Index
-    $isoCfg=Refresh-Config $isoAdapter.Index
-    $r=$mgmtCfg.SetDNSServerSearchOrder(@($DnsIP))
-    if($r.ReturnValue -ne 0 -and $r.ReturnValue -ne 1){throw "management DNS update failed: $($r.ReturnValue)"}
-    $r=$isoCfg.SetDNSServerSearchOrder(@($DnsIP))
-    if($r.ReturnValue -ne 0 -and $r.ReturnValue -ne 1){throw "isolated DNS update failed: $($r.ReturnValue)"}
-
-    foreach($a in @(Get-WmiObject Win32_NetworkAdapter |
-        Where-Object{$_.Index -ne $mgmtAdapter.Index -and $_.Index -ne $isoAdapter.Index -and $_.NetEnabled -eq $true})){
-        $null=$a.Disable()
-    }
-
-    for($i=0;$i -lt 5;$i++){
-        if((Get-Default4).Count -eq 0){break}
-        & route.exe delete 0.0.0.0|Out-Null
-        Start-Sleep -Milliseconds 300
-    }
-
-    foreach($a in @(Get-WmiObject Win32_NetworkAdapter | Where-Object{$_.InterfaceIndex})){
-        & netsh interface ipv6 set interface $a.InterfaceIndex routerdiscovery=disabled store=persistent 2>$null|Out-Null
-        & netsh interface ipv6 delete route '::/0' "interface=$($a.InterfaceIndex)" store=active 2>$null|Out-Null
-        & netsh interface ipv6 delete route '::/0' "interface=$($a.InterfaceIndex)" store=persistent 2>$null|Out-Null
-    }
-    New-Item -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters' -Force|Out-Null
-    New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters' -Name DisabledComponents -PropertyType DWord -Value 255 -Force|Out-Null
-
-    & ipconfig /flushdns|Out-Null
-    Start-Sleep -Seconds 2
-
-    $defaults4=Get-Default4
-    $defaults6=Get-Default6Lines
-    if($defaults4.Count -ne 0){throw "IPv4 default route removal failed; count=$($defaults4.Count)"}
-    if($defaults6.Count -ne 0){throw "IPv6 default route removal failed; count=$($defaults6.Count)"}
-
-    $mgmtCfg=Refresh-Config $mgmtAdapter.Index
-    $isoCfg=Refresh-Config $isoAdapter.Index
-    if(-not ($mgmtCfg.IPAddress -contains $ManagementIP)){throw 'management IPv4 address was not preserved'}
-    if(-not ($isoCfg.IPAddress -contains $FakeIP)){throw 'isolated IPv4 address was not applied'}
-
-    $active=@(Get-WmiObject Win32_NetworkAdapter |
-        Where-Object{$_.NetEnabled -eq $true -and $_.NetConnectionStatus -eq 2})
-    $unexpected=@($active |
-        Where-Object{$_.Index -ne $mgmtAdapter.Index -and $_.Index -ne $isoAdapter.Index})
-    if($unexpected.Count -ne 0){throw 'unexpected active network adapter remains'}
-
-    $dns=@($mgmtCfg.DNSServerSearchOrder + $isoCfg.DNSServerSearchOrder |
-        Where-Object{$_}|Sort-Object -Unique)
-    if($dns.Count -ne 1 -or $dns[0] -ne $DnsIP){throw "active-adapter DNS is not exclusively $DnsIP"}
-
-    if(-not (Test-TcpPort $ResultServerIP $ResultServerPort)){
-        throw ("ResultServer {0}:{1} is not reachable" -f $ResultServerIP,$ResultServerPort)
-    }
-    $answers=@([System.Net.Dns]::GetHostAddresses('cape-inetsim-validation.invalid') |
-        ForEach-Object{$_.IPAddressToString})
-    if(-not ($answers -contains $DnsIP)){throw 'INetSim DNS validation failed'}
-    if(-not (Test-TcpPort $DnsIP 80)){throw 'INetSim HTTP service is not reachable'}
-    if(-not (Test-TcpPort $DnsIP 443)){throw 'INetSim HTTPS service is not reachable'}
-
-    $public4=(& ping.exe -n 1 -w 1000 8.8.8.8 2>$null|Select-String 'TTL=' -Quiet)
-    $public6=(& ping.exe -6 -n 1 -w 1000 2606:4700:4700::1111 2>$null|Select-String 'TTL=' -Quiet)
-    if($public4){throw 'public IPv4 unexpectedly reachable'}
-    if($public6){throw 'public IPv6 unexpectedly reachable'}
-
-    Write-Result $true 'Windows isolated networking configured and safety-verified' @{
-        legacy_network_stack=$true
-        management_interface=$mgmtAdapter.NetConnectionID
-        management_index=$mgmtAdapter.InterfaceIndex
-        isolated_interface=$isoAdapter.NetConnectionID
-        isolated_index=$isoAdapter.InterfaceIndex
-        isolated_mac=$isoAdapter.MACAddress
-        isolated_ip=$FakeIP
-        dns=$DnsIP
-        default_routes=0
-        ipv4_default_routes=0
-        ipv6_default_routes=0
-        ipv6_bindings_enabled=-1
-        ipv6_router_discovery_disabled=$true
-        unexpected_active_adapters=0
-        resultserver_reachable=$true
-        inetsim_http_reachable=$true
-        inetsim_https_reachable=$true
-        public_ip_reachable=$false
-        public_ipv6_reachable=$false
-        backup=$backupPath
-    }
-    exit 0
-} catch {
-    Write-Result $false $_.Exception.Message @{error=($_|Out-String)}
-    exit 1
-}
-){
-            $mgmtIPv4 += $addr
-            $mgmtIPv4Masks += [string]$mgmtCfg.IPSubnet[$i]
-        }
-        if($addr -eq $ManagementIP){$mgmtMask=[string]$mgmtCfg.IPSubnet[$i]}
-    }
-    if(-not $mgmtMask){throw 'could not determine management IPv4 subnet mask'}
-    if($mgmtIPv4.Count -eq 0){throw 'management adapter has no IPv4 addresses to preserve'}
-    $isoMask=Prefix-ToMask $PrefixLength
-    $gateway=@($mgmtCfg.DefaultIPGateway | Where-Object{$_ -match '^\d+\.\d+\.\d+\.\d+$'} | Select-Object -First 1)
-
-    $backupDir='C:\ProgramData\CAPE-INetSim-AutoDeploy'
-    New-Item -ItemType Directory -Force -Path $backupDir|Out-Null
-    $backupPath=Join-Path $backupDir 'network-before.json'
-    if(-not (Test-Path $backupPath)){
-        $backup=@{
-            adapters=@(Get-WmiObject Win32_NetworkAdapter | Select-Object Index,InterfaceIndex,NetConnectionID,MACAddress,NetEnabled,NetConnectionStatus)
-            configs=@(Get-WmiObject Win32_NetworkAdapterConfiguration | Select-Object Index,InterfaceIndex,IPAddress,IPSubnet,DefaultIPGateway,DNSServerSearchOrder,DHCPEnabled)
-            route4=@(& route print -4)
-            route6=@(& netsh interface ipv6 show route)
-        }
-        if(Get-Command ConvertTo-Json -ErrorAction SilentlyContinue){
-            $backup|ConvertTo-Json -Depth 8|Set-Content -Encoding UTF8 -Path $backupPath
-        }
-    }
-
-    if($mgmtAdapter.NetEnabled -ne $true){$null=$mgmtAdapter.Enable();Start-Sleep -Seconds 1}
-    if($isoAdapter.NetEnabled -ne $true){$null=$isoAdapter.Enable();Start-Sleep -Seconds 1}
-
-    foreach($remote in @($ResultServerIP,$ControlHostIP)|Where-Object{$_}|Select-Object -Unique){
-        if(-not (Same-Subnet $ManagementIP $remote $mgmtMask)){
-            if(-not $gateway){throw "no management gateway exists to preserve routed control endpoint $remote"}
-            & route.exe -p add $remote mask 255.255.255.255 $gateway[0] metric 1 if $mgmtAdapter.InterfaceIndex|Out-Null
-            if($LASTEXITCODE -ne 0){
-                & route.exe change $remote mask 255.255.255.255 $gateway[0] metric 1 if $mgmtAdapter.InterfaceIndex|Out-Null
-                if($LASTEXITCODE -ne 0){throw "could not preserve route to control endpoint $remote"}
-            }
-        }
-    }
-
-    $r=$mgmtCfg.EnableStatic(@($ManagementIP),@($mgmtMask))
-    if($r.ReturnValue -ne 0 -and $r.ReturnValue -ne 1){throw "management EnableStatic failed: $($r.ReturnValue)"}
     $r=$isoCfg.EnableStatic(@($FakeIP),@($isoMask))
     if($r.ReturnValue -ne 0 -and $r.ReturnValue -ne 1){throw "isolated EnableStatic failed: $($r.ReturnValue)"}
 
