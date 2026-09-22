@@ -53,4 +53,11 @@ start=s.index("windows_rollback_to_safety()")
 body=s[start:]
 assert 'intentionally left the analysis VM shut off for network safety' in body
 assert 'virsh start "$DOMAIN"' not in body
+stop=s[s.index("windows_stop_for_cutover()"):s.index("windows_snapshot_has_child()",s.index("windows_stop_for_cutover()"))]
+assert 'qga_wait "$DOMAIN" 5' in stop
+assert 'windows_winrm_ready "$CAPE_MACHINE_IP"' in stop
+assert 'cape_agent_wait "$CAPE_MACHINE_IP" 15' in stop
+assert 'windows_poweroff_via_cape_agent "$CAPE_MACHINE_IP"' in stop
+assert 'virsh shutdown "$DOMAIN"' in stop
+assert 'refusing forced cutover' in stop
 PY
