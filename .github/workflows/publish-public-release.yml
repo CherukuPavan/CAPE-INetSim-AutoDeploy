@@ -156,6 +156,11 @@ jobs:
 
           python3 source/appliance/build/render-manifest.py             --artifact "$RAW"             --transport-artifact "$PKG"             --url "$ASSET_URL"             --output "$MANIFEST"
           cp "$MANIFEST" "$ROOT/appliance/manifest.json"
+          install -m 0755 source/appliance/guest-configure.sh "$ROOT/appliance/guest-configure.sh"
+          cmp -s source/appliance/guest-configure.sh "$ROOT/appliance/guest-configure.sh" || {
+            echo "::error::runtime guest configurator does not match release source"
+            exit 3
+          }
 
           # Release-only allowlist: development workflows/tests/docs/build tooling never enter ROOT.
           for forbidden in .github tests docs release; do
