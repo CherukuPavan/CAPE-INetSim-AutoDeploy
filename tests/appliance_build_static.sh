@@ -8,6 +8,7 @@ python3 -m py_compile \
   "$ROOT/appliance/build/render-cloud-init.py"
 dash -n "$ROOT/appliance/image-rootfs-prepare.sh"
 bash -n "$ROOT/appliance/build/verify-artifact.sh"
+bash -n "$ROOT/appliance/build/runtime-smoke-test.sh"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -91,6 +92,9 @@ grep -q 'deployment-owned netplan state' "$ROOT/appliance/build/verify-artifact.
 grep -q 'temporary build DNS state' "$ROOT/appliance/build/verify-artifact.sh"
 grep -q 'persistent static/default network configuration' "$ROOT/appliance/build/verify-artifact.sh"
 grep -q 'appliance_verify.outcome' "$ROOT/.github/workflows/appliance-build.yml"
+grep -q 'appliance_runtime_smoke.outcome' "$ROOT/.github/workflows/appliance-build.yml"
+grep -q 'runtime-smoke-test.sh' "$ROOT/.github/workflows/appliance-build.yml"
+grep -q 'cape-inetsim-runtime-smoke-ok' "$ROOT/appliance/build/runtime-smoke-test.sh"
 grep -q -- '--transport-artifact' "$ROOT/appliance/build/render-manifest.py"
 grep -q '"compression":"gzip"' "$ROOT/appliance/build/render-manifest.py"
 
@@ -99,5 +103,7 @@ grep -Fq 'expected at most one management default route' "$ROOT/appliance/guest-
 grep -Fq '[[ "$DEFAULTS" -le 1 ]]' "$ROOT/appliance/guest-configure.sh"
 ! grep -Fq 'expected exactly one management default route' "$ROOT/appliance/guest-configure.sh"
 ! grep -q '192\.168\.200\.' "$ROOT/appliance/guest-configure.sh"
+grep -Fq 'sysctl -w net.ipv4.ip_forward=0' "$ROOT/appliance/guest-configure.sh"
+! grep -Fq 'sysctl --system' "$ROOT/appliance/guest-configure.sh"
 
 echo '[PASS] pinned/generalized appliance build pipeline'
