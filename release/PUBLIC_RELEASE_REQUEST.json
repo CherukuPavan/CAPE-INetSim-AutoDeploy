@@ -1,7 +1,7 @@
 {
-  "candidate_run_id": 35707058952,
-  "source_sha": "a0ef8fc47afb505ecf1e1fd8e3d63f266eb23e5e",
-  "release_tag": "v1.0.0-rc.12",
+  "candidate_run_id": 35716712954,
+  "source_sha": "43e3665c61d2ddfff5372fccc17a5f95af0933db",
+  "release_tag": "v1.0.0-rc.13",
   "prerelease": true,
   "promotion_attempt": 1
 }
