@@ -385,6 +385,9 @@ windows_rollback_to_safety() {
   if declare -F windows_management_guard_restore_if_owned >/dev/null 2>&1; then
     windows_management_guard_restore_if_owned
   fi
+  if declare -F windows_management_dhcp_restore_if_owned >/dev/null 2>&1; then
+    windows_management_dhcp_restore_if_owned
+  fi
 
   windows_delete_owned_snapshots_leaf_first
 
