@@ -122,7 +122,9 @@ if [[ -d "$AD_STATE_ROOT_CAPTURE/logs" ]]; then
       -name '*cape-agent-execpy.txt' -o \
       -name '*progress.txt' -o \
       -name '*windows-finalize*.json' -o \
-      -name '*windows-finalize*.txt' \
+      -name '*windows-finalize*.txt' -o \
+      -name '*poweroff*.json' -o \
+      -name '*poweroff*.txt' \
     \) -print0 2>/dev/null |
   while IFS= read -r -d '' src; do
     cp -a "$src" "$OUT/autodeploy/$(basename "$src")"
@@ -306,20 +308,41 @@ if [[ -n "$CAPE_ROOT" && -d "$CAPE_ROOT" ]]; then
 fi
 
 # Windows-management reachability. Read-only probes only; no guest configuration changes.
-CAPE_IP=""
+# Probe every configured CAPE machine independently; never collapse a multi-VM
+# inventory to the last "ip =" line in kvm.conf.
 if [[ -f "$OUT/cape/kvm.conf.redacted.txt" ]]; then
-  CAPE_IP="$(grep -E '^[[:space:]]*ip[[:space:]]*=' "$OUT/cape/kvm.conf.redacted.txt" | tail -1 | cut -d= -f2- | xargs || true)"
-fi
-if [[ -n "$CAPE_IP" ]]; then
-  for p in 8000 5985 5986 3389 445; do
-    {
-      echo "target=$CAPE_IP port=$p"
-      timeout 2 bash -c "</dev/tcp/$CAPE_IP/$p" >/dev/null 2>&1 && echo OPEN || echo CLOSED
-    } >"$OUT/windows/port-$p.txt"
+  python3 - "$OUT/cape/kvm.conf.redacted.txt" <<'PY' |
+import configparser,sys
+p=sys.argv[1]
+c=configparser.ConfigParser(interpolation=None,strict=False)
+c.optionxform=str.lower
+c.read(p)
+machines=[]
+if c.has_section("kvm"):
+    machines=[x.strip() for x in c.get("kvm","machines",fallback="").split(",") if x.strip()]
+for name in machines:
+    if not c.has_section(name):
+        continue
+    ip=c.get(name,"ip",fallback="").strip()
+    platform=c.get(name,"platform",fallback="windows").strip().lower()
+    if ip and platform.startswith("windows"):
+        print(name+"|"+ip)
+PY
+  while IFS='|' read -r label ip; do
+    [[ -n "$label" && -n "$ip" ]] || continue
+    safe="$(printf '%s' "$label" | tr -cs 'A-Za-z0-9._-' '_')"
+    wdir="$OUT/windows/$safe"
+    mkdir -p "$wdir"
+    for p in 8000 5985 5986 3389 445; do
+      {
+        echo "machine=$label target=$ip port=$p"
+        timeout 2 bash -c "</dev/tcp/$ip/$p" >/dev/null 2>&1 && echo OPEN || echo CLOSED
+      } >"$wdir/port-$p.txt"
+    done
+    curl -fsS --max-time 3 -D "$wdir/cape-agent-root-headers.txt" "http://$ip:8000/" -o "$wdir/cape-agent-root-body.txt" 2>"$wdir/cape-agent-root-error.txt" || true
+    head -c 16384 "$wdir/cape-agent-root-body.txt" >"$wdir/cape-agent-root-body-truncated.txt" 2>/dev/null || true
+    rm -f "$wdir/cape-agent-root-body.txt"
   done
-  curl -fsS --max-time 3 -D "$OUT/windows/cape-agent-root-headers.txt" "http://$CAPE_IP:8000/" -o "$OUT/windows/cape-agent-root-body.txt" 2>"$OUT/windows/cape-agent-root-error.txt" || true
-  head -c 16384 "$OUT/windows/cape-agent-root-body.txt" >"$OUT/windows/cape-agent-root-body-truncated.txt" 2>/dev/null || true
-  rm -f "$OUT/windows/cape-agent-root-body.txt"
 fi
 
 # Packages/tools
