@@ -26,11 +26,18 @@ windows_find_isolated_mac() {
   windows_existing_network_interfaces "$DOMAIN" | awk -F '|' -v n="$ISOLATED_NETWORK_NAME" '$1==n {print $3}'
 }
 
+windows_isolated_mac_present() {
+  local want="${1,,}" macs
+  macs="$(windows_find_isolated_mac)" || return 1
+  grep -Fqi "$want" <<<"$macs"
+}
+
 windows_mac_in_use() {
-  local want="${1,,}" d
+  local want="${1,,}" d xml
   while IFS= read -r d; do
     [[ -n "$d" ]] || continue
-    virsh dumpxml "$d" 2>/dev/null | grep -Eiq "<mac[[:space:]]+address=['\"]$want['\"]" && return 0
+    xml="$(virsh dumpxml "$d" 2>/dev/null || true)"
+    grep -Eiq "<mac[[:space:]]+address=['\"]$want['\"]" <<<"$xml" && return 0
   done < <(virsh list --all --name 2>/dev/null)
   return 1
 }
@@ -99,14 +106,14 @@ windows_detach_isolated_nic() {
   [[ -n "${WINDOWS_ISOLATED_MAC:-}" ]] || return 0
   if ! state_resource_owned domain-interface "$DOMAIN:$WINDOWS_ISOLATED_MAC"; then
     if state_resource_intended domain-interface "$DOMAIN:$WINDOWS_ISOLATED_MAC" &&
-       windows_find_isolated_mac | grep -Fqi "$WINDOWS_ISOLATED_MAC"; then
+       windows_isolated_mac_present "$WINDOWS_ISOLATED_MAC"; then
       state_record_resource domain-interface "$DOMAIN:$WINDOWS_ISOLATED_MAC" recovered-attached yes "rollback-adoption"
     else
       fail "Refusing to detach unowned Windows NIC $WINDOWS_ISOLATED_MAC"
       return 1
     fi
   fi
-  if windows_find_isolated_mac | grep -Fqi "$WINDOWS_ISOLATED_MAC"; then
+  if windows_isolated_mac_present "$WINDOWS_ISOLATED_MAC"; then
     [[ "$(virsh domstate "$DOMAIN" | xargs)" == "shut off" ]] || { fail "Windows domain must be shut off before NIC rollback"; return 1; }
     virsh detach-interface --domain "$DOMAIN" --type network --mac "$WINDOWS_ISOLATED_MAC" --config >/dev/null
   fi
@@ -371,7 +378,7 @@ windows_rollback_to_safety() {
 
   # Reverting the pre-change snapshot normally restores the pre-NIC domain XML.
   # Detach explicitly only if the deployment-owned interface still remains.
-  if [[ -n "${WINDOWS_ISOLATED_MAC:-}" ]] && windows_find_isolated_mac | grep -Fqi "$WINDOWS_ISOLATED_MAC"; then
+  if [[ -n "${WINDOWS_ISOLATED_MAC:-}" ]] && windows_isolated_mac_present "$WINDOWS_ISOLATED_MAC"; then
     windows_detach_isolated_nic
   fi
 
