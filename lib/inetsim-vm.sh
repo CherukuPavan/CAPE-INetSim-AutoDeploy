@@ -206,28 +206,51 @@ echo "=== inetsim journal ==="; journalctl -u inetsim.service -n 120 --no-pager
 
 inetsim_configure_guest() {
   local guest_script='/tmp/cape-inetsim-guest-configure'
+  local baked_script='/usr/local/sbin/cape-inetsim-guest-configure'
   local guest_log="$AD_LOG_ROOT/${DEPLOYMENT_ID}-inetsim-guest-configure.log"
+  local selected_script="" transport="" current_hash="" baked_hash=""
+
   virsh start "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1 || true
   qga_wait "$INETSIM_DOMAIN_NAME" 240 || { fail "INetSim appliance QEMU Guest Agent did not come online"; return 1; }
 
-  # Always execute the guest-config script shipped by the current immutable
-  # runtime release. This prevents an older baked appliance helper from
-  # diverging from host-side orchestration after an upgrade/retry.
-  qga_file_write "$INETSIM_DOMAIN_NAME" "$AUTODEPLOY_ROOT/appliance/guest-configure.sh" "$guest_script" || {
-    fail "Could not upload the current INetSim guest configuration script"
-    return 1
-  }
-
+  # Create the trace before attempting transport so a QGA file-copy failure is
+  # preserved for the automatic collector instead of disappearing in rollback.
   : >"$guest_log"
   chmod 0600 "$guest_log"
-  if ! qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/bash -x "$guest_script"       --management-mac "$INETSIM_MANAGEMENT_MAC"       --isolated-mac "$INETSIM_ISOLATED_MAC"       --ip "$INETSIM_IP/24" >"$guest_log" 2>&1; then
+  current_hash="$(sha256sum "$AUTODEPLOY_ROOT/appliance/guest-configure.sh" | awk '{print $1}')"
+
+  # Prefer the configurator shipped by the current immutable runtime bundle.
+  # Some qemu-guest-agent policies expose guest-exec but deny guest-file-* RPCs.
+  # In that case, safely fall back only to a byte-identical configurator baked
+  # into the checksum-pinned appliance produced from the same release source.
+  if qga_file_write "$INETSIM_DOMAIN_NAME" "$AUTODEPLOY_ROOT/appliance/guest-configure.sh" "$guest_script" >>"$guest_log" 2>&1; then
+    selected_script="$guest_script"
+    transport="qga-file-write"
+    printf 'CONFIGURATOR_TRANSPORT=%s\n' "$transport" >>"$guest_log"
+  else
+    printf 'QGA guest-file transport unavailable; checking baked configurator identity.\n' >>"$guest_log"
+    baked_hash="$(qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/sha256sum "$baked_script" 2>>"$guest_log" | awk 'NF {print $1; exit}' || true)"
+    if [[ ! "$baked_hash" =~ ^[0-9a-f]{64}$ || "$baked_hash" != "$current_hash" ]]; then
+      printf 'EXPECTED_CONFIGURATOR_SHA256=%s\n' "$current_hash" >>"$guest_log"
+      printf 'BAKED_CONFIGURATOR_SHA256=%s\n' "${baked_hash:-unavailable}" >>"$guest_log"
+      inetsim_capture_guest_diagnostics
+      fail "Could not upload the current INetSim guest configurator and the baked configurator could not be proven byte-identical to this release"
+      return 1
+    fi
+    selected_script="$baked_script"
+    transport="baked-release-match"
+    printf 'CONFIGURATOR_TRANSPORT=%s\n' "$transport" >>"$guest_log"
+    printf 'CONFIGURATOR_SHA256=%s\n' "$current_hash" >>"$guest_log"
+  fi
+
+  if ! qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/bash -x "$selected_script"       --management-mac "$INETSIM_MANAGEMENT_MAC"       --isolated-mac "$INETSIM_ISOLATED_MAC"       --ip "$INETSIM_IP/24" >>"$guest_log" 2>&1; then
     inetsim_capture_guest_diagnostics
     fail "INetSim guest configuration failed; command trace and guest diagnostics were captured automatically"
     return 1
   fi
 
   qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/rm -f "$guest_script" >/dev/null 2>&1 || true
-  state_record_resource inetsim-guest "$INETSIM_DOMAIN_NAME" configured yes "ip=$INETSIM_IP mac=$INETSIM_ISOLATED_MAC log=$guest_log"
+  state_record_resource inetsim-guest "$INETSIM_DOMAIN_NAME" configured yes "ip=$INETSIM_IP mac=$INETSIM_ISOLATED_MAC transport=$transport log=$guest_log"
   state_write_atomic
 }
 
