@@ -115,7 +115,7 @@ virsh() {
   fi
 
   case "${1:-}" in
-    nwfilter-info)
+    nwfilter-dumpxml)
       [[ "${LOADED[$2]:-no}" == yes ]]
       ;;
     nwfilter-define)
@@ -215,5 +215,6 @@ grep -Fq 'nwfilter_runtime_rollback' "$ROOT/lib/rollback.sh"
 grep -Fq 'yes|activatable' "$ROOT/lib/deploy.sh"
 grep -Fq 'nwfilter-define' "$ROOT/lib/windows-network-guard.sh"
 grep -Fq 'nwfilter:///system' "$ROOT/lib/windows-network-guard.sh"
+! grep -R --line-number --fixed-strings 'nwfilter-info' "$ROOT/lib"
 
 echo '[PASS] nwfilter runtime activation/reload is transactional, dependency-aware and rollback-safe'
