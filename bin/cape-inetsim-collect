@@ -117,7 +117,12 @@ if [[ -d "$AD_STATE_ROOT_CAPTURE/logs" ]]; then
       -name '*cape-runtime-preflight.log' -o \
       -name '*windows-result.json' -o \
       -name '*windows-verify.json' -o \
-      -name '*cape-agent-execpy.json' \
+      -name '*windows-isolated-control-stage.json' -o \
+      -name '*cape-agent-execpy.json' -o \
+      -name '*cape-agent-execpy.txt' -o \
+      -name '*progress.txt' -o \
+      -name '*windows-finalize*.json' -o \
+      -name '*windows-finalize*.txt' \
     \) -print0 2>/dev/null |
   while IFS= read -r -d '' src; do
     cp -a "$src" "$OUT/autodeploy/$(basename "$src")"
