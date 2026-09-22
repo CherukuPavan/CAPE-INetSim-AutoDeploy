@@ -95,8 +95,10 @@ cape_configure_inetsim() {
     python3 "$edit" "$CAPE_ROOT/conf/kvm.conf" "$CAPE_MACHINE_SECTION" interface "$ISOLATED_BRIDGE_NAME"
 
     grep -Fq "capture_host_${CAPE_MACHINE_LABEL} = $WINDOWS_FAKE_IP" "$CAPE_ROOT/conf/auxiliary.conf"
-    grep -A160 -F "[$CAPE_MACHINE_SECTION]" "$CAPE_ROOT/conf/kvm.conf" | grep -m1 -Fq "snapshot = $FINAL_SNAPSHOT"
-    grep -A160 -F "[$CAPE_MACHINE_SECTION]" "$CAPE_ROOT/conf/kvm.conf" | grep -m1 -Fq "interface = $ISOLATED_BRIDGE_NAME"
+    local machine_block
+    machine_block="$(grep -A160 -F "[$CAPE_MACHINE_SECTION]" "$CAPE_ROOT/conf/kvm.conf" || true)"
+    grep -m1 -Fq "snapshot = $FINAL_SNAPSHOT" <<<"$machine_block"
+    grep -m1 -Fq "interface = $ISOLATED_BRIDGE_NAME" <<<"$machine_block"
 
     TARGET_PHASE=cape-configured
     targets_capture_bound "$i"
