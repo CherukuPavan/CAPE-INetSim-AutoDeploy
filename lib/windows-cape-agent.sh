@@ -259,10 +259,53 @@ cape_agent_execpy_sync() {
   cape_agent_extract_runner_envelope "$json_log" "$local_result" "$text_log"
 }
 
+cape_agent_status() {
+  local ip="$1" timeout="${2:-5}"
+  cape_agent_curl "$ip" -fsS --connect-timeout 2 --max-time "$timeout" \
+    "$(cape_agent_url "$ip")/status"
+}
+
+cape_agent_reap_async_state() {
+  local ip="$1" timeout="${2:-30}" elapsed=0 body="" status=""
+  while ((elapsed < timeout)); do
+    if body="$(cape_agent_status "$ip" 5 2>/dev/null)"; then
+      status="$(python3 - "$body" <<'PY'
+import json,sys
+try:
+    d=json.loads(sys.argv[1])
+except Exception:
+    raise SystemExit(1)
+print(str(d.get("status") or "").lower())
+PY
+)" || status=""
+      case "$status" in
+        complete) return 0 ;;
+        failed|exception)
+          fail "Previous CAPE Agent async job ended in terminal state: $status"
+          return 1
+          ;;
+        running|init|"") ;;
+        *)
+          fail "Unexpected CAPE Agent async status: $status"
+          return 1
+          ;;
+      esac
+    fi
+    sleep 1
+    elapsed=$((elapsed+1))
+  done
+  fail "Timed out waiting for previous CAPE Agent async job to clear"
+  return 1
+}
+
 cape_agent_execpy_async_detached() {
   local ip="$1" remote_python="$2" log_file="$3"
   local tmp="${log_file}.tmp.$" http curl_rc=0
   rm -f "$tmp" "$log_file"
+
+  # CAPE Agent 0.22 keeps the previous async subprocess slot until /status is
+  # polled. Reap any completed detached helper before launching another one.
+  cape_agent_reap_async_state "$ip" 20 || return 1
 
   http="$(cape_agent_curl "$ip" -sS --connect-timeout 3 --max-time 20 \
       -o "$tmp" -w '%{http_code}' \
@@ -334,6 +377,10 @@ PY
   sleep 7
   cape_agent_wait "$management_ip" 45 || {
     fail "CAPE Agent did not return on the normal management path after isolated-control finalization"
+    return 61
+  }
+  cape_agent_reap_async_state "$management_ip" 30 || {
+    fail "CAPE Agent isolated-control finalizer did not complete cleanly"
     return 61
   }
 
