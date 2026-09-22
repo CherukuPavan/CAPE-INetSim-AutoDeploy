@@ -31,7 +31,12 @@ grep -Fq '/execpy' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'async=yes' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq '/status' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'cape_agent_wait_async_result' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'cape_agent_candidate_ips' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'cape_agent_try_retrieve_any' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'CAPE_AGENT_CUTOVER_TIMEOUT' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'CAPE_AGENT_GUEST_TIMEOUT' "$ROOT/lib/windows-cape-agent.sh"
 ! grep -Fq -- '--max-time 700' "$ROOT/lib/windows-cape-agent.sh"
+! grep -Fq ' 660' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq '/store' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq '/retrieve' "$ROOT/lib/windows-cape-agent.sh"
 ! grep -Fq '/execute' "$ROOT/lib/windows-cape-agent.sh"
@@ -131,8 +136,21 @@ source "$ROOT/lib/windows-cape-agent.sh"
 [[ "$(cape_agent_probe 127.0.0.1)" == 0.22 ]]
 cape_agent_execpy_async 127.0.0.1 'C:\Windows\Temp\runner.py' "$TMP_AGENT/execpy.log"
 grep -Fq '"process_id": 1234' "$TMP_AGENT/execpy.log"
-cape_agent_wait_async_result 127.0.0.1 'C:\Windows\Temp\result.json' "$TMP_AGENT/result.json" "$TMP_AGENT/execpy.log" 10
+# Simulate the management path disappearing during reconfiguration: the mock
+# server is bound only to 127.0.0.1, while 127.0.0.2 is supplied as primary.
+# Result retrieval must transparently fall through to the alternate path.
+cape_agent_wait_async_result 127.0.0.2 127.0.0.1 'C:\Windows\Temp\result.json' "$TMP_AGENT/result.json" "$TMP_AGENT/execpy.log" 10
 grep -Fq '"ok":true' "$TMP_AGENT/result.json"
+grep -Fq 'via=127.0.0.1' "$TMP_AGENT/execpy.log"
+
+CAPE_AGENT_GUEST_TIMEOUT=180
+cape_agent_write_runner_config "$TMP_AGENT/runner.json" 'C:\Windows\Temp\script.ps1' -ResultPath 'C:\Windows\Temp\result.json'
+python3 - "$TMP_AGENT/runner.json" <<'PY'
+import json,sys
+d=json.load(open(sys.argv[1],encoding="utf-8"))
+assert d["timeout"] == 180
+PY
+
 kill "$AGENT_PID" >/dev/null 2>&1 || true
 wait "$AGENT_PID" 2>/dev/null || true
 rm -rf "$TMP_AGENT"
@@ -195,4 +213,4 @@ if validate_windows_result_path "$TMP/result.json" >/dev/null 2>&1; then
   exit 1
 fi
 
-echo '[PASS] QGA -> approved WinRM -> verified CAPE Agent execpy -> safe-stop zero-touch policy and Windows safety gates'
+echo '[PASS] QGA -> approved WinRM -> async dual-path CAPE Agent execpy -> safe-stop zero-touch policy and Windows safety gates'
