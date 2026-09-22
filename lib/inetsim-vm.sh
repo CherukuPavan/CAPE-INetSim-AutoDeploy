@@ -204,14 +204,29 @@ echo "=== inetsim journal ==="; journalctl -u inetsim.service -n 120 --no-pager
 }
 
 inetsim_configure_guest() {
+  local guest_script='/tmp/cape-inetsim-guest-configure'
+  local guest_log="$AD_LOG_ROOT/${DEPLOYMENT_ID}-inetsim-guest-configure.log"
   virsh start "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1 || true
   qga_wait "$INETSIM_DOMAIN_NAME" 240 || { fail "INetSim appliance QEMU Guest Agent did not come online"; return 1; }
-  if ! qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/local/sbin/cape-inetsim-guest-configure --management-mac "$INETSIM_MANAGEMENT_MAC" --isolated-mac "$INETSIM_ISOLATED_MAC" --ip "$INETSIM_IP/24"; then
+
+  # Always execute the guest-config script shipped by the current immutable
+  # runtime release. This prevents an older baked appliance helper from
+  # diverging from host-side orchestration after an upgrade/retry.
+  qga_file_write "$INETSIM_DOMAIN_NAME" "$AUTODEPLOY_ROOT/appliance/guest-configure.sh" "$guest_script" || {
+    fail "Could not upload the current INetSim guest configuration script"
+    return 1
+  }
+
+  : >"$guest_log"
+  chmod 0600 "$guest_log"
+  if ! qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/bash -x "$guest_script"       --management-mac "$INETSIM_MANAGEMENT_MAC"       --isolated-mac "$INETSIM_ISOLATED_MAC"       --ip "$INETSIM_IP/24" >"$guest_log" 2>&1; then
     inetsim_capture_guest_diagnostics
-    fail "INetSim guest configuration failed; guest diagnostics were captured automatically"
+    fail "INetSim guest configuration failed; command trace and guest diagnostics were captured automatically"
     return 1
   fi
-  state_record_resource inetsim-guest "$INETSIM_DOMAIN_NAME" configured yes "ip=$INETSIM_IP mac=$INETSIM_ISOLATED_MAC"
+
+  qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/rm -f "$guest_script" >/dev/null 2>&1 || true
+  state_record_resource inetsim-guest "$INETSIM_DOMAIN_NAME" configured yes "ip=$INETSIM_IP mac=$INETSIM_ISOLATED_MAC log=$guest_log"
   state_write_atomic
 }
 
