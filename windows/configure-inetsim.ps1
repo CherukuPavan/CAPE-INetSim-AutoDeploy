@@ -189,16 +189,37 @@ try{
         $ifaceKey.Close()
     }
 
-    Invoke-Netsh @(
-        'interface','ipv4','set','address',
-        ("name=" + $isoAdapter.InterfaceIndex),
-        'source=static',
-        ("address=" + $FakeIP),
-        ("mask=" + $isoMask),
-        'gateway=none',
-        'store=persistent'
-    )|Out-Null
-    Write-Progress 'isolated-static'
+    # CAPE-Agent cutover pre-stages the isolated address and a temporary
+    # pinned-client /32 route before this script is launched over that path.
+    # Re-applying the isolated address with netsh can flush interface routes
+    # and tear down the HTTP connection carrying /execpy. Preserve an already
+    # correct staged address; QGA/WinRM paths still configure it here.
+    $isoCfg=Refresh-Config $isoAdapter.Index
+    $isolatedAlreadyStaged=($isoCfg.IPAddress -and ($isoCfg.IPAddress -contains $FakeIP))
+    if($isolatedAlreadyStaged){
+        $stagedMask=$null
+        for($i=0;$i -lt @($isoCfg.IPAddress).Count;$i++){
+            if([string]$isoCfg.IPAddress[$i] -eq $FakeIP){
+                $stagedMask=[string]$isoCfg.IPSubnet[$i]
+                break
+            }
+        }
+        if($stagedMask -ne $isoMask){
+            throw "pre-staged isolated address $FakeIP has unexpected mask $stagedMask (wanted $isoMask)"
+        }
+        Write-Progress 'isolated-static-preserved'
+    } else {
+        Invoke-Netsh @(
+            'interface','ipv4','set','address',
+            ("name=" + $isoAdapter.InterfaceIndex),
+            'source=static',
+            ("address=" + $FakeIP),
+            ("mask=" + $isoMask),
+            'gateway=none',
+            'store=persistent'
+        )|Out-Null
+        Write-Progress 'isolated-static'
+    }
 
     Invoke-Netsh @(
         'interface','ipv4','set','dnsservers',
