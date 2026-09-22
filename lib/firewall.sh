@@ -103,6 +103,38 @@ firewall_bridge_table_exists() {
   nft list table bridge "$FIREWALL_BRIDGE_TABLE" >/dev/null 2>&1
 }
 
+firewall_render_runtime_batch() {
+  local rules_file="$1"
+
+  # nft -c validates against the current ruleset. During Windows cutover the
+  # deployment-owned base inet table is already active, so checking a file that
+  # creates the same table again fails before any mutation. Build one nft
+  # transaction that removes only the currently present AutoDeploy tables and
+  # recreates the desired ruleset. The same batch is used for validation and
+  # for the live update, keeping the guard replacement atomic.
+  if firewall_table_exists; then
+    printf 'delete table inet %s\n' "$FIREWALL_TABLE"
+  fi
+  if firewall_bridge_table_exists; then
+    printf 'delete table bridge %s\n' "$FIREWALL_BRIDGE_TABLE"
+  fi
+  cat "$rules_file"
+}
+
+firewall_activate_rules() {
+  local runtime_batch="$1"
+
+  if systemctl is-active --quiet cape-inetsim-autodeploy-firewall.service; then
+    # RemainAfterExit oneshot units are not re-run by "enable --now" when they
+    # are already active. Apply the checked nft transaction directly, then keep
+    # the unit enabled so the just-installed persistent rules return on reboot.
+    nft -f "$runtime_batch"
+    systemctl enable cape-inetsim-autodeploy-firewall.service >/dev/null
+  else
+    systemctl enable --now cape-inetsim-autodeploy-firewall.service
+  fi
+}
+
 firewall_table_matches_base() {
   local text
   text="$(nft list table inet "$FIREWALL_TABLE" 2>/dev/null)" || return 1
@@ -217,11 +249,13 @@ firewall_apply() {
   install -d -m 0755 "$FIREWALL_DIR"
   local tmp_rules="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-firewall.nft"
   local tmp_unit="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-firewall.service"
+  local tmp_runtime_batch="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-firewall-runtime.nft"
   firewall_render_rules "$ISOLATED_BRIDGE_NAME" "$want_management" >"$tmp_rules"
   firewall_render_unit >"$tmp_unit"
-  chmod 0600 "$tmp_rules" "$tmp_unit"
+  firewall_render_runtime_batch "$tmp_rules" >"$tmp_runtime_batch"
+  chmod 0600 "$tmp_rules" "$tmp_unit" "$tmp_runtime_batch"
 
-  nft -c -f "$tmp_rules"
+  nft -c -f "$tmp_runtime_batch"
 
   state_record_intent firewall-file "$FIREWALL_RULES" creating "bridge=$ISOLATED_BRIDGE_NAME"
   state_record_intent firewall-unit "$FIREWALL_UNIT" creating ""
@@ -230,7 +264,7 @@ firewall_apply() {
   install -m 0644 "$tmp_rules" "$FIREWALL_RULES"
   install -m 0644 "$tmp_unit" "$FIREWALL_UNIT"
   systemctl daemon-reload
-  systemctl enable --now cape-inetsim-autodeploy-firewall.service
+  firewall_activate_rules "$tmp_runtime_batch"
 
   firewall_file_matches_base || { fail "Installed firewall rules do not match deployment plan"; return 1; }
   firewall_unit_matches_project || { fail "Installed firewall service does not match project"; return 1; }

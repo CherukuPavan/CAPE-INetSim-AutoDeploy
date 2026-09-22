@@ -35,6 +35,55 @@ grep -Fq 'ExecStop=-/usr/sbin/nft delete table bridge cape_inetsim_autodeploy_l2
 
 echo '[PASS] host firewall blocks isolated and Windows-management escape paths'
 
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+printf '%s\n' "$full" >"$TMP/full.nft"
+
+# RC18 regression: once the base inet table is active, the management-guard
+# upgrade must validate a replacement transaction instead of trying to create
+# the same table on top of itself.
+firewall_table_exists(){ return 0; }
+firewall_bridge_table_exists(){ return 1; }
+runtime_batch="$(firewall_render_runtime_batch "$TMP/full.nft")"
+[[ "$(head -n1 <<<"$runtime_batch")" == "delete table inet cape_inetsim_autodeploy" ]]
+grep -Fq 'table inet cape_inetsim_autodeploy' <<<"$runtime_batch"
+! grep -Fq 'delete table bridge cape_inetsim_autodeploy_l2' <<<"$runtime_batch"
+
+firewall_bridge_table_exists(){ return 0; }
+runtime_batch="$(firewall_render_runtime_batch "$TMP/full.nft")"
+grep -Fq 'delete table inet cape_inetsim_autodeploy' <<<"$runtime_batch"
+grep -Fq 'delete table bridge cape_inetsim_autodeploy_l2' <<<"$runtime_batch"
+printf '%s\n' "$runtime_batch" >"$TMP/runtime.nft"
+
+# An already-active RemainAfterExit unit must receive the checked nft batch
+# directly; "enable --now" alone would leave the old base rules in memory.
+LOG="$TMP/activate.log"
+systemctl(){
+  printf 'systemctl:%s\n' "$*" >>"$LOG"
+  [[ "$1" == "is-active" ]] && return 0
+  return 0
+}
+nft(){ printf 'nft:%s\n' "$*" >>"$LOG"; }
+firewall_activate_rules "$TMP/runtime.nft"
+grep -Fxq "nft:-f $TMP/runtime.nft" "$LOG"
+grep -Fxq 'systemctl:enable cape-inetsim-autodeploy-firewall.service' "$LOG"
+! grep -Fq 'systemctl:enable --now cape-inetsim-autodeploy-firewall.service' "$LOG"
+
+# When the unit is not active, normal first-start behavior remains unchanged.
+: >"$LOG"
+systemctl(){
+  printf 'systemctl:%s\n' "$*" >>"$LOG"
+  [[ "$1" == "is-active" ]] && return 1
+  return 0
+}
+firewall_activate_rules "$TMP/runtime.nft"
+grep -Fxq 'systemctl:enable --now cape-inetsim-autodeploy-firewall.service' "$LOG"
+! grep -Fq 'nft:-f ' "$LOG"
+
+grep -Fq 'nft -c -f "$tmp_runtime_batch"' "$ROOT/lib/firewall.sh"
+grep -Fq 'firewall_activate_rules "$tmp_runtime_batch"' "$ROOT/lib/firewall.sh"
+echo '[PASS] active firewall rules are atomically replaced during management-guard upgrade'
+
 grep -q 'firewall_management_records' "$ROOT/lib/firewall.sh"
 grep -q 'firewall_management_guards_match_all' "$ROOT/lib/firewall.sh"
 grep -q 'Restored firewall is missing one or more Windows management egress guards' "$ROOT/lib/firewall.sh"
