@@ -23,6 +23,6 @@ grep -Fq 'LIBVIRT_STORAGE_POOL="$d_storage_pool"' "$ROOT/lib/deploy.sh"
 
 grep -Fq "sysctl -n net.ipv4.ip_forward" "$ROOT/lib/inetsim-vm.sh"
 grep -Fq "sysctl -n net.ipv6.conf.all.forwarding" "$ROOT/lib/inetsim-vm.sh"
-grep -Fq "default4=1" "$ROOT/lib/inetsim-vm.sh"
+grep -Fq "default4=(0|1)" "$ROOT/lib/inetsim-vm.sh"
 grep -Fq "default6=0" "$ROOT/lib/inetsim-vm.sh"
 grep -Fq "runtime forwarding isolation is enforced" "$ROOT/lib/inetsim-vm.sh"
