@@ -189,10 +189,28 @@ inetsim_define_domain() {
   state_write_atomic
 }
 
+inetsim_capture_guest_diagnostics() {
+  local out="$AD_LOG_ROOT/${DEPLOYMENT_ID}-inetsim-guest-diagnostics.txt"
+  qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/sh -c '
+set +e
+echo "=== date ==="; date -Is
+echo "=== addresses ==="; ip -br addr
+echo "=== routes ==="; ip -4 route; ip -6 route
+echo "=== netplan ==="; cat /etc/netplan/90-cape-inetsim.yaml 2>/dev/null
+echo "=== listeners ==="; ss -lnupt
+echo "=== inetsim status ==="; systemctl status inetsim.service --no-pager -l
+echo "=== inetsim journal ==="; journalctl -u inetsim.service -n 120 --no-pager
+' >"$out" 2>&1 || true
+}
+
 inetsim_configure_guest() {
   virsh start "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1 || true
-  qga_wait "$INETSIM_DOMAIN_NAME" 180 || { fail "INetSim appliance QEMU Guest Agent did not come online"; return 1; }
-  qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/local/sbin/cape-inetsim-guest-configure --management-mac "$INETSIM_MANAGEMENT_MAC" --isolated-mac "$INETSIM_ISOLATED_MAC" --ip "$INETSIM_IP/24"
+  qga_wait "$INETSIM_DOMAIN_NAME" 240 || { fail "INetSim appliance QEMU Guest Agent did not come online"; return 1; }
+  if ! qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/local/sbin/cape-inetsim-guest-configure --management-mac "$INETSIM_MANAGEMENT_MAC" --isolated-mac "$INETSIM_ISOLATED_MAC" --ip "$INETSIM_IP/24"; then
+    inetsim_capture_guest_diagnostics
+    fail "INetSim guest configuration failed; guest diagnostics were captured automatically"
+    return 1
+  fi
   state_record_resource inetsim-guest "$INETSIM_DOMAIN_NAME" configured yes "ip=$INETSIM_IP mac=$INETSIM_ISOLATED_MAC"
   state_write_atomic
 }
@@ -219,9 +237,21 @@ printf "default6=%s\n" "$(ip -6 route show default | wc -l)"
   grep -Eq '^default4=(0|1)$' <<<"$runtime" || { fail "INetSim appliance has more than one IPv4 default route"; return 1; }
   grep -Fxq 'default6=0' <<<"$runtime" || { fail "INetSim appliance unexpectedly has an IPv6 default route"; return 1; }
 
-  python3 "$AUTODEPLOY_ROOT/tools/dns_probe.py" "$INETSIM_IP" "$INETSIM_IP" >/dev/null
-  curl -fsS --max-time 5 "http://$INETSIM_IP/" >/dev/null
-  curl -kfsS --max-time 5 "https://$INETSIM_IP/" >/dev/null
+  local ready=no i
+  for ((i=0;i<30;i++)); do
+    if python3 "$AUTODEPLOY_ROOT/tools/dns_probe.py" "$INETSIM_IP" "$INETSIM_IP" >/dev/null 2>&1 &&
+       curl -fsS --max-time 3 "http://$INETSIM_IP/" >/dev/null 2>&1 &&
+       curl -kfsS --max-time 3 "https://$INETSIM_IP/" >/dev/null 2>&1; then
+      ready=yes
+      break
+    fi
+    sleep 1
+  done
+  if [[ "$ready" != yes ]]; then
+    inetsim_capture_guest_diagnostics
+    fail "INetSim DNS/HTTP/HTTPS did not become reachable from the CAPE host"
+    return 1
+  fi
   pass "INetSim DNS/HTTP/HTTPS respond and runtime forwarding isolation is enforced on $INETSIM_IP"
 }
 
