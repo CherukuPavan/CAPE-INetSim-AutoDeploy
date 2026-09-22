@@ -458,7 +458,9 @@ windows_configure_via_cape_agent() {
     -DnsIP "$dns_ip" \
     -ResultServerIP "$result_ip" \
     -ResultServerPort "$result_port" \
-    -ControlHostIP "$control_host_ip"
+    -ControlHostIP "$control_host_ip" \
+    -PinnedClientIP "$CAPE_AGENT_CLIENT_IP" \
+    -IsolatedGatewayIP "$BRIDGE_IP"
   validate_windows_result_path "$local_result"
 
   # The pinned-client /32 route is transport scaffolding only. Remove it after
