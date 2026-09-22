@@ -360,7 +360,7 @@ discover_hypervisor_safety_features() {
   MANAGEMENT_NWFILTER_AVAILABLE=no
   NWFILTER_RUNTIME_MODE=unavailable
 
-  if virsh nwfilter-info clean-traffic >/dev/null 2>&1; then
+  if virsh nwfilter-dumpxml clean-traffic >/dev/null 2>&1; then
     MANAGEMENT_NWFILTER_AVAILABLE=yes
     NWFILTER_RUNTIME_MODE=ready
     return 0
