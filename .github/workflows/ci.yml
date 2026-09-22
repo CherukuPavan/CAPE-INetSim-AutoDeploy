@@ -54,6 +54,8 @@ jobs:
         run: bash tests/appliance_build_static.sh
       - name: Appliance domain logic
         run: bash tests/inetsim_vm_logic.sh
+      - name: QGA transient recovery logic
+        run: bash tests/qga_logic.sh
       - name: Windows VM logic
         run: bash tests/windows_vm_logic.sh
       - name: CAPE snapshot internal/external memory modes
