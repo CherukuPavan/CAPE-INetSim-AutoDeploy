@@ -341,19 +341,10 @@ if len(macs)==1: print(macs[0])
   [[ -n "$WINDOWS_MANAGEMENT_MAC" ]] || add_error "Could not uniquely derive Windows management NIC MAC on $MANAGEMENT_NETWORK_NAME"
 }
 
-NWFILTER_DEFINITION_ROOT="${NWFILTER_DEFINITION_ROOT:-/etc/libvirt/nwfilter}"
+NWFILTER_DEFINITION_ROOT="${NWFILTER_DEFINITION_ROOT:-}"
 
 nwfilter_clean_traffic_definition_present() {
-  local definition="$NWFILTER_DEFINITION_ROOT/clean-traffic.xml"
-  [[ -r "$definition" ]] || return 1
-  python3 - "$definition" <<'PY'
-import sys,xml.etree.ElementTree as ET
-try:
-    root=ET.parse(sys.argv[1]).getroot()
-except Exception:
-    raise SystemExit(1)
-raise SystemExit(0 if root.tag == "filter" and root.get("name") == "clean-traffic" else 1)
-PY
+  nwfilter_find_definition clean-traffic >/dev/null
 }
 
 discover_hypervisor_safety_features() {
