@@ -314,8 +314,8 @@ deploy_finish_windows_snapshots() {
     fail "Configured rollback snapshot is not a shutoff/no-memory snapshot for $CAPE_MACHINE_SECTION"
     return 1
   }
-  [[ "$(snapshot_state_memory "$FINAL_SNAPSHOT")" == "running|internal" ]] || {
-    fail "CAPE analysis snapshot is not running-state with internal memory for $CAPE_MACHINE_SECTION"
+  snapshot_is_running_analysis_baseline "$FINAL_SNAPSHOT" || {
+    fail "CAPE analysis snapshot is not running-state with internal/external saved memory for $CAPE_MACHINE_SECTION"
     return 1
   }
   target_state_set_phase snapshots-ready
@@ -361,7 +361,7 @@ deploy_windows_target_cutover() {
     deploy_finish_windows_snapshots
   elif [[ "${TARGET_PHASE:-}" == snapshots-ready || "${TARGET_PHASE:-}" == cape-configured ]]; then
     [[ "$(snapshot_state_memory "$WORKING_SNAPSHOT")" == "shutoff|no" ]]
-    [[ "$(snapshot_state_memory "$FINAL_SNAPSHOT")" == "running|internal" ]]
+    snapshot_is_running_analysis_baseline "$FINAL_SNAPSHOT"
   fi
 
   pass "CAPE analysis VM prepared: $CAPE_MACHINE_SECTION -> $DOMAIN"
