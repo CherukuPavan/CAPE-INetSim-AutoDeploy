@@ -71,7 +71,7 @@ assert 'cape_agent_run_powershell_sync \\\n    "$fake_ip"' in body
 assert '-PinnedClientIP "$CAPE_AGENT_CLIENT_IP"' in body
 PY
 
-grep -Fq 'subprocess.run(cmd' "$ROOT/tools/windows_agent_runner.py"
+grep -Fq 'proc = subprocess.run(' "$ROOT/tools/windows_agent_runner.py"
 ! grep -Fq 'shell=True' "$ROOT/tools/windows_agent_runner.py"
 
 grep -q 'Get-WmiObject Win32_NetworkAdapterConfiguration' "$ROOT/windows/configure-inetsim.ps1"
