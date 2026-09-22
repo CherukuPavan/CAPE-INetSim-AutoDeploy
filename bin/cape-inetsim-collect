@@ -21,7 +21,7 @@ OUT_BASE="${CAPE_INETSIM_COLLECT_DIR:-$OUTPUT_HOME}"
 OUT="$OUT_BASE/${HOST}_AUTODEPLOY_DEEP_INVENTORY_${TS}"
 ARCHIVE="${OUT}.tar.gz"
 
-mkdir -p "$OUT"/{host,network,libvirt,cape,windows,packages,tests}
+mkdir -p "$OUT"/{host,network,libvirt,cape,windows,packages,tests,autodeploy}
 if [[ "$(id -u)" -ne 0 ]]; then sudo -v; fi
 
 # Always inspect the system libvirt instance used by CAPE, never the caller's
@@ -97,6 +97,33 @@ PY
   echo -n "repo_commit="
   git -C "$ROOT" rev-parse HEAD 2>/dev/null || true
 } >"$OUT/README.txt"
+
+
+# AutoDeploy transaction evidence. Only state/ledger and diagnostic/result logs
+# are collected; callback commands/tokens and credential sources are excluded.
+AD_STATE_ROOT_CAPTURE="/var/lib/cape-inetsim-autodeploy"
+if [[ -f "$AD_STATE_ROOT_CAPTURE/state.env" ]]; then
+  redact_conf "$AD_STATE_ROOT_CAPTURE/state.env" "$OUT/autodeploy/state.redacted.txt"
+fi
+if [[ -f "$AD_STATE_ROOT_CAPTURE/resources.tsv" ]]; then
+  redact_conf "$AD_STATE_ROOT_CAPTURE/resources.tsv" "$OUT/autodeploy/resources.redacted.txt"
+fi
+if [[ -d "$AD_STATE_ROOT_CAPTURE/logs" ]]; then
+  find "$AD_STATE_ROOT_CAPTURE/logs" -maxdepth 1 -type f \( \
+      -name '*diagnostics*.txt' -o \
+      -name '*windows-result.json' -o \
+      -name '*windows-verify.json' -o \
+      -name '*cape-agent-execpy.json' \
+    \) -print0 2>/dev/null |
+  while IFS= read -r -d '' src; do
+    cp -a "$src" "$OUT/autodeploy/$(basename "$src")"
+  done
+fi
+if [[ -f /var/log/libvirt/qemu/cape-inetsim-appliance.log ]]; then
+  tail -n 500 /var/log/libvirt/qemu/cape-inetsim-appliance.log >"$OUT/libvirt/cape-inetsim-appliance-qemu.log" 2>&1 || true
+fi
+journalctl -u virtnwfilterd.service -u virtnwfilterd.socket -u virtqemud.service -u libvirtd.service -n 400 --no-pager \
+  >"$OUT/libvirt/journal-runtime.txt" 2>&1 || true
 
 # Development bundles include self-tests; stripped public runtime bundles may
 # intentionally omit them. Planning remains available in both distributions.
