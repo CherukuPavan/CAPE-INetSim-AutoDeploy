@@ -66,10 +66,13 @@ find /etc/netplan -maxdepth 1 -type f ! -name '90-cape-inetsim.yaml' -delete
 netplan generate
 netplan apply
 
-DEFAULTS="$(ip -4 route show default | wc -l)"
-[[ "$DEFAULTS" -eq 1 ]] || { echo "expected exactly one management default route, found $DEFAULTS" >&2; exit 33; }
-ip -4 route show default | grep -Fq "dev $MGMT_IF"
-! ip -4 route show default | grep -Fq "dev $ISO_IF"
+DEFAULT_ROUTE="$(ip -4 route show default)"
+DEFAULTS="$(awk 'NF{n++} END{print n+0}' <<<"$DEFAULT_ROUTE")"
+[[ "$DEFAULTS" -le 1 ]] || { echo "expected at most one management default route, found $DEFAULTS" >&2; exit 33; }
+if [[ "$DEFAULTS" -eq 1 ]]; then
+  grep -Fq "dev $MGMT_IF" <<<"$DEFAULT_ROUTE" || { echo "default route is not on management interface $MGMT_IF" >&2; exit 34; }
+  ! grep -Fq "dev $ISO_IF" <<<"$DEFAULT_ROUTE" || { echo "isolated interface $ISO_IF unexpectedly has a default route" >&2; exit 35; }
+fi
 
 CONF=/etc/inetsim/inetsim.conf
 [[ -f "$CONF.pre-autodeploy" ]] || cp -a "$CONF" "$CONF.pre-autodeploy"
