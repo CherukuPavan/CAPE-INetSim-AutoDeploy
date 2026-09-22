@@ -10,7 +10,7 @@ The v1.0.0 target is one reusable command on a supported CAPE host:
 curl -fsSL https://github.com/CherukuPavan/CAPE-INetSim-AutoDeploy-Releases/releases/download/v1.0.0/install | sudo bash
 ```
 
-The target host already has KVM/libvirt, a working CAPEv2 installation, and at least one working Windows analysis VM. AutoDeploy discovers machine-specific values instead of hard-coding hostnames, CAPE machine names, snapshot names, MAC addresses, management IPs, bridges, interface names, or fake-Internet subnets.
+The target host already has KVM/libvirt, a working CAPEv2 installation, and one or more Windows analysis VMs enabled for CAPE KVM analysis. AutoDeploy discovers the complete active CAPE machine set and configures every enabled Windows-compatible analysis VM by default instead of hard-coding hostnames, CAPE machine names, snapshot names, MAC addresses, management IPs, bridges, interface names, or fake-Internet subnets.
 
 ## Current development status
 
@@ -24,11 +24,7 @@ Read-only planning is available now:
 sudo ./install --plan
 ```
 
-If multiple compatible CAPE analysis machines exist:
-
-```bash
-sudo ./install --plan --machine <cape-machine-or-label>
-```
+With no `--machine` override, planning and deployment cover every enabled Windows-compatible machine in CAPE's authoritative `[kvm] machines=` set. `--machine <cape-machine-or-label>` remains only an explicit single-VM troubleshooting/controlled override.
 
 Operational entry points already implemented are:
 
@@ -79,6 +75,7 @@ install/bootstrap
 - CAPE source is modified only after a known layout/anchor passes the compatibility gate; unknown layouts safe-stop before mutation.
 - Busy CAPE systems are staged non-disruptively and cut over only after AutoDeploy atomically acquires CAPE machine maintenance ownership.
 - Running qcow2 analysis disks are inspected read-only with QEMU shared-image semantics when their live QEMU process holds the normal image lock; AutoDeploy never runs qemu-img repair/conversion against a live analysis disk.
+- Existing CAPE analysis baselines must be running-state snapshots. Saved VM memory may be either libvirt `internal` or `external`; both modes are accepted after domain identity and management-NIC validation.
 - On modular libvirt hosts, an installed standard `clean-traffic` definition with an inactive `virtnwfilterd.socket` is detected as safely activatable; deployment enables/starts that socket before cutover, proves the filter through libvirt, records ownership, and restores the prior runtime state on rollback when safe.
 - Every mutable CAPE file is backed up before edit. Libvirt resources, Windows NICs/snapshots, firewall resources, and extension state are deployment-owned and recorded before/after mutation so interrupted operations can be resumed or rolled back safely.
 - No SSL43/SSL44/SSL45-specific values belong in product logic.
