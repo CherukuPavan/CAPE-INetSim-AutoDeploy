@@ -56,6 +56,8 @@ jobs:
         run: bash tests/inetsim_vm_logic.sh
       - name: Windows VM logic
         run: bash tests/windows_vm_logic.sh
+      - name: CAPE snapshot internal/external memory modes
+        run: bash tests/snapshot_memory_modes.sh
       - name: Windows management hypervisor guard
         run: bash tests/windows_network_guard.sh
       - name: Windows management backend
