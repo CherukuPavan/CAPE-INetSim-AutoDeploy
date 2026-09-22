@@ -433,6 +433,11 @@ deploy_rollback_after_error() {
     state_load >/dev/null 2>&1 || true
     autodeploy_rollback_internal
   fi
+  if [[ -x "$AUTODEPLOY_ROOT/bin/cape-inetsim-collect" ]]; then
+    echo
+    warn "Creating one redacted diagnostic bundle automatically; no terminal-output copy/paste is needed."
+    bash "$AUTODEPLOY_ROOT/bin/cape-inetsim-collect" || warn "Automatic diagnostic collection did not complete"
+  fi
   set -e
   exit "$rc"
 }
