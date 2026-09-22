@@ -27,47 +27,61 @@ cape_maintenance_tool() {
   if [[ "$CAPE_SERVICE_USER" == root ]]; then
     (cd "$CAPE_ROOT" && env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" "$action" --label "$CAPE_MACHINE_LABEL" --deployment-id "$DEPLOYMENT_ID" --guard-file "$CAPE_MAINTENANCE_GUARD_FILE")
   else
-    # Use a stable CAPE-user staging path so a process crash cannot orphan the
-    # DB lock between commit and the root-owned guard copy.
+    # The checksum-pinned public bootstrap executes from a root-owned mktemp
+    # directory (normally mode 0700). CAPE commonly runs as a non-root service
+    # user, which therefore cannot traverse AUTODEPLOY_ROOT. Stage only this
+    # small maintenance helper inside the existing CAPE-user transaction
+    # directory instead of weakening the release directory permissions.
     local user_dir="/tmp/cape-inetsim-autodeploy-$DEPLOYMENT_ID"
     [[ ! -L "$user_dir" ]] || { fail "Unsafe CAPE maintenance staging symlink: $user_dir"; return 1; }
     install -d -m 0700 -o "$CAPE_SERVICE_USER" "$user_dir"
     local user_guard="$user_dir/guard.json"
+    local user_tool="$user_dir/cape_maintenance.py"
+
+    install -m 0500 -o "$CAPE_SERVICE_USER" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" "$user_tool" || {
+      fail "Could not stage CAPE maintenance helper for service user"
+      return 1
+    }
 
     if [[ "$action" == acquire ]]; then
       if [[ -f "$user_guard" ]]; then
-        if runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" verify --label "$CAPE_MACHINE_LABEL" --deployment-id "$DEPLOYMENT_ID" --guard-file "$user_guard" >/dev/null 2>&1; then
+        if runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$user_tool" verify --label "$CAPE_MACHINE_LABEL" --deployment-id "$DEPLOYMENT_ID" --guard-file "$user_guard" >/dev/null 2>&1; then
           install -m 0600 -o root -g root "$user_guard" "$CAPE_MAINTENANCE_GUARD_FILE"
-          rm -f "$user_guard" "$user_guard.pending"
+          rm -f "$user_guard" "$user_guard.pending" "$user_tool"
           rmdir "$user_dir" 2>/dev/null || true
           return 0
         fi
       fi
 
-      runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" "$action" --label "$CAPE_MACHINE_LABEL" --deployment-id "$DEPLOYMENT_ID" --guard-file "$user_guard"
+      if ! runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$user_tool" "$action" --label "$CAPE_MACHINE_LABEL" --deployment-id "$DEPLOYMENT_ID" --guard-file "$user_guard"; then
+        local rc=$?
+        rm -f "$user_tool"
+        return "$rc"
+      fi
       if ! install -m 0600 -o root -g root "$user_guard" "$CAPE_MAINTENANCE_GUARD_FILE"; then
         # The DB locks are already committed. Immediately release them using
         # the CAPE-user guard rather than leaving machines orphan-locked.
-        runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" release --label "$CAPE_MACHINE_LABEL" --deployment-id "$DEPLOYMENT_ID" --guard-file "$user_guard" >/dev/null 2>&1 || true
-        rm -f "$user_guard" "$user_guard.pending"
+        runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$user_tool" release --label "$CAPE_MACHINE_LABEL" --deployment-id "$DEPLOYMENT_ID" --guard-file "$user_guard" >/dev/null 2>&1 || true
+        rm -f "$user_guard" "$user_guard.pending" "$user_tool"
         rmdir "$user_dir" 2>/dev/null || true
         fail "Could not persist CAPE maintenance guard; locks were released"
         return 1
       fi
-      rm -f "$user_guard" "$user_guard.pending"
+      rm -f "$user_guard" "$user_guard.pending" "$user_tool"
       rmdir "$user_dir" 2>/dev/null || true
     elif [[ "$action" == release ]]; then
       install -m 0600 -o "$CAPE_SERVICE_USER" "$CAPE_MAINTENANCE_GUARD_FILE" "$user_guard" 2>/dev/null || {
+        rm -f "$user_tool"
         fail "Could not stage CAPE maintenance guard for release"
         return 1
       }
       local rc
-      if runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" "$action" --label "$CAPE_MACHINE_LABEL" --deployment-id "$DEPLOYMENT_ID" --guard-file "$user_guard"; then
+      if runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$user_tool" "$action" --label "$CAPE_MACHINE_LABEL" --deployment-id "$DEPLOYMENT_ID" --guard-file "$user_guard"; then
         rc=0
       else
         rc=$?
       fi
-      rm -f "$user_guard" "$user_guard.pending"
+      rm -f "$user_guard" "$user_guard.pending" "$user_tool"
       rmdir "$user_dir" 2>/dev/null || true
       if [[ "$rc" -eq 0 ]]; then
         rm -f "$CAPE_MAINTENANCE_GUARD_FILE"
@@ -77,20 +91,29 @@ cape_maintenance_tool() {
       return "$rc"
     elif [[ "$action" == verify ]]; then
       install -m 0600 -o "$CAPE_SERVICE_USER" "$CAPE_MAINTENANCE_GUARD_FILE" "$user_guard" 2>/dev/null || {
+        rm -f "$user_tool"
         fail "Could not stage CAPE maintenance guard for verification"
         return 1
       }
       local rc
-      if runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" "$action" --label "$CAPE_MACHINE_LABEL" --deployment-id "$DEPLOYMENT_ID" --guard-file "$user_guard"; then
+      if runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$user_tool" "$action" --label "$CAPE_MACHINE_LABEL" --deployment-id "$DEPLOYMENT_ID" --guard-file "$user_guard"; then
         rc=0
       else
         rc=$?
       fi
-      rm -f "$user_guard" "$user_guard.pending"
+      rm -f "$user_guard" "$user_guard.pending" "$user_tool"
       rmdir "$user_dir" 2>/dev/null || true
       return "$rc"
     else
-      runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" "$action" --label "$CAPE_MACHINE_LABEL" --deployment-id "$DEPLOYMENT_ID" --guard-file "$user_guard"
+      local rc
+      if runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$user_tool" "$action" --label "$CAPE_MACHINE_LABEL" --deployment-id "$DEPLOYMENT_ID" --guard-file "$user_guard"; then
+        rc=0
+      else
+        rc=$?
+      fi
+      rm -f "$user_tool"
+      rmdir "$user_dir" 2>/dev/null || true
+      return "$rc"
     fi
   fi
 }
