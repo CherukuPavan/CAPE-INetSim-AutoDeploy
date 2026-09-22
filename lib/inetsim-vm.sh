@@ -269,10 +269,10 @@ inetsim_verify_host() {
   local runtime
   if ! runtime="$(qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/sh -c '
 set -eu
-printf "ipv4_forward=%s\n" "$(sysctl -n net.ipv4.ip_forward)"
-printf "ipv6_forward=%s\n" "$(sysctl -n net.ipv6.conf.all.forwarding)"
-printf "default4=%s\n" "$(ip -4 route show default | wc -l)"
-printf "default6=%s\n" "$(ip -6 route show default | wc -l)"
+printf "ipv4_forward=%s\\n" "$(sysctl -n net.ipv4.ip_forward)"
+printf "ipv6_forward=%s\\n" "$(sysctl -n net.ipv6.conf.all.forwarding)"
+printf "default4=%s\\n" "$(ip -4 route show default | wc -l)"
+printf "default6=%s\\n" "$(ip -6 route show default | wc -l)"
 ' 2>>"$verify_log")"; then
     printf 'runtime_query=failed\n' >>"$verify_log"
     inetsim_capture_guest_diagnostics
@@ -283,46 +283,14 @@ printf "default6=%s\n" "$(ip -6 route show default | wc -l)"
 
   grep -Fxq 'ipv4_forward=0' <<<"$runtime" || { inetsim_capture_guest_diagnostics; fail "INetSim appliance IPv4 forwarding is enabled"; return 1; }
   grep -Fxq 'ipv6_forward=0' <<<"$runtime" || { inetsim_capture_guest_diagnostics; fail "INetSim appliance IPv6 forwarding is enabled"; return 1; }
-  grep -Eq '^default4=(0|1)
-  if virsh dominfo "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1; then
-    if ! state_resource_owned domain "$INETSIM_DOMAIN_NAME"; then
-      if state_resource_intended domain "$INETSIM_DOMAIN_NAME" && inetsim_domain_matches_plan; then
-        state_record_resource domain "$INETSIM_DOMAIN_NAME" recovered-created yes "rollback-adoption"
-      else
-        fail "Refusing to remove non-owned INetSim domain $INETSIM_DOMAIN_NAME"
-        return 1
-      fi
-    fi
-    virsh destroy "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1 || true
-    virsh undefine "$INETSIM_DOMAIN_NAME" --nvram >/dev/null 2>&1 || virsh undefine "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1 || true
-    state_record_resource domain "$INETSIM_DOMAIN_NAME" removed-by-rollback yes ""
-  fi
-
-  if [[ -n "${INETSIM_DISK_PATH:-}" ]]; then
-    rm -f "$INETSIM_DISK_PATH.part" 2>/dev/null || true
-  fi
-  if [[ -n "${INETSIM_DISK_PATH:-}" && -e "$INETSIM_DISK_PATH" ]]; then
-    if ! state_resource_owned disk "$INETSIM_DISK_PATH"; then
-      if state_resource_intended disk "$INETSIM_DISK_PATH"; then
-        qemu-img check "$INETSIM_DISK_PATH" >/dev/null || { fail "Intended INetSim disk is not a valid qcow2 image"; return 1; }
-        state_record_resource disk "$INETSIM_DISK_PATH" recovered-created yes "rollback-adoption"
-      else
-        fail "Refusing to remove non-owned INetSim disk $INETSIM_DISK_PATH"
-        return 1
-      fi
-    fi
-    rm -f "$INETSIM_DISK_PATH"
-    state_record_resource disk "$INETSIM_DISK_PATH" removed-by-rollback yes ""
-  fi
-}
- <<<"$runtime" || { inetsim_capture_guest_diagnostics; fail "INetSim appliance has more than one IPv4 default route"; return 1; }
+  grep -Eq '^default4=(0|1)$' <<<"$runtime" || { inetsim_capture_guest_diagnostics; fail "INetSim appliance has more than one IPv4 default route"; return 1; }
   grep -Fxq 'default6=0' <<<"$runtime" || { inetsim_capture_guest_diagnostics; fail "INetSim appliance unexpectedly has an IPv6 default route"; return 1; }
 
   local ready=no i dns_rc http_rc https_rc
   for ((i=0;i<30;i++)); do
-    python3 "$AUTODEPLOY_ROOT/tools/dns_probe.py" "$INETSIM_IP" "$INETSIM_IP" >/dev/null 2>&1; dns_rc=$?
-    curl -fsS --max-time 3 "http://$INETSIM_IP/" >/dev/null 2>&1; http_rc=$?
-    curl -kfsS --max-time 3 "https://$INETSIM_IP/" >/dev/null 2>&1; https_rc=$?
+    if python3 "$AUTODEPLOY_ROOT/tools/dns_probe.py" "$INETSIM_IP" "$INETSIM_IP" >/dev/null 2>&1; then dns_rc=0; else dns_rc=$?; fi
+    if curl -fsS --max-time 3 "http://$INETSIM_IP/" >/dev/null 2>&1; then http_rc=0; else http_rc=$?; fi
+    if curl -kfsS --max-time 3 "https://$INETSIM_IP/" >/dev/null 2>&1; then https_rc=0; else https_rc=$?; fi
     printf 'probe_attempt=%s dns_rc=%s http_rc=%s https_rc=%s\n' "$((i+1))" "$dns_rc" "$http_rc" "$https_rc" >>"$verify_log"
     if [[ "$dns_rc" -eq 0 && "$http_rc" -eq 0 && "$https_rc" -eq 0 ]]; then
       ready=yes
