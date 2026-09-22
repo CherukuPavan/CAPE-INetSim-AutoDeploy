@@ -26,6 +26,7 @@ state_set_phase(){ DEPLOYMENT_PHASE="$1"; }
 deploy_ensure_maintenance(){ :; }
 windows_stop_for_cutover(){ echo "stop:$DOMAIN" >>"$LOG"; WINDOWS_ORIGINAL_DOMAIN_STATE="shut off"; }
 windows_create_safety_snapshot(){ SAFETY_SNAPSHOT="pre-$DOMAIN"; echo "safety:$DOMAIN" >>"$LOG"; }
+windows_management_dhcp_align_if_needed(){ echo "dhcp:$DOMAIN" >>"$LOG"; }
 windows_management_guard_apply(){ echo "guard:$DOMAIN" >>"$LOG"; }
 windows_attach_isolated_nic(){ WINDOWS_ISOLATED_MAC="52:54:00:aa:00:$(printf '%02d' $((TARGET_INDEX+1)))"; echo "nic:$DOMAIN" >>"$LOG"; }
 firewall_enable_windows_management_guard(){ echo "firewall:$DOMAIN" >>"$LOG"; }
@@ -53,6 +54,7 @@ done
 for d in vm-a vm-b vm-c; do
   grep -Fxq "stop:$d" "$LOG"
   grep -Fxq "safety:$d" "$LOG"
+  grep -Fxq "dhcp:$d" "$LOG"
   grep -Fxq "guard:$d" "$LOG"
   grep -Fxq "nic:$d" "$LOG"
   grep -Fxq "firewall:$d" "$LOG"
