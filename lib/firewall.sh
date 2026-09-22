@@ -21,10 +21,25 @@ for d in a:
 PY
 }
 
+firewall_isolated_resultserver_records() {
+  python3 - "${CAPE_TARGETS_JSON:-[]}" <<'PY'
+import json,sys
+try: a=json.loads(sys.argv[1])
+except Exception: a=[]
+for d in a:
+    fake=str(d.get("fake_ip") or "")
+    rip=str(d.get("resultserver_ip") or "")
+    port=str(d.get("resultserver_port") or "")
+    if fake and rip and port.isdigit():
+        print("|".join((fake,rip,port,str(d.get("domain") or ""))))
+PY
+}
+
 firewall_render_rules() {
   local isolated_bridge="$1" include_management="${2:-no}"
-  local records=""
+  local records="" resultserver_records=""
   [[ "$include_management" == yes ]] && records="$(firewall_management_records)"
+  resultserver_records="$(firewall_isolated_resultserver_records)"
 
   cat <<EOF
 # CAPE-INetSim-AutoDeploy managed rules. Do not edit while deployment is active.
@@ -32,6 +47,17 @@ table inet $FIREWALL_TABLE {
   chain input_guard {
     type filter hook input priority -50; policy accept;
     iifname "$isolated_bridge" ct state established,related accept
+EOF
+  if [[ -n "$resultserver_records" ]]; then
+    echo "    # Permit only CAPE ResultServer ingress from planned fake-IP identities."
+    local fake_ip result_ip result_port result_domain
+    while IFS='|' read -r fake_ip result_ip result_port result_domain; do
+      [[ -n "$fake_ip" && -n "$result_ip" && "$result_port" =~ ^[0-9]+$ ]] || continue
+      printf '    iifname "%s" ip saddr %s ip daddr %s tcp dport %s accept\n' \
+        "$isolated_bridge" "$fake_ip" "$result_ip" "$result_port"
+    done <<<"$resultserver_records"
+  fi
+  cat <<EOF
     iifname "$isolated_bridge" drop
   }
 
@@ -147,6 +173,26 @@ firewall_file_matches_base() {
   grep -Fq 'CAPE-INetSim-AutoDeploy managed rules' "$FIREWALL_RULES" &&
     grep -Fq "iifname \"$ISOLATED_BRIDGE_NAME\"" "$FIREWALL_RULES" &&
     grep -Fq "oifname \"$ISOLATED_BRIDGE_NAME\"" "$FIREWALL_RULES"
+}
+
+firewall_resultserver_exceptions_match_all() {
+  local records text fake_ip result_ip result_port domain
+  records="$(firewall_isolated_resultserver_records)"
+  [[ -n "$records" ]] || return 0
+  text="$(nft list table inet "$FIREWALL_TABLE" 2>/dev/null)" || return 1
+  while IFS='|' read -r fake_ip result_ip result_port domain; do
+    grep -Fq "iifname \"$ISOLATED_BRIDGE_NAME\" ip saddr $fake_ip ip daddr $result_ip tcp dport $result_port accept" <<<"$text" || return 1
+  done <<<"$records"
+}
+
+firewall_file_has_resultserver_exceptions_all() {
+  local records fake_ip result_ip result_port domain
+  records="$(firewall_isolated_resultserver_records)"
+  [[ -n "$records" ]] || return 0
+  [[ -f "$FIREWALL_RULES" ]] || return 1
+  while IFS='|' read -r fake_ip result_ip result_port domain; do
+    grep -Fq "iifname \"$ISOLATED_BRIDGE_NAME\" ip saddr $fake_ip ip daddr $result_ip tcp dport $result_port accept" "$FIREWALL_RULES" || return 1
+  done <<<"$records"
 }
 
 firewall_validate_management_antispof_all() {
@@ -269,6 +315,10 @@ firewall_apply() {
   firewall_file_matches_base || { fail "Installed firewall rules do not match deployment plan"; return 1; }
   firewall_unit_matches_project || { fail "Installed firewall service does not match project"; return 1; }
   firewall_table_matches_base || { fail "Active nftables egress guard does not match isolated bridge"; return 1; }
+  firewall_file_has_resultserver_exceptions_all && firewall_resultserver_exceptions_match_all || {
+    fail "Installed firewall is missing one or more isolated CAPE ResultServer exceptions"
+    return 1
+  }
   systemctl is-active --quiet cape-inetsim-autodeploy-firewall.service
   if [[ "$want_management" == yes ]]; then
     firewall_file_has_management_guards_all && firewall_management_guards_match_all || {
@@ -312,6 +362,8 @@ firewall_verify() {
   firewall_file_matches_base || return 1
   firewall_unit_matches_project || return 1
   firewall_table_matches_base || return 1
+  firewall_file_has_resultserver_exceptions_all || return 1
+  firewall_resultserver_exceptions_match_all || return 1
   firewall_validate_management_antispof_all || return 1
   firewall_file_has_management_guards_all || return 1
   firewall_management_guards_match_all || return 1
