@@ -178,6 +178,12 @@ print(state+"|"+(m.get("snapshot","") if m is not None else ""))
 '
 }
 
+snapshot_is_running_analysis_baseline() {
+  local facts
+  facts="$(snapshot_state_memory "$1")" || return 1
+  [[ "$facts" == "running|internal" || "$facts" == "running|external" ]]
+}
+
 windows_create_working_snapshot() {
   [[ "$(virsh domstate "$DOMAIN" | xargs)" == "shut off" ]] || { fail "Configured rollback snapshot requires shut-off Windows domain"; return 1; }
   if [[ -z "${WORKING_SNAPSHOT:-}" ]]; then
@@ -214,10 +220,14 @@ windows_create_running_snapshot() {
   local desc="CAPE-INetSim AutoDeploy running analysis snapshot $DEPLOYMENT_ID"
   if windows_snapshot_exists "$FINAL_SNAPSHOT"; then
     if ! state_resource_owned snapshot "$DOMAIN:$FINAL_SNAPSHOT"; then
-      windows_snapshot_adopt_if_intended "$FINAL_SNAPSHOT" "$desc" "running|internal" || {
+      state_resource_intended snapshot "$DOMAIN:$FINAL_SNAPSHOT" &&
+      [[ "$(windows_snapshot_description "$FINAL_SNAPSHOT")" == "$desc" ]] &&
+      snapshot_is_running_analysis_baseline "$FINAL_SNAPSHOT" || {
         fail "Final snapshot name exists but is not safely attributable to this deployment"
         return 1
       }
+      state_record_resource snapshot "$DOMAIN:$FINAL_SNAPSHOT" recovered-created yes "facts=$(snapshot_state_memory "$FINAL_SNAPSHOT")"
+      state_write_atomic
     fi
   else
     state_record_intent snapshot "$DOMAIN:$FINAL_SNAPSHOT" creating "state=running purpose=cape-analysis"
@@ -226,7 +236,7 @@ windows_create_running_snapshot() {
   fi
   local facts
   facts="$(snapshot_state_memory "$FINAL_SNAPSHOT")"
-  [[ "$facts" == "running|internal" ]] || { fail "Final snapshot is not running-state with internal memory: $facts"; return 1; }
+  [[ "$facts" == "running|internal" || "$facts" == "running|external" ]] || { fail "Final snapshot is not running-state with internal/external saved memory: $facts"; return 1; }
   [[ "$(windows_snapshot_description "$FINAL_SNAPSHOT")" == "$desc" ]] || { fail "Final snapshot description mismatch"; return 1; }
   state_write_atomic
   pass "Created CAPE-ready running snapshot $FINAL_SNAPSHOT"
@@ -330,10 +340,14 @@ windows_rollback_to_safety() {
   fi
   if [[ -n "${FINAL_SNAPSHOT:-}" ]] && windows_snapshot_exists "$FINAL_SNAPSHOT" &&
      ! state_resource_owned snapshot "$DOMAIN:$FINAL_SNAPSHOT"; then
-    windows_snapshot_adopt_if_intended "$FINAL_SNAPSHOT" "CAPE-INetSim AutoDeploy running analysis snapshot $DEPLOYMENT_ID" "running|internal" || {
+    state_resource_intended snapshot "$DOMAIN:$FINAL_SNAPSHOT" &&
+    [[ "$(windows_snapshot_description "$FINAL_SNAPSHOT")" == "CAPE-INetSim AutoDeploy running analysis snapshot $DEPLOYMENT_ID" ]] &&
+    snapshot_is_running_analysis_baseline "$FINAL_SNAPSHOT" || {
       fail "Final snapshot exists but cannot be attributed to this deployment"
       return 1
     }
+    state_record_resource snapshot "$DOMAIN:$FINAL_SNAPSHOT" recovered-created yes "facts=$(snapshot_state_memory "$FINAL_SNAPSHOT")"
+    state_write_atomic
   fi
 
   state="$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)"
