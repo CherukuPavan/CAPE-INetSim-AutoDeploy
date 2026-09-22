@@ -49,8 +49,23 @@ windows_management_guard_exact() {
   [[ "$(windows_management_guard_filter_facts)" == "$WINDOWS_MGMT_FILTER_NAME|$CAPE_MACHINE_IP" ]]
 }
 
-windows_management_guard_available() {
+nwfilter_virsh() {
+  # On split-daemon libvirt hosts, nwfilter APIs belong to virtnwfilterd and
+  # must use the dedicated nwfilter:///system connection. qemu:///system may
+  # accept the CLI command yet query a different driver namespace.
+  if virsh -c nwfilter:///system "$@" >/dev/null 2>&1; then
+    return 0
+  fi
+  virsh "$@"
+}
+
+windows_management_guard_available_default() {
+  # Read-only initial probe before AutoDeploy owns any daemon activation.
   virsh nwfilter-info "$WINDOWS_MGMT_FILTER_NAME" >/dev/null 2>&1
+}
+
+windows_management_guard_available() {
+  nwfilter_virsh nwfilter-info "$WINDOWS_MGMT_FILTER_NAME" >/dev/null 2>&1
 }
 
 nwfilter_runtime_definition_closure() {
@@ -93,7 +108,7 @@ nwfilter_runtime_load_standard_definitions() {
   local record name path
   while IFS='|' read -r name path; do
     [[ -n "$name" && -n "$path" ]] || continue
-    if virsh nwfilter-info "$name" >/dev/null 2>&1; then
+    if nwfilter_virsh nwfilter-info "$name" >/dev/null 2>&1; then
       continue
     fi
     [[ -r "$path" ]] || {
@@ -101,11 +116,11 @@ nwfilter_runtime_load_standard_definitions() {
       return 1
     }
     state_record_intent libvirt-nwfilter-definition "$name" loading "source=$path;preexisting-file=yes"
-    virsh nwfilter-define "$path" >/dev/null 2>&1 || {
+    nwfilter_virsh nwfilter-define "$path" >/dev/null 2>&1 || {
       fail "Could not load standard libvirt nwfilter definition '$name' from $path"
       return 1
     }
-    virsh nwfilter-info "$name" >/dev/null 2>&1 || {
+    nwfilter_nwfilter_virsh nwfilter-info "$name" >/dev/null 2>&1 || {
       fail "libvirt accepted '$name' but it is still not resolvable"
       return 1
     }
@@ -126,7 +141,7 @@ nwfilter_runtime_prepare() {
   [[ "$(systemctl show -p LoadState --value virtnwfilterd.socket 2>/dev/null || true)" == loaded ]] && socket_loaded=yes
   [[ "$(systemctl show -p LoadState --value virtnwfilterd.service 2>/dev/null || true)" == loaded ]] && service_loaded=yes
 
-  if windows_management_guard_available; then
+  if windows_management_guard_available_default; then
     if [[ "$service_was_active" != yes ]] &&
        systemctl is-active --quiet virtnwfilterd.service &&
        ! state_resource_owned libvirt-service virtnwfilterd.service; then
@@ -226,7 +241,7 @@ nwfilter_runtime_prepare() {
 }
 nwfilter_runtime_has_bindings() {
   local out
-  out="$(virsh nwfilter-binding-list 2>/dev/null)" || return 2
+  out="$(nwfilter_virsh nwfilter-binding-list 2>/dev/null)" || return 2
   [[ -n "$(printf '%s\n' "$out" | awk 'NR>2 && NF {print; exit}')" ]]
 }
 
