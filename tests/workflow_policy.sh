@@ -45,5 +45,7 @@ grep -Fq 'actions/checkout@11d5960a326750d5838078e36cf38b85af677262' "$PUB"
 grep -Fq 'release/PUBLIC_RELEASE_REQUEST.json' "$PUB"
 grep -Fq 'source/vendor/CAPE-INetSim-VM-Extension-v1.0.1/' "$PUB"
 grep -Fq 'private extension repository reference leaked into public runtime' "$PUB"
+grep -Fq 'install -m 0755 source/appliance/guest-configure.sh "$ROOT/appliance/guest-configure.sh"' "$PUB"
+grep -Fq 'runtime guest configurator does not match release source' "$PUB"
 
 echo '[PASS] workflow policy keeps appliance candidates exact-source-bound and pins third-party action commits'
