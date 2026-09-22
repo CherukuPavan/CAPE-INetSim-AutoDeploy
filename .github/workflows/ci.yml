@@ -62,6 +62,8 @@ jobs:
         run: bash tests/snapshot_memory_modes.sh
       - name: Windows management hypervisor guard
         run: bash tests/windows_network_guard.sh
+      - name: Windows management DHCP alignment
+        run: bash tests/windows_management_dhcp.sh
       - name: Windows management backend
         run: bash tests/windows_backend.sh
       - name: Windows controller
