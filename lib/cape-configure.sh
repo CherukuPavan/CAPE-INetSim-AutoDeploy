@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+source "$(dirname "${BASH_SOURCE[0]}")/cape-runtime.sh"
+
 cape_post_sha_for_rel() {
   case "$1" in
     modules/auxiliary/sniffer.py) printf '%s\n' "${CAPE_POST_SHA_SNIFFER:-}" ;;
@@ -32,18 +34,6 @@ cape_assert_owned_files_unchanged() {
     fi
   done
   ((failures == 0))
-}
-
-cape_runtime_python() {
-  local svc pid exe
-  for svc in cape cape-processor cape-web; do
-    pid="$(systemctl show "$svc" -p MainPID --value 2>/dev/null || true)"
-    if [[ "$pid" =~ ^[0-9]+$ && "$pid" -gt 0 ]]; then
-      exe="$(readlink -f "/proc/$pid/exe" 2>/dev/null || true)"
-      if [[ -x "$exe" ]]; then printf '%s\n' "$exe"; return 0; fi
-    fi
-  done
-  command -v python3
 }
 
 patch_sniffer_capture_override() {

@@ -479,6 +479,8 @@ deploy_run() {
   trap 'deploy_rollback_after_error $?' ERR
   trap deploy_handle_signal INT TERM
 
+  cape_preflight_runtime
+
   if ! deploy_phase_at_least staged; then
     deploy_stage_non_disruptive
   else

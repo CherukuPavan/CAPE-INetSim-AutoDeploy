@@ -74,6 +74,8 @@ jobs:
         run: bash tests/cape_config_logic.sh
       - name: CAPE maintenance helper
         run: bash tests/maintenance_tool.sh
+      - name: CAPE virtualenv and service-user runtime
+        run: sudo env CAPE_RUNTIME_TEST_REQUIRE_NONROOT=1 python3 tests/cape_runtime.py
       - name: Frozen extension constants
         run: bash tests/extension_logic.sh
       - name: Real-task acceptance logic

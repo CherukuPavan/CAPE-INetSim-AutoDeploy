@@ -114,6 +114,7 @@ if [[ -d "$AD_STATE_ROOT_CAPTURE/logs" ]]; then
       -name '*inetsim-guest-configure.log' -o \
       -name '*inetsim-host-verify.log' -o \
       -name '*cape-maintenance.log' -o \
+      -name '*cape-runtime-preflight.log' -o \
       -name '*windows-result.json' -o \
       -name '*windows-verify.json' -o \
       -name '*cape-agent-execpy.json' \
@@ -287,10 +288,13 @@ if [[ -n "$CAPE_ROOT" && -d "$CAPE_ROOT" ]]; then
     pid="$(systemctl show "$svc" -p MainPID --value 2>/dev/null || true)"
     if [[ "$pid" =~ ^[0-9]+$ && "$pid" -gt 0 ]]; then
       ps -p "$pid" -o pid=,user=,group=,args= >"$OUT/cape/process-$svc.txt" 2>&1 || true
-      exe="$(readlink -f "/proc/$pid/exe" 2>/dev/null || true)"
+      source "$ROOT/lib/cape-runtime.sh"
+      exe="$(cape_service_python "$svc.service" 2>"$OUT/cape/python-$svc-discovery-error.txt" || true)"
+      service_user="$(systemctl show "$svc" -p User --value 2>/dev/null || true)"
+      service_user="${service_user:-root}"
       if [[ -n "$exe" ]]; then
-        "$exe" --version >"$OUT/cape/python-$svc-version.txt" 2>&1 || true
-        "$exe" -m pip freeze >"$OUT/cape/python-$svc-pip-freeze.txt" 2>&1 || true
+        cape_run_as_user "$service_user" "$exe" --version >"$OUT/cape/python-$svc-version.txt" 2>&1 || true
+        cape_run_as_user "$service_user" "$exe" -m pip freeze >"$OUT/cape/python-$svc-pip-freeze.txt" 2>&1 || true
       fi
     fi
   done

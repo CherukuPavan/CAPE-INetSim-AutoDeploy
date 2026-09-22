@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 p=argparse.ArgumentParser()
-p.add_argument("action",choices=["inspect","acquire","verify","release"])
+p.add_argument("action",choices=["preflight","inspect","acquire","verify","release"])
 p.add_argument("--label",default="")
 p.add_argument("--deployment-id",required=True)
 p.add_argument("--guard-file",required=True)
@@ -31,6 +31,15 @@ MODEL_STATUS_ENUMS=set(getattr(Task.__table__.c.status.type,"enums",()) or ())
 ACTIVE=tuple(s for s in ACTIVE_CANDIDATES if not MODEL_STATUS_ENUMS or s in MODEL_STATUS_ENUMS)
 if not ACTIVE:
     raise RuntimeError("CAPE task model exposes no supported active task statuses")
+if a.action=="preflight":
+    # Exercise the real helper imports under CAPE's identity before staging a
+    # VM. Do not initialize the database, acquire locks, or create guard files.
+    import sqlalchemy
+    print(json.dumps({"ready":True,"python":sys.executable,
+        "prefix":sys.prefix,"base_prefix":sys.base_prefix,
+        "sqlalchemy":sqlalchemy.__version__,"cwd":os.getcwd(),
+        "active_statuses":ACTIVE},sort_keys=True))
+    raise SystemExit(0)
 init_database(exists_ok=True)
 db=Database()
 session=db.session
