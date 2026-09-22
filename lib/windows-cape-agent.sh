@@ -134,6 +134,22 @@ cape_agent_try_status_any() {
   return 1
 }
 
+cape_agent_reap_async_any() {
+  local primary="$1" alternate="${2:-}" timeout="${3:-10}"
+  local elapsed=0 status_line="" active_ip="" status="" exitcode="" description=""
+  while ((elapsed < timeout)); do
+    if status_line="$(cape_agent_try_status_any "$primary" "$alternate" 2>/dev/null)"; then
+      IFS='|' read -r active_ip status exitcode description <<<"$status_line"
+      case "$status" in
+        complete|failed|exception) return 0 ;;
+      esac
+    fi
+    sleep 1
+    elapsed=$((elapsed+1))
+  done
+  return 1
+}
+
 cape_agent_wait_async_result() {
   local primary="$1" alternate="$2" remote_result="$3" local_result="$4" log_file="$5" timeout="${6:-$CAPE_AGENT_CUTOVER_TIMEOUT}"
   local elapsed=0 status_line="" active_ip="" status="" exitcode="" description="" last_status=""
@@ -142,6 +158,10 @@ cape_agent_wait_async_result() {
   while ((elapsed < timeout)); do
     if cape_agent_try_retrieve_any "$remote_result" "$local_result" "$primary" "$alternate" 3; then
       printf 'result=retrieved via=%s elapsed=%s\n' "${CAPE_AGENT_ACTIVE_IP:-unknown}" "$elapsed" >>"$log_file"
+      # CAPE Agent keeps the async subprocess object until /status observes a
+      # terminal state. Reap it before another async /execpy launch; otherwise
+      # a two-stage network cutover can be rejected as "already running".
+      cape_agent_reap_async_any "$primary" "$alternate" 10 >/dev/null 2>&1 || true
       return 0
     fi
 
@@ -269,24 +289,105 @@ cape_agent_run_powershell() {
   return "$rc"
 }
 
+validate_cape_agent_stage_result_path() {
+  local path="$1" fake_ip="$2" isolated_mac="$3" control_host_ip="$4"
+  python3 - "$path" "$fake_ip" "$isolated_mac" "$control_host_ip" "$CAPE_AGENT_PORT" <<'PY'
+import json,re,sys
+path,fake_ip,want_mac,control_ip,port=sys.argv[1:]
+try:
+    d=json.load(open(path,encoding="utf-8-sig"))
+except Exception as exc:
+    raise SystemExit(f"invalid isolated-control stage result: {exc}")
+norm=lambda s: re.sub(r"[^0-9A-Fa-f]","",str(s or "")).lower()
+assert d.get("ok") is True, d.get("message") or "isolated-control stage failed"
+assert d.get("stage")=="isolated-control-ready", "unexpected isolated-control stage marker"
+assert str(d.get("fake_ip") or "")==fake_ip, "staged fake IP mismatch"
+assert norm(d.get("isolated_mac"))==norm(want_mac), "staged isolated MAC mismatch"
+assert str(d.get("control_host_ip") or "")==control_ip, "staged control host mismatch"
+assert str(d.get("agent_port") or "")==port, "staged CAPE Agent port mismatch"
+PY
+}
+
 windows_configure_via_cape_agent() {
-  local guest_ip="$1" isolated_mac="$2" fake_ip="$3" prefix="$4" dns_ip="$5" result_ip="$6" result_port="$7" control_host_ip="$8"
+  local management_ip="$1" isolated_mac="$2" fake_ip="$3" prefix="$4" dns_ip="$5" result_ip="$6" result_port="$7" control_host_ip="$8"
+  local stage_result="$AD_LOG_ROOT/${DEPLOYMENT_ID}-$(ad_safe_token "$DOMAIN")-windows-isolated-control-stage.json"
   local local_result="$AD_LOG_ROOT/${DEPLOYMENT_ID}-$(ad_safe_token "$DOMAIN")-windows-result.json"
-  cape_agent_wait "$guest_ip" 60 || { fail "CAPE Agent execpy/admin channel did not become available on $guest_ip"; return 1; }
-  cape_agent_run_powershell     "$guest_ip" "$AUTODEPLOY_ROOT/windows/configure-inetsim.ps1" "cape-inetsim-autodeploy" "$local_result"     -ManagementIP "$guest_ip"     -IsolatedMac "$isolated_mac"     -FakeIP "$fake_ip"     -PrefixLength "$prefix"     -DnsIP "$dns_ip"     -ResultServerIP "$result_ip"     -ResultServerPort "$result_port"     -ControlHostIP "$control_host_ip"
+
+  cape_agent_wait "$management_ip" 60 || {
+    fail "CAPE Agent execpy/admin channel did not become available on management IP $management_ip"
+    return 1
+  }
+
+  # Stage only the isolated NIC first. Do not touch management addressing,
+  # routing or DNS until the host has independently proved that CAPE Agent is
+  # reachable over the isolated path. This removes the RC21 self-cutoff where
+  # the management NIC was rewritten before the alternate control path existed.
+  cape_agent_run_powershell \
+    "$management_ip" "$AUTODEPLOY_ROOT/windows/stage-isolated-control.ps1" \
+    "cape-inetsim-autodeploy-stage" "$stage_result" \
+    -IsolatedMac "$isolated_mac" \
+    -FakeIP "$fake_ip" \
+    -PrefixLength "$prefix" \
+    -ControlHostIP "$BRIDGE_IP" \
+    -AgentPort "$CAPE_AGENT_PORT"
+  validate_cape_agent_stage_result_path "$stage_result" "$fake_ip" "$isolated_mac" "$BRIDGE_IP" || {
+    fail "Windows isolated CAPE Agent staging result did not validate"
+    return 1
+  }
+
+  cape_agent_wait "$fake_ip" 60 || {
+    fail "Isolated CAPE Agent control path $fake_ip:$CAPE_AGENT_PORT did not become reachable; management networking was left unchanged"
+    return 1
+  }
+  pass "Proved isolated CAPE Agent control path before management network hardening"
+
+  # From here on control runs over the isolated NIC. The full safety script may
+  # safely make the management NIC static/gateway-less without cutting off the
+  # control channel that is carrying the operation.
+  cape_agent_run_powershell \
+    "$fake_ip" "$AUTODEPLOY_ROOT/windows/configure-inetsim.ps1" \
+    "cape-inetsim-autodeploy" "$local_result" \
+    -ManagementIP "$management_ip" \
+    -IsolatedMac "$isolated_mac" \
+    -FakeIP "$fake_ip" \
+    -PrefixLength "$prefix" \
+    -DnsIP "$dns_ip" \
+    -ResultServerIP "$result_ip" \
+    -ResultServerPort "$result_port" \
+    -ControlHostIP "$control_host_ip"
   validate_windows_result_path "$local_result"
   WINDOWS_BACKEND_USED=cape-agent-execpy
-  state_record_resource windows-config "$DOMAIN" configured-via-cape-agent-execpy yes "isolated_mac=$isolated_mac fake_ip=$fake_ip agent_version=${CAPE_AGENT_VERSION:-unknown}"
+  state_record_resource windows-config "$DOMAIN" configured-via-cape-agent-execpy yes \
+    "isolated_mac=$isolated_mac fake_ip=$fake_ip control_path=isolated agent_version=${CAPE_AGENT_VERSION:-unknown}"
   state_write_atomic
 }
 
 windows_verify_via_cape_agent() {
-  local guest_ip="$1" isolated_mac="$2" fake_ip="$3" dns_ip="$4" result_ip="$5" result_port="$6"
+  local management_ip="$1" isolated_mac="$2" fake_ip="$3" dns_ip="$4" result_ip="$5" result_port="$6"
+  local control_ip=""
   local local_result="$AD_LOG_ROOT/${DEPLOYMENT_ID}-$(ad_safe_token "$DOMAIN")-windows-verify.json"
-  if ! cape_agent_wait "$guest_ip" 30; then
-    cape_agent_wait "$fake_ip" 30 || { fail "CAPE Agent unavailable on both management and isolated paths for Windows safety verification"; return 1; }
-    guest_ip="$fake_ip"
+
+  # Prefer the isolated path that was explicitly proved before management
+  # hardening. Fall back to management only for compatibility with an already
+  # configured guest whose isolated CAPE Agent rule was removed externally.
+  if cape_agent_wait "$fake_ip" 30; then
+    control_ip="$fake_ip"
+  elif cape_agent_wait "$management_ip" 30; then
+    control_ip="$management_ip"
+  else
+    fail "CAPE Agent unavailable on both isolated and management paths for Windows safety verification"
+    return 1
   fi
-  cape_agent_run_powershell     "$guest_ip" "$AUTODEPLOY_ROOT/windows/verify-inetsim.ps1" "cape-inetsim-autodeploy-verify" "$local_result"     -ManagementIP "$CAPE_MACHINE_IP"     -IsolatedMac "$isolated_mac"     -FakeIP "$fake_ip"     -DnsIP "$dns_ip"     -ResultServerIP "$result_ip"     -ResultServerPort "$result_port"
+
+  cape_agent_run_powershell \
+    "$control_ip" "$AUTODEPLOY_ROOT/windows/verify-inetsim.ps1" \
+    "cape-inetsim-autodeploy-verify" "$local_result" \
+    -ManagementIP "$management_ip" \
+    -IsolatedMac "$isolated_mac" \
+    -FakeIP "$fake_ip" \
+    -DnsIP "$dns_ip" \
+    -ResultServerIP "$result_ip" \
+    -ResultServerPort "$result_port"
   validate_windows_result_path "$local_result"
 }
+

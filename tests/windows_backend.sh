@@ -42,6 +42,29 @@ grep -Fq '/retrieve' "$ROOT/lib/windows-cape-agent.sh"
 ! grep -Fq '/execute' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'rc=50' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'cape_agent_remove_paths_any' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'cape_agent_reap_async_any' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'windows/stage-isolated-control.ps1' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'cape_agent_wait "$fake_ip" 60' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'control_path=isolated' "$ROOT/lib/windows-cape-agent.sh"
+[[ -f "$ROOT/windows/stage-isolated-control.ps1" ]]
+grep -Fq "CAPE-INetSim-AutoDeploy isolated control" "$ROOT/windows/stage-isolated-control.ps1"
+grep -Fq "'advfirewall','firewall','add','rule'" "$ROOT/windows/stage-isolated-control.ps1"
+grep -Fq 'remoteip=' "$ROOT/windows/stage-isolated-control.ps1"
+! grep -Fq 'ManagementIP' "$ROOT/windows/stage-isolated-control.ps1"
+
+python3 - "$ROOT/lib/windows-cape-agent.sh" <<'PY'
+import sys
+s=open(sys.argv[1],encoding="utf-8").read()
+f=s.index("windows_configure_via_cape_agent()")
+body=s[f:s.index("windows_verify_via_cape_agent()",f)]
+stage=body.index("windows/stage-isolated-control.ps1")
+prove=body.index('cape_agent_wait "$fake_ip" 60')
+full=body.index("windows/configure-inetsim.ps1")
+assert stage < prove < full
+assert '"$management_ip" "$AUTODEPLOY_ROOT/windows/stage-isolated-control.ps1"' in body
+assert '"$fake_ip" "$AUTODEPLOY_ROOT/windows/configure-inetsim.ps1"' in body
+PY
+
 grep -Fq '{"execpy","largefile"}' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'd.get("is_user_admin") is not True' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'subprocess.run(cmd' "$ROOT/tools/windows_agent_runner.py"
@@ -80,7 +103,7 @@ import json,sys
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from urllib.parse import parse_qs
 
-state={"retrieve":0,"saw_async":False}
+state={"retrieve":0,"saw_async":False,"done":False}
 
 class H(BaseHTTPRequestHandler):
     def log_message(self,*a): pass
@@ -96,7 +119,8 @@ class H(BaseHTTPRequestHandler):
             self.send_json({"status_code":200,"message":"CAPE Agent!","version":"0.22","features":["execpy","largefile"],"is_user_admin":True})
             return
         if self.path == "/status":
-            self.send_json({"status_code":200,"message":"Analysis status","status":"running","description":""})
+            status="complete" if state["done"] else "running"
+            self.send_json({"status_code":200,"message":"Analysis status","status":status,"description":"","exitcode":0 if state["done"] else None})
             return
         self.send_response(404); self.end_headers()
     def do_POST(self):
@@ -114,6 +138,7 @@ class H(BaseHTTPRequestHandler):
             state["retrieve"] += 1
             if state["retrieve"] < 2:
                 self.send_response(404); self.end_headers(); return
+            state["done"]=True
             b=b'{"ok":true}\n'
             self.send_response(200)
             self.send_header("Content-Type","application/octet-stream")
