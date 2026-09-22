@@ -95,6 +95,9 @@ grep -q -- '--transport-artifact' "$ROOT/appliance/build/render-manifest.py"
 grep -q '"compression":"gzip"' "$ROOT/appliance/build/render-manifest.py"
 
 grep -q -- '--management-mac' "$ROOT/appliance/guest-configure.sh"
+grep -Fq 'expected at most one management default route' "$ROOT/appliance/guest-configure.sh"
+grep -Fq '[[ "$DEFAULTS" -le 1 ]]' "$ROOT/appliance/guest-configure.sh"
+! grep -Fq 'expected exactly one management default route' "$ROOT/appliance/guest-configure.sh"
 ! grep -q '192\.168\.200\.' "$ROOT/appliance/guest-configure.sh"
 
 echo '[PASS] pinned/generalized appliance build pipeline'
