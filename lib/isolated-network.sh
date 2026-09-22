@@ -84,6 +84,12 @@ verify_isolated_network_definition() {
 
 isolated_network_exists() { virsh net-info "$1" >/dev/null 2>&1; }
 
+isolated_network_is_active() {
+  local text
+  text="$(virsh net-info "$1" 2>/dev/null)" || return 1
+  grep -Eq '^Active:[[:space:]]+yes' <<<"$text"
+}
+
 isolated_network_apply() {
   isolated_network_defaults
   choose_isolated_bridge_name
@@ -92,14 +98,14 @@ isolated_network_apply() {
   if isolated_network_exists "$ISOLATED_NETWORK_NAME"; then
     if verify_isolated_network_definition "$ISOLATED_NETWORK_NAME" "$ISOLATED_BRIDGE_NAME" "$ISOLATED_SUBNET" "$BRIDGE_IP"; then
       if state_resource_owned "libvirt-network" "$ISOLATED_NETWORK_NAME"; then
-        virsh net-info "$ISOLATED_NETWORK_NAME" | grep -Eq '^Active:[[:space:]]+yes' || virsh net-start "$ISOLATED_NETWORK_NAME" >/dev/null
+        isolated_network_is_active "$ISOLATED_NETWORK_NAME" || virsh net-start "$ISOLATED_NETWORK_NAME" >/dev/null
         virsh net-autostart "$ISOLATED_NETWORK_NAME" >/dev/null
         pass "Isolated libvirt network already exists and matches owned state"
         return 0
       fi
       if state_resource_intended "libvirt-network" "$ISOLATED_NETWORK_NAME"; then
         virsh net-autostart "$ISOLATED_NETWORK_NAME" >/dev/null
-        virsh net-info "$ISOLATED_NETWORK_NAME" | grep -Eq '^Active:[[:space:]]+yes' || virsh net-start "$ISOLATED_NETWORK_NAME" >/dev/null
+        isolated_network_is_active "$ISOLATED_NETWORK_NAME" || virsh net-start "$ISOLATED_NETWORK_NAME" >/dev/null
         state_record_resource "libvirt-network" "$ISOLATED_NETWORK_NAME" "recovered-created" yes "bridge=$ISOLATED_BRIDGE_NAME cidr=$ISOLATED_SUBNET"
         pass "Recovered deployment-owned isolated libvirt network after interrupted create"
         return 0
@@ -130,7 +136,7 @@ isolated_network_apply() {
   fi
 
   verify_isolated_network_definition "$ISOLATED_NETWORK_NAME" "$ISOLATED_BRIDGE_NAME" "$ISOLATED_SUBNET" "$BRIDGE_IP"
-  virsh net-info "$ISOLATED_NETWORK_NAME" | grep -Eq '^Active:[[:space:]]+yes'
+  isolated_network_is_active "$ISOLATED_NETWORK_NAME"
   state_record_resource "libvirt-network" "$ISOLATED_NETWORK_NAME" "created" yes "bridge=$ISOLATED_BRIDGE_NAME cidr=$ISOLATED_SUBNET"
   pass "Created isolated libvirt network '$ISOLATED_NETWORK_NAME' on '$ISOLATED_BRIDGE_NAME'"
 }
