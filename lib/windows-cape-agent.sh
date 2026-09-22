@@ -342,6 +342,67 @@ PY
   pass "Returned CAPE Agent control to the management path after Windows hardening"
 }
 
+windows_poweroff_via_cape_agent() {
+  local management_ip="$1"
+  local stem="cape-inetsim-autodeploy-poweroff"
+  local remote_py="C:\\Windows\\Temp\\${stem}.py"
+  local log="$AD_LOG_ROOT/${DEPLOYMENT_ID}-$(ad_safe_token "$DOMAIN")-${stem}-cape-agent-execpy.json"
+  local state="" elapsed=0
+
+  state="$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)"
+  [[ "$state" == "shut off" ]] && return 0
+  [[ "$state" == running ]] || {
+    fail "Cannot request CAPE Agent poweroff from Windows domain state: ${state:-unknown}"
+    return 62
+  }
+
+  cape_agent_prepare_client_identity "$management_ip" || return 62
+  cape_agent_wait "$management_ip" 60 || {
+    fail "CAPE Agent is unavailable on management IP $management_ip for guest-driven shutdown"
+    return 62
+  }
+
+  cape_agent_remove "$management_ip" "$remote_py" 2
+  cape_agent_store "$management_ip" "$AUTODEPLOY_ROOT/tools/windows_agent_poweroff.py" "$remote_py" || {
+    fail "Could not stage CAPE Agent Windows shutdown helper"
+    return 63
+  }
+
+  # ACPI-only virsh shutdown is not reliable on every sandbox image. Launch
+  # shutdown.exe inside the guest, asynchronously, so the Agent can return the
+  # spawn response before Windows tears down networking/processes.
+  if cape_agent_execpy_async_detached "$management_ip" "$remote_py" "$log"; then
+    while ((elapsed < 120)); do
+      state="$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)"
+      if [[ "$state" == "shut off" ]]; then
+        pass "Windows shut down through CAPE Agent guest command"
+        return 0
+      fi
+      sleep 2
+      elapsed=$((elapsed+2))
+    done
+  else
+    warn "CAPE Agent shutdown helper did not launch; trying libvirt ACPI shutdown fallback"
+  fi
+
+  # Last graceful fallback only. Never destroy the guest during normal
+  # deployment because the working snapshot must be based on a clean shutdown.
+  virsh shutdown "$DOMAIN" >/dev/null 2>&1 || true
+  elapsed=0
+  while ((elapsed < 90)); do
+    state="$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)"
+    if [[ "$state" == "shut off" ]]; then
+      pass "Windows shut down through libvirt ACPI fallback"
+      return 0
+    fi
+    sleep 2
+    elapsed=$((elapsed+2))
+  done
+
+  fail "Windows did not shut down after CAPE Agent guest shutdown and ACPI fallback; refusing forced snapshot"
+  return 64
+}
+
 cape_agent_run_powershell_sync() {
   local ip="$1" ps1="$2" stem="$3" local_result="$4"
   shift 4
