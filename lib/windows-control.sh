@@ -149,10 +149,11 @@ windows_configure_via_manual_callback() {
   echo "Timeout: ${WINDOWS_FALLBACK_TIMEOUT:-900} seconds"
   echo "================================================================"
 
-  set +e
-  wait "$server_pid"
-  rc=$?
-  set -e
+  if wait "$server_pid"; then
+    rc=0
+  else
+    rc=$?
+  fi
   rm -f "$ready"
   [[ "$rc" -eq 0 && -s "$result" ]] || { fail "Windows fallback command did not return a valid result before timeout"; return 40; }
 
