@@ -38,14 +38,17 @@ grep -Fq 'd.get("is_user_admin") is not True' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'subprocess.run(cmd' "$ROOT/tools/windows_agent_runner.py"
 ! grep -Fq 'shell=True' "$ROOT/tools/windows_agent_runner.py"
 
-grep -q 'Get-NetAdapter' "$ROOT/windows/configure-inetsim.ps1"
-grep -q "DestinationPrefix '0.0.0.0/0'" "$ROOT/windows/configure-inetsim.ps1"
-grep -q "DestinationPrefix '::/0'" "$ROOT/windows/configure-inetsim.ps1"
-grep -q 'Disable-NetAdapterBinding' "$ROOT/windows/configure-inetsim.ps1"
+grep -q 'Get-WmiObject Win32_NetworkAdapterConfiguration' "$ROOT/windows/configure-inetsim.ps1"
+grep -q 'Get-WmiObject Win32_IP4RouteTable' "$ROOT/windows/configure-inetsim.ps1"
+grep -q "route.exe delete 0.0.0.0" "$ROOT/windows/configure-inetsim.ps1"
+grep -q "netsh interface ipv6 delete route" "$ROOT/windows/configure-inetsim.ps1"
+grep -q 'routerdiscovery=disabled' "$ROOT/windows/configure-inetsim.ps1"
 grep -q 'unexpected active network adapter' "$ROOT/windows/configure-inetsim.ps1"
 grep -q '2606:4700:4700::1111' "$ROOT/windows/configure-inetsim.ps1"
-grep -q 'Test-NetConnection' "$ROOT/windows/configure-inetsim.ps1"
-grep -q 'Resolve-DnsName' "$ROOT/windows/configure-inetsim.ps1"
+grep -q 'System.Net.Sockets.TcpClient' "$ROOT/windows/configure-inetsim.ps1"
+grep -q 'System.Net.Dns' "$ROOT/windows/configure-inetsim.ps1"
+grep -q 'legacy_network_stack' "$ROOT/windows/configure-inetsim.ps1"
+grep -q 'legacy_network_stack' "$ROOT/windows/verify-inetsim.ps1"
 grep -q 'public_ipv6_reachable' "$ROOT/windows/verify-inetsim.ps1"
 grep -q 'inetsim_https_reachable' "$ROOT/windows/configure-inetsim.ps1"
 grep -q 'inetsim_https_reachable' "$ROOT/windows/verify-inetsim.ps1"
@@ -104,6 +107,28 @@ cat >"$TMP/result.json" <<'EOF'
 }
 EOF
 validate_windows_result_path "$TMP/result.json"
+
+cat >"$TMP/legacy-result.json" <<'EOF'
+{
+  "ok": true,
+  "legacy_network_stack": true,
+  "default_routes": 0,
+  "ipv4_default_routes": 0,
+  "ipv6_default_routes": 0,
+  "ipv6_bindings_enabled": -1,
+  "ipv6_router_discovery_disabled": true,
+  "unexpected_active_adapters": 0,
+  "resultserver_reachable": true,
+  "inetsim_http_reachable": true,
+  "inetsim_https_reachable": true,
+  "public_ip_reachable": false,
+  "public_ipv6_reachable": false,
+  "fake_ip": "192.0.2.10",
+  "dns": "192.0.2.2"
+}
+EOF
+validate_windows_result_path "$TMP/legacy-result.json"
+
 python3 - "$TMP/result.json" <<'PY'
 import json,sys
 p=sys.argv[1]
