@@ -66,13 +66,25 @@ discover_hypervisor_safety_features
 [[ "$NWFILTER_RUNTIME_MODE" == modular-socket ]]
 [[ "${#DISCOVERY_ERRORS[@]}" -eq 0 ]]
 
+# If no modular unit is available but virsh can define nwfilters, an installed
+# standard definition remains safely reloadable.
+systemctl() { return 1; }
+virsh() {
+  [[ "$1" == help && "$2" == nwfilter-define ]]
+}
+DISCOVERY_ERRORS=()
+discover_hypervisor_safety_features
+[[ "$MANAGEMENT_NWFILTER_AVAILABLE" == activatable ]]
+[[ "$NWFILTER_RUNTIME_MODE" == definition-reload ]]
+[[ "${#DISCOVERY_ERRORS[@]}" -eq 0 ]]
+
 rm -f "$TMP/nwfilter/clean-traffic.xml"
 DISCOVERY_ERRORS=()
 discover_hypervisor_safety_features
 [[ "$MANAGEMENT_NWFILTER_AVAILABLE" == no ]]
 [[ "$NWFILTER_RUNTIME_MODE" == unavailable ]]
 [[ "${#DISCOVERY_ERRORS[@]}" -eq 1 ]]
-grep -Fq 'no activatable standard virtnwfilterd configuration was proven' <<<"${DISCOVERY_ERRORS[0]}"
+grep -Fq 'no safely activatable standard definition/runtime was proven' <<<"${DISCOVERY_ERRORS[0]}"
 
 virsh() {
   [[ "$1" == nwfilter-info && "$2" == clean-traffic ]]
