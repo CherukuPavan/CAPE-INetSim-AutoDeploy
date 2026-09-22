@@ -195,6 +195,10 @@ validate_all_targets_structural() {
       failures=$((failures+1))
       continue
     }
+    windows_management_dhcp_verify_if_owned || {
+      fail "Windows management DHCP alignment validation failed for $CAPE_MACHINE_SECTION"
+      failures=$((failures+1))
+    }
     windows_management_guard_verify || {
       fail "Windows management anti-spoof guard validation failed for $CAPE_MACHINE_SECTION"
       failures=$((failures+1))
