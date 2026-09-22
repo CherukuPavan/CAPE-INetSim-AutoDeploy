@@ -78,3 +78,7 @@ qga_exec_wait(){
 inetsim_configure_guest
 grep -Fq 'CONFIGURATOR_TRANSPORT=baked-release-match' "$TMP/${DEPLOYMENT_ID}-inetsim-guest-configure.log"
 grep -Fq 'transport=baked-release-match' "$TMP/resource-record"
+
+grep -Fq 'inetsim-host-verify.log' "$ROOT/lib/inetsim-vm.sh"
+grep -Fq 'runtime_query=failed' "$ROOT/lib/inetsim-vm.sh"
+grep -Fq 'probe_attempt=' "$ROOT/lib/inetsim-vm.sh"
