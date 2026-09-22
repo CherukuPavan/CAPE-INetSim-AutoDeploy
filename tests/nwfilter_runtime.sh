@@ -90,8 +90,9 @@ systemctl() {
       esac
       ;;
     show)
-      # systemctl show -p LoadState --value UNIT
-      case "${5:-}" in
+      # After shifting the operation, arguments are:
+      #   -p LoadState --value UNIT
+      case "${4:-}" in
         virtnwfilterd.socket|virtnwfilterd.service) echo loaded; return 0 ;;
       esac
       return 1
