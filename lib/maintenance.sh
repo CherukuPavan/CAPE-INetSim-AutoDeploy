@@ -61,10 +61,12 @@ cape_maintenance_tool() {
         fail "Could not stage CAPE maintenance guard for release"
         return 1
       }
-      set +e
-      runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" "$action" --label "$CAPE_MACHINE_LABEL" --deployment-id "$DEPLOYMENT_ID" --guard-file "$user_guard"
-      local rc=$?
-      set -e
+      local rc
+      if runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" "$action" --label "$CAPE_MACHINE_LABEL" --deployment-id "$DEPLOYMENT_ID" --guard-file "$user_guard"; then
+        rc=0
+      else
+        rc=$?
+      fi
       rm -f "$user_guard" "$user_guard.pending"
       rmdir "$user_dir" 2>/dev/null || true
       if [[ "$rc" -eq 0 ]]; then
@@ -78,10 +80,12 @@ cape_maintenance_tool() {
         fail "Could not stage CAPE maintenance guard for verification"
         return 1
       }
-      set +e
-      runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" "$action" --label "$CAPE_MACHINE_LABEL" --deployment-id "$DEPLOYMENT_ID" --guard-file "$user_guard"
-      local rc=$?
-      set -e
+      local rc
+      if runuser -u "$CAPE_SERVICE_USER" -- env PYTHONPATH="$CAPE_ROOT" "$CAPE_RUNTIME_PYTHON" "$AUTODEPLOY_ROOT/tools/cape_maintenance.py" "$action" --label "$CAPE_MACHINE_LABEL" --deployment-id "$DEPLOYMENT_ID" --guard-file "$user_guard"; then
+        rc=0
+      else
+        rc=$?
+      fi
       rm -f "$user_guard" "$user_guard.pending"
       rmdir "$user_dir" 2>/dev/null || true
       return "$rc"
@@ -94,10 +98,11 @@ cape_maintenance_tool() {
 cape_wait_and_acquire_maintenance() {
   local timeout="${1:-3600}" elapsed=0 rc
   while ((elapsed < timeout)); do
-    set +e
-    cape_maintenance_tool acquire
-    rc=$?
-    set -e
+    if cape_maintenance_tool acquire; then
+      rc=0
+    else
+      rc=$?
+    fi
     if [[ "$rc" -eq 0 ]]; then
       state_record_resource cape-maintenance all-machines acquired yes "$CAPE_MAINTENANCE_GUARD_FILE"
       pass "CAPE machine scheduling paused at a task-safe point"
@@ -114,10 +119,12 @@ cape_wait_and_acquire_maintenance() {
 
 cape_release_maintenance() {
   [[ -f "$CAPE_MAINTENANCE_GUARD_FILE" ]] || return 0
-  set +e
-  cape_maintenance_tool release
-  local rc=$?
-  set -e
+  local rc
+  if cape_maintenance_tool release; then
+    rc=0
+  else
+    rc=$?
+  fi
   if [[ "$rc" -eq 0 ]]; then
     state_record_resource cape-maintenance all-machines released yes ""
     return 0
