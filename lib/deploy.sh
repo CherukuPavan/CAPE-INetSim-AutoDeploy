@@ -162,6 +162,10 @@ deploy_initialize_or_resume_state() {
   d_targets_identity="$(targets_identity_sha256)"
   local d_subnet="$ISOLATED_SUBNET" d_bridge_ip="$BRIDGE_IP" d_inetsim_ip="$INETSIM_IP"
   local d_storage_pool="${LIBVIRT_STORAGE_POOL:-}" d_storage_path="${LIBVIRT_STORAGE_PATH:-}"
+  local d_release_tag="${CAPE_INETSIM_RELEASE_TAG:-}"
+  local d_release_bundle="${CAPE_INETSIM_RELEASE_SOURCE_BUNDLE:-}"
+  local d_release_sha="${CAPE_INETSIM_RELEASE_SOURCE_SHA256:-}"
+  local d_release_commit="${CAPE_INETSIM_RELEASE_SOURCE_COMMIT:-}"
 
   if [[ -f "$AD_STATE_FILE" ]]; then
     state_load
@@ -197,6 +201,12 @@ deploy_initialize_or_resume_state() {
   ISOLATED_SUBNET="$d_subnet"
   BRIDGE_IP="$d_bridge_ip"
   INETSIM_IP="$d_inetsim_ip"
+  # A rolled-back transaction must never leak its release provenance into a
+  # fresh deployment from a newer immutable release.
+  RELEASE_TAG="$d_release_tag"
+  RELEASE_SOURCE_BUNDLE="$d_release_bundle"
+  RELEASE_SOURCE_SHA256="$d_release_sha"
+  RELEASE_SOURCE_COMMIT="$d_release_commit"
   deploy_reset_resource_state
   LIBVIRT_STORAGE_POOL="$d_storage_pool"
   LIBVIRT_STORAGE_PATH="$d_storage_path"
