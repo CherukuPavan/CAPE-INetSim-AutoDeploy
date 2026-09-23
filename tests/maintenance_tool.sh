@@ -57,6 +57,9 @@ assert decide(False,False,None,"owned-marker")=="already-original"
 # A different owner still has the machine locked: never touch or clear guard.
 assert decide(False,True,"foreign-marker","owned-marker")=="external-change"
 
+# The exact RC34 stale-guard case must remain a non-mutating success path.
+assert decide(False,False,"scheduler-touched-marker","maintenance-marker")=="already-original"
+
 # Defensive case: if the guard ever recorded an originally locked machine,
 # an externally unlocked row is not silently accepted as equivalent.
 assert decide(True,False,"foreign-marker","owned-marker")=="external-change"
