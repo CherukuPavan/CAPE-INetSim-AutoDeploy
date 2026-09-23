@@ -80,7 +80,7 @@ fi
 
 grep -Fq -- '--marker)' "$ROOT/install"
 grep -Fq 'ACCEPT_MARKER' "$ROOT/install"
-grep -Fq 'background INetSim traffic is allowed' "$ROOT/bin/cape-inetsim-acceptance"
+grep -Fq 'ordinary Windows background' "$ROOT/bin/cape-inetsim-acceptance"
 grep -Fq 'pcap_has_marker' "$ROOT/bin/cape-inetsim-acceptance"
 grep -Fq 'negative_contains_marker' "$ROOT/bin/cape-inetsim-acceptance"
 grep -Fq 'background_inetsim_allowed_in_negative' "$ROOT/bin/cape-inetsim-acceptance"
