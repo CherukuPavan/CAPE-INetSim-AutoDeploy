@@ -92,8 +92,12 @@ pcap_has_inetsim() {
 }
 
 pcap_has_marker() {
-  timeout 15 tcpdump -nn -A -s 0 -r "$1" "host $INETSIM_IP" 2>/dev/null |
-    grep -Fqi -- "$MARKER"
+  timeout 15 tcpdump -nn -vvv -A -s 0 -r "$1" "host $INETSIM_IP" 2>/dev/null |
+    awk -v marker="$MARKER" '
+      BEGIN { marker=tolower(marker); found=0 }
+      index(tolower($0), marker) { found=1 }
+      END { exit(found ? 0 : 1) }
+    '
 }
 
 pcap_has_inetsim "$POS_PCAP" || {
