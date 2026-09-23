@@ -119,7 +119,7 @@ PY
 
 grep -Fq -- '--marker)' "$ROOT/install"
 grep -Fq 'ACCEPT_MARKER' "$ROOT/install"
-grep -Fq 'ordinary Windows background' "$ROOT/bin/cape-inetsim-acceptance"
+grep -Fq 'background traffic to INetSim is allowed' "$ROOT/bin/cape-inetsim-acceptance"
 grep -Fq 'pcap_has_marker' "$ROOT/bin/cape-inetsim-acceptance"
 grep -Fq 'awk -v marker="$MARKER"' "$ROOT/bin/cape-inetsim-acceptance"
 grep -Fq '"marker_reached_inetsim":bool(inetsim_evidence)' "$ROOT/tools/acceptance_reports.py"
