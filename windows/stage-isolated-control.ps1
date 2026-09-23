@@ -11,7 +11,7 @@ $ErrorActionPreference='Stop'
 
 function Escape-JsonString([string]$Value) {
     if($null -eq $Value){return ''}
-    return $Value.Replace('\','\\').Replace('"','\"').Replace([char]13,'\r').Replace([char]10,'\n').Replace([char]9,'\t')
+    return $Value.Replace('\','\\').Replace('"','\"').Replace([string][char]13,'\r').Replace([string][char]10,'\n').Replace([string][char]9,'\t')
 }
 
 function Convert-SimpleJsonValue($Value) {
