@@ -124,7 +124,8 @@ if [[ -d "$AD_STATE_ROOT_CAPTURE/logs" ]]; then
       -name '*windows-finalize*.json' -o \
       -name '*windows-finalize*.txt' -o \
       -name '*poweroff*.json' -o \
-      -name '*poweroff*.txt' \
+      -name '*poweroff*.txt' -o \
+      -name '*extension-*.log' \
     \) -print0 2>/dev/null |
   while IFS= read -r -d '' src; do
     cp -a "$src" "$OUT/autodeploy/$(basename "$src")"
