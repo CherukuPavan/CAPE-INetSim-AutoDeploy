@@ -130,8 +130,30 @@ jobs:
           }
 
           HANDOFF="$RUNNER_TEMP/private-candidate"
-          mkdir -p "$HANDOFF" "$RUNNER_TEMP/candidate" "$RUNNER_TEMP/evidence"
-          gh release download "$TAG" -R "$PRIVATE_REPO" -D "$HANDOFF"
+          mkdir -p "$RUNNER_TEMP/candidate" "$RUNNER_TEMP/evidence"
+
+          # GitHub release-asset downloads occasionally return transient 5xx
+          # responses even when the immutable candidate release is healthy.
+          # Retry from a clean directory so a partial asset can never be reused.
+          downloaded=no
+          for attempt in 1 2 3 4 5; do
+            rm -rf "$HANDOFF"
+            mkdir -p "$HANDOFF"
+            if gh release download "$TAG" -R "$PRIVATE_REPO" -D "$HANDOFF"; then
+              downloaded=yes
+              break
+            fi
+            if [[ "$attempt" -lt 5 ]]; then
+              sleep "$((attempt * 5))"
+            fi
+          done
+          [[ "$downloaded" == yes ]] || {
+            echo "::error::private candidate asset download failed after 5 attempts"
+            exit 2
+          }
+
+          rm -rf "$RUNNER_TEMP/candidate" "$RUNNER_TEMP/evidence"
+          mkdir -p "$RUNNER_TEMP/candidate" "$RUNNER_TEMP/evidence"
           cp -a "$HANDOFF/." "$RUNNER_TEMP/candidate/"
           cp -a "$HANDOFF/." "$RUNNER_TEMP/evidence/"
 
