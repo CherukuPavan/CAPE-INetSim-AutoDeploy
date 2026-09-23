@@ -171,7 +171,8 @@ for p in sys.argv[1:]:
     if end < 0:
         end=len(s)
     body=s[w:end]
-    assert "JavaScriptSerializer" not in body, p
+    assert "New-Object System.Web.Script.Serialization.JavaScriptSerializer" not in body, p
+    assert ".Serialize(" not in body, p
     assert "Convert-SimpleJsonValue" in s, p
     assert "Escape-JsonString" in s, p
 cfg=open(sys.argv[1],encoding="utf-8").read()
