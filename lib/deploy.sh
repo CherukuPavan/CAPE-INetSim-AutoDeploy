@@ -160,6 +160,74 @@ deploy_reset_resource_state() {
   CAPE_SCHEDULER_STOPPED_BY_AUTODEPLOY=no
 }
 
+deploy_recovery_mutable_owned_kinds() {
+  cat <<'EOF'
+cape-file
+extension
+windows-config
+domain-interface
+snapshot
+management-dhcp-host
+domain-interface-filter
+cape-maintenance
+libvirt-network
+disk
+domain
+inetsim-guest
+firewall-management-guard
+firewall-file
+firewall-unit
+firewall-table
+libvirt-service
+libvirt-unit-enable
+EOF
+}
+
+deploy_verify_recovered_transaction_clean() {
+  local kind failures=0
+  while IFS= read -r kind; do
+    [[ -n "$kind" ]] || continue
+    if state_has_owned_kind "$kind"; then
+      fail "Recovered transaction still owns mutable resource kind: $kind"
+      failures=$((failures+1))
+    fi
+  done < <(deploy_recovery_mutable_owned_kinds)
+
+  if [[ -e "$CAPE_MAINTENANCE_GUARD_FILE" ]]; then
+    fail "Recovered transaction still has a CAPE maintenance guard: $CAPE_MAINTENANCE_GUARD_FILE"
+    failures=$((failures+1))
+  fi
+
+  ((failures == 0)) || return 1
+  services_validate_restored_state || {
+    fail "Recovered transaction did not restore expected CAPE service readiness"
+    return 1
+  }
+}
+
+deploy_recover_incomplete_rollback() {
+  [[ "${DEPLOYMENT_PHASE:-}" == rollback-incomplete ]] || return 0
+
+  local old_id="${DEPLOYMENT_ID:-unknown}"
+  warn "Previous AutoDeploy transaction $old_id is rollback-incomplete; attempting ownership-aware recovery before starting a new deployment."
+
+  autodeploy_rollback_internal || {
+    fail "Automatic recovery of rollback-incomplete transaction $old_id did not complete safely"
+    return 1
+  }
+
+  [[ "${DEPLOYMENT_PHASE:-}" == rolled-back ]] || {
+    fail "Recovery returned without reaching rolled-back phase: ${DEPLOYMENT_PHASE:-unknown}"
+    return 1
+  }
+
+  deploy_verify_recovered_transaction_clean || {
+    fail "Recovered transaction $old_id still has owned mutable state; refusing a fresh deployment"
+    return 1
+  }
+
+  pass "Recovered previous rollback-incomplete transaction $old_id to a clean rolled-back state"
+}
 deploy_initialize_or_resume_state() {
   local d_root="$CAPE_ROOT" d_commit="$CAPE_COMMIT" d_db="$CAPE_DB_BACKEND"
   local d_targets_json="${CAPE_TARGETS_JSON:-[]}"
@@ -174,6 +242,24 @@ deploy_initialize_or_resume_state() {
 
   if [[ -f "$AD_STATE_FILE" ]]; then
     state_load
+
+    if [[ "${DEPLOYMENT_PHASE:-}" == rollback-incomplete ]]; then
+      # Auto-recovery is permitted only when the persisted transaction still
+      # refers to the exact CAPE installation and target identity discovered
+      # for this run. Never auto-clean state after manual topology/source drift.
+      [[ "$CAPE_ROOT" == "$d_root" ]] || { fail "Rollback-incomplete state belongs to a different CAPE root"; return 1; }
+      [[ "$CAPE_COMMIT" == "$d_commit" ]] || { fail "CAPE commit changed since the rollback-incomplete transaction; refusing automatic recovery"; return 1; }
+      [[ "$CAPE_DB_BACKEND" == "$d_db" ]] || { fail "CAPE database backend changed since the rollback-incomplete transaction; refusing automatic recovery"; return 1; }
+      [[ "${CAPE_TARGETS_IDENTITY_SHA256:-}" == "$d_targets_identity" ]] || {
+        fail "Enabled CAPE analysis-machine identity changed since the rollback-incomplete transaction; refusing automatic recovery"
+        return 1
+      }
+      CAPE_TARGETS_COUNT="$(targets_count)"
+      ((CAPE_TARGETS_COUNT > 0)) || { fail "Rollback-incomplete state contains no CAPE analysis targets"; return 1; }
+      targets_bind 0
+      deploy_recover_incomplete_rollback || return 1
+    fi
+
     if [[ "${DEPLOYMENT_PHASE:-}" != rolled-back ]]; then
       deploy_phase_is_resumable || {
         fail "Existing state is not a resumable deployment phase: ${DEPLOYMENT_PHASE:-unknown}"
