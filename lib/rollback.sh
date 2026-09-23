@@ -34,7 +34,19 @@ rollback_cutover_resources_exist() {
 rollback_prepare_cape_maintenance() {
   rollback_cutover_resources_exist || return 0
   [[ -f "$CAPE_MAINTENANCE_GUARD_FILE" ]] && return 0
+
+  # If failure happens after final handoff started, cape.service may already be
+  # running. Close the scheduler BEFORE creating a new DB maintenance marker.
+  # Otherwise CAPE can mutate machine lock metadata between acquire/release and
+  # make the recovery guard impossible to release cleanly.
+  local maintenance_needed=no
   if systemctl is-active --quiet cape.service || systemctl is-active --quiet cape-processor.service; then
+    maintenance_needed=yes
+  fi
+  if systemctl is-active --quiet cape.service; then
+    services_stop_scheduler_for_handoff || return 1
+  fi
+  if [[ "$maintenance_needed" == yes ]]; then
     cape_wait_and_acquire_maintenance "${ROLLBACK_WAIT_SECONDS:-3600}"
   fi
 }
