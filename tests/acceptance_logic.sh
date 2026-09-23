@@ -66,6 +66,8 @@ assert d["mode"]=="marker-pair"
 assert d["positive"]["task_id"]==20
 assert d["positive"]["uses_inetsim"] is True
 assert d["positive"]["marker_present"] is True
+assert d["positive"]["marker_reached_inetsim"] is True
+assert d["positive"]["marker_inetsim_evidence"]
 assert d["negative"]["task_id"]==19
 assert d["negative"]["uses_inetsim"] is True
 assert d["negative"]["context_enabled"] is True
@@ -78,10 +80,38 @@ if python3 "$ROOT/tools/acceptance_reports.py"   --cape-root "$TMP/cape" --inets
   exit 1
 fi
 
+# Regression: marker presence alone is insufficient. Background traffic may
+# reach INetSim while the marker resolves somewhere else; that must not pass
+# as proof that the controlled positive marker reached INetSim.
+mkdir -p "$TMP/cape/storage/analyses/18/reports"
+cat >"$TMP/cape/storage/analyses/18/reports/report.json" <<'JSON'
+{
+  "info":{"id":18,"route":"none"},
+  "network":{
+    "tcp":[{"src":"10.77.50.10","dst":"10.77.50.2","dport":443}],
+    "dns":[
+      {"request":"background.test","answers":[{"data":"10.77.50.2"}]},
+      {"request":"cape-inetsim-accept-123.invalid","answers":[{"data":"203.0.113.77"}]}
+    ]
+  }
+}
+JSON
+printf 'pcap-marker-unrelated-placeholder\n' >"$TMP/cape/storage/analyses/18/dump.pcap"
+if python3 "$ROOT/tools/acceptance_reports.py" \
+  --cape-root "$TMP/cape" --inetsim-ip 10.77.50.2 \
+  --positive-task 18 --negative-task 19 \
+  --marker cape-inetsim-accept-123.invalid \
+  --output "$TMP/unrelated.json" >/dev/null 2>&1; then
+  echo "acceptance treated unrelated marker evidence plus background INetSim traffic as a positive" >&2
+  exit 1
+fi
+
 grep -Fq -- '--marker)' "$ROOT/install"
 grep -Fq 'ACCEPT_MARKER' "$ROOT/install"
 grep -Fq 'ordinary Windows background' "$ROOT/bin/cape-inetsim-acceptance"
 grep -Fq 'pcap_has_marker' "$ROOT/bin/cape-inetsim-acceptance"
+grep -Fq 'awk -v marker="$MARKER"' "$ROOT/bin/cape-inetsim-acceptance"
+grep -Fq '"marker_reached_inetsim":bool(inetsim_evidence)' "$ROOT/tools/acceptance_reports.py"
 grep -Fq 'negative_contains_marker' "$ROOT/bin/cape-inetsim-acceptance"
 grep -Fq 'background_inetsim_allowed_in_negative' "$ROOT/bin/cape-inetsim-acceptance"
 
