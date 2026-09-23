@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
-EXTENSION_VERSION="1.0.1"
+EXTENSION_VERSION="1.0.2"
 EXTENSION_RELEASE_ASSET_SHA256="f3be934f08ad364d5964842d3db9bfea0f11cd40a44b76980855d692d3a34d87"
 EXTENSION_BUNDLED_ROOT="${EXTENSION_BUNDLED_ROOT:-$AUTODEPLOY_ROOT/vendor/CAPE-INetSim-VM-Extension-v${EXTENSION_VERSION}}"
 EXTENSION_ROOT="${EXTENSION_ROOT:-$AD_STATE_ROOT/extension-v${EXTENSION_VERSION}}"
 
 extension_fetch_extract() {
-  # The exact v1.0.1 runtime is vendored inside the checksum-pinned AutoDeploy
+  # The exact extension runtime is vendored inside the checksum-pinned AutoDeploy
   # source bundle. A random target host must never need credentials for the
   # separate private extension development repository.
   [[ -d "$EXTENSION_BUNDLED_ROOT" ]] || {
