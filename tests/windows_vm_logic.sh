@@ -61,3 +61,37 @@ assert 'windows_poweroff_via_cape_agent "$CAPE_MACHINE_IP"' in stop
 assert 'virsh shutdown "$DOMAIN"' in stop
 assert 'refusing forced cutover' in stop
 PY
+
+
+# Regression: reverting the safety snapshot can remove the isolated NIC before
+# explicit detach. Rollback must still close domain-interface and windows-config
+# ownership so recovery does not falsely remain dirty.
+TMP_ROLLBACK="$(mktemp -d)"
+SAFETY_SNAPSHOT=pre-change
+WINDOWS_ISOLATED_MAC=52:54:00:de:ad:01
+WINDOWS_ORIGINAL_DOMAIN_STATE="shut off"
+: >"$TMP_ROLLBACK/records"
+
+state_resource_owned() {
+  case "$1|$2" in
+    "snapshot|$DOMAIN:$SAFETY_SNAPSHOT"|"domain-interface|$DOMAIN:$WINDOWS_ISOLATED_MAC"|"windows-config|$DOMAIN") return 0 ;;
+    *) return 1 ;;
+  esac
+}
+windows_snapshot_exists(){ return 0; }
+windows_isolated_mac_present(){ return 1; }
+windows_delete_owned_snapshots_leaf_first(){ :; }
+state_record_resource(){ printf '%s|%s|%s|%s\n' "$1" "$2" "$3" "$4" >>"$TMP_ROLLBACK/records"; }
+virsh() {
+  case "$1" in
+    domstate) echo "shut off" ;;
+    snapshot-revert) return 0 ;;
+    *) return 0 ;;
+  esac
+}
+windows_rollback_to_safety
+grep -Fq "domain-interface|$DOMAIN:$WINDOWS_ISOLATED_MAC|removed-by-safety-snapshot|yes" "$TMP_ROLLBACK/records"
+grep -Fq "windows-config|$DOMAIN|restored-by-safety-snapshot|yes" "$TMP_ROLLBACK/records"
+rm -rf "$TMP_ROLLBACK"
+
+echo '[PASS] safety-snapshot rollback reconciles Windows config/interface ownership'
