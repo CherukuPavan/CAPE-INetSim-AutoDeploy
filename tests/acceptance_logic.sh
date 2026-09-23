@@ -24,56 +24,65 @@ def build_route_none_inetsim_context(network, server_ip):
     return {
         "enabled":enabled,
         "summary":{"total":1 if enabled else 0},
-        "attribution_summary":{"task_domains":["probe.test"] if enabled else []},
+        "attribution_summary":{"task_domains":["background.test"] if enabled else []},
     }
 PY
 
 cat >"$TMP/cape/storage/analyses/20/reports/report.json" <<'JSON'
 {
   "info":{"id":20,"route":"none"},
-  "network":{"tcp":[{"src":"10.77.50.10","dst":"10.77.50.2","dport":443}]}
+  "network":{
+    "tcp":[{"src":"10.77.50.10","dst":"10.77.50.2","dport":80}],
+    "dns":[
+      {"request":"background.test","answers":[{"data":"10.77.50.2"}]},
+      {"request":"cape-inetsim-accept-123.invalid","answers":[{"data":"10.77.50.2"}]}
+    ],
+    "http":[{"dst":"10.77.50.2","host":"cape-inetsim-accept-123.invalid","uri":"http://cape-inetsim-accept-123.invalid/"}]
+  }
 }
 JSON
+
 cat >"$TMP/negative.json" <<'JSON'
 {
   "info":{"id":19,"route":"none"},
-  "network":{"tcp":[{"src":"10.77.50.10","dst":"203.0.113.9","dport":80}]}
+  "network":{
+    "tcp":[{"src":"10.77.50.10","dst":"10.77.50.2","dport":443}],
+    "dns":[{"request":"background.test","answers":[{"data":"10.77.50.2"}]}]
+  }
 }
 JSON
 gzip -c "$TMP/negative.json" >"$TMP/cape/storage/analyses/19/reports/report.json.gz"
 printf 'pcap-positive-placeholder\n' >"$TMP/cape/storage/analyses/20/dump.pcap"
 printf 'pcap-negative-placeholder\n' >"$TMP/cape/storage/analyses/19/dump.pcap"
 
-python3 "$ROOT/tools/acceptance_reports.py" \
-  --cape-root "$TMP/cape" --inetsim-ip 10.77.50.2 --output "$TMP/result.json"
+python3 "$ROOT/tools/acceptance_reports.py"   --cape-root "$TMP/cape"   --inetsim-ip 10.77.50.2   --positive-task 20   --negative-task 19   --marker cape-inetsim-accept-123.invalid   --output "$TMP/result.json"
 
 python3 - "$TMP/result.json" <<'PY'
 import json,sys
 d=json.load(open(sys.argv[1]))
+assert d["schema"]==2
 assert d["status"]=="pass"
+assert d["mode"]=="marker-pair"
 assert d["positive"]["task_id"]==20
 assert d["positive"]["uses_inetsim"] is True
-assert d["positive"]["context_enabled"] is True
-assert d["positive"]["capture_path"].endswith("/20/dump.pcap")
+assert d["positive"]["marker_present"] is True
 assert d["negative"]["task_id"]==19
-assert d["negative"]["uses_inetsim"] is False
-assert d["negative"]["context_enabled"] is False
-assert d["negative"]["capture_path"].endswith("/19/dump.pcap")
+assert d["negative"]["uses_inetsim"] is True
+assert d["negative"]["context_enabled"] is True
+assert d["negative"]["marker_present"] is False
+assert d["background_inetsim_allowed_in_negative"] is True
 PY
 
-if python3 "$ROOT/tools/acceptance_reports.py" \
-  --cape-root "$TMP/cape" --inetsim-ip 10.77.50.2 \
-  --positive-task 19 --negative-task 20 --output "$TMP/bad.json" >/dev/null 2>&1; then
-  echo "acceptance classifier accepted swapped positive/negative controls" >&2
+if python3 "$ROOT/tools/acceptance_reports.py"   --cape-root "$TMP/cape" --inetsim-ip 10.77.50.2   --positive-task 19 --negative-task 20   --marker cape-inetsim-accept-123.invalid   --output "$TMP/bad.json" >/dev/null 2>&1; then
+  echo "marker acceptance accepted swapped positive/negative controls" >&2
   exit 1
 fi
 
-grep -Fq -- '--acceptance) MODE=acceptance' "$ROOT/install"
-grep -Fq 'bin/cape-inetsim-acceptance' "$ROOT/install"
-grep -Fq 'tcpdump -nn -r "$POS_PCAP"' "$ROOT/bin/cape-inetsim-acceptance"
-grep -Fq 'tcpdump -nn -r "$NEG_PCAP"' "$ROOT/bin/cape-inetsim-acceptance"
-grep -Fq 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$ROOT/bin/cape-inetsim-acceptance"
-grep -Fq 'release_validation' "$ROOT/bin/cape-inetsim-acceptance"
-grep -Fq 'recovery_assets' "$ROOT/bin/cape-inetsim-acceptance"
+grep -Fq -- '--marker)' "$ROOT/install"
+grep -Fq 'ACCEPT_MARKER' "$ROOT/install"
+grep -Fq 'ordinary Windows background' "$ROOT/bin/cape-inetsim-acceptance"
+grep -Fq 'pcap_has_marker' "$ROOT/bin/cape-inetsim-acceptance"
+grep -Fq 'negative_contains_marker' "$ROOT/bin/cape-inetsim-acceptance"
+grep -Fq 'background_inetsim_allowed_in_negative' "$ROOT/bin/cape-inetsim-acceptance"
 
-echo '[PASS] real-report positive/negative functional acceptance logic'
+echo '[PASS] marker-based acceptance distinguishes payload evidence from Windows background INetSim traffic'

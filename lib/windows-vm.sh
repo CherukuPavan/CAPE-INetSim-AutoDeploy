@@ -342,7 +342,7 @@ windows_delete_owned_snapshots_leaf_first() {
 }
 
 windows_rollback_to_safety() {
-  local state
+  local state safety_restored=no
 
   # Recover ownership of any exactly matching snapshot that was created after
   # its intent was journaled but before the success ledger row was flushed.
@@ -388,6 +388,7 @@ windows_rollback_to_safety() {
 
   if [[ -n "${SAFETY_SNAPSHOT:-}" ]] && state_resource_owned snapshot "$DOMAIN:$SAFETY_SNAPSHOT" && windows_snapshot_exists "$SAFETY_SNAPSHOT"; then
     virsh snapshot-revert "$DOMAIN" "$SAFETY_SNAPSHOT" --force >/dev/null
+    safety_restored=yes
     [[ "$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)" == "shut off" ]] || virsh destroy "$DOMAIN" >/dev/null 2>&1 || true
   fi
 
@@ -395,6 +396,20 @@ windows_rollback_to_safety() {
   # Detach explicitly only if the deployment-owned interface still remains.
   if [[ -n "${WINDOWS_ISOLATED_MAC:-}" ]] && windows_isolated_mac_present "$WINDOWS_ISOLATED_MAC"; then
     windows_detach_isolated_nic
+  fi
+
+  # A successful safety-snapshot revert may already have restored guest
+  # networking and removed the isolated NIC from domain XML. Close those
+  # deployment-owned ledger entries even when no explicit detach was needed.
+  if [[ "$safety_restored" == yes ]]; then
+    if [[ -n "${WINDOWS_ISOLATED_MAC:-}" ]] &&
+       state_resource_owned domain-interface "$DOMAIN:$WINDOWS_ISOLATED_MAC" &&
+       ! windows_isolated_mac_present "$WINDOWS_ISOLATED_MAC"; then
+      state_record_resource domain-interface "$DOMAIN:$WINDOWS_ISOLATED_MAC" removed-by-safety-snapshot yes "snapshot=$SAFETY_SNAPSHOT"
+    fi
+    if state_resource_owned windows-config "$DOMAIN"; then
+      state_record_resource windows-config "$DOMAIN" restored-by-safety-snapshot yes "snapshot=$SAFETY_SNAPSHOT"
+    fi
   fi
 
   if declare -F windows_management_guard_restore_if_owned >/dev/null 2>&1; then

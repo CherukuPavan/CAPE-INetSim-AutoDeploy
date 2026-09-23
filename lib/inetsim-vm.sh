@@ -321,6 +321,16 @@ inetsim_vm_rollback() {
     state_record_resource domain "$INETSIM_DOMAIN_NAME" removed-by-rollback yes ""
   fi
 
+  # Guest configuration ownership is logically removed with the appliance
+  # domain. Close it even when a prior rollback attempt already removed the VM.
+  if state_resource_owned inetsim-guest "$INETSIM_DOMAIN_NAME"; then
+    if virsh dominfo "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1; then
+      fail "INetSim domain $INETSIM_DOMAIN_NAME still exists after rollback removal"
+      return 1
+    fi
+    state_record_resource inetsim-guest "$INETSIM_DOMAIN_NAME" removed-by-rollback yes "domain-absent"
+  fi
+
   if [[ -n "${INETSIM_DISK_PATH:-}" ]]; then
     rm -f "$INETSIM_DISK_PATH.part" 2>/dev/null || true
   fi
