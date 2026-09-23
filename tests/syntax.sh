@@ -15,6 +15,9 @@ for f in "$VENDOR/install.sh" "$VENDOR"/scripts/*.sh; do
 done
 python3 -m py_compile "$VENDOR/scripts/prepare_install_candidate.py" "$VENDOR/src/inetsim_vm_logic.py" "$VENDOR/tests/test_django_candidate_ui.py"
 
+grep -Fq 'source "$ROOT/lib/qga.sh"' "$ROOT/bin/cape-inetsim-verify"
+grep -Fq 'source "$ROOT/lib/windows-management-dhcp.sh"' "$ROOT/bin/cape-inetsim-verify"
+
 if command -v pwsh >/dev/null 2>&1; then
   for f in "$ROOT"/windows/*.ps1; do
     PS_PARSE_FILE="$f" pwsh -NoProfile -NonInteractive -Command '
