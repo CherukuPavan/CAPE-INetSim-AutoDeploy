@@ -132,6 +132,7 @@ if [[ -d "$AD_STATE_ROOT_CAPTURE/logs" ]]; then
       -name '*inetsim-host-verify.log' -o \
       -name '*cape-maintenance.log' -o \
       -name '*cape-runtime-preflight.log' -o \
+      -name '*cape-resultserver-readiness.log' -o \
       -name '*windows-result.json' -o \
       -name '*windows-verify.json' -o \
       -name '*windows-isolated-control-stage.json' -o \
