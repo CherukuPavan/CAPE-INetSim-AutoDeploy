@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 
 EXTENSION_VERSION="1.0.2"
-EXTENSION_RELEASE_ASSET_SHA256="f3be934f08ad364d5964842d3db9bfea0f11cd40a44b76980855d692d3a34d87"
 EXTENSION_BUNDLED_ROOT="${EXTENSION_BUNDLED_ROOT:-$AUTODEPLOY_ROOT/vendor/CAPE-INetSim-VM-Extension-v${EXTENSION_VERSION}}"
 EXTENSION_ROOT="${EXTENSION_ROOT:-$AD_STATE_ROOT/extension-v${EXTENSION_VERSION}}"
 
 extension_fetch_extract() {
+  local materialize_log="$AD_LOG_ROOT/${DEPLOYMENT_ID}-extension-materialize.log"
+  : >"$materialize_log"
+  printf 'source=%s\ndestination=%s\nversion=%s\n' "$EXTENSION_BUNDLED_ROOT" "$EXTENSION_ROOT" "$EXTENSION_VERSION" >>"$materialize_log"
+
   # The exact extension runtime is vendored inside the checksum-pinned AutoDeploy
   # source bundle. A random target host must never need credentials for the
   # separate private extension development repository.
@@ -18,8 +21,8 @@ extension_fetch_extract() {
     return 1
   }
 
-  if ! (cd "$EXTENSION_BUNDLED_ROOT" && sha256sum -c RUNTIME-SHA256SUMS >/dev/null); then
-    fail "Bundled INetSim extension runtime checksum verification failed"
+  if ! (cd "$EXTENSION_BUNDLED_ROOT" && sha256sum -c RUNTIME-SHA256SUMS) >>"$materialize_log" 2>&1; then
+    fail "Bundled INetSim extension runtime checksum verification failed; see $materialize_log"
     return 1
   fi
   [[ "$(cat "$EXTENSION_BUNDLED_ROOT/VERSION" 2>/dev/null || true)" == "$EXTENSION_VERSION" ]] || {
@@ -31,11 +34,16 @@ extension_fetch_extract() {
   # Re-copying over .last_backup/.installed_backup would destroy rollback data.
   if [[ -x "$EXTENSION_ROOT/install.sh" ]] && {
        [[ -s "$EXTENSION_ROOT/.installed_backup" ]] ||
-       [[ -s "$EXTENSION_ROOT/.last_backup" ]] ||
-       [[ "$(cat "$EXTENSION_ROOT/VERSION" 2>/dev/null || true)" == "$EXTENSION_VERSION" ]];
+       [[ -s "$EXTENSION_ROOT/.last_backup" ]];
      }; then
+    printf 'reuse=protected-recovery-point\n' >>"$materialize_log"
     return 0
   fi
+
+  # A prior failed/unowned extension directory is disposable even when VERSION
+  # matches. Re-materialize it from the checksum-pinned bundle so a failed run
+  # can never poison the next deployment.
+  printf 'reuse=no; refreshing-unowned-runtime\n' >>"$materialize_log"
 
   rm -rf "$EXTENSION_ROOT.new"
   install -d -m 0700 "$EXTENSION_ROOT.new"
@@ -49,8 +57,15 @@ extension_fetch_extract() {
     return 1
   }
 
+  if ! (cd "$EXTENSION_ROOT.new" && sha256sum -c RUNTIME-SHA256SUMS) >>"$materialize_log" 2>&1; then
+    rm -rf "$EXTENSION_ROOT.new"
+    fail "Materialized INetSim extension runtime checksum verification failed; see $materialize_log"
+    return 1
+  fi
+
   rm -rf "$EXTENSION_ROOT"
   mv "$EXTENSION_ROOT.new" "$EXTENSION_ROOT"
+  printf 'materialized=yes\n' >>"$materialize_log"
 }
 
 extension_write_config() {
@@ -71,6 +86,7 @@ extension_write_config() {
     printf 'INETSIM_SERVER_IP=%q\n' "$INETSIM_IP"
     printf 'ANALYSIS_GUEST_IP=%q\n' "$WINDOWS_FAKE_IP"
     printf 'CAPTURE_INTERFACE=%q\n' "$ISOLATED_BRIDGE_NAME"
+    printf 'AUTODEPLOY_MANAGED=1\n'
   } >"$cfg"
   chmod 0600 "$cfg"
   if [[ "$saved" =~ ^[0-9]+$ ]]; then targets_bind "$saved"; fi
@@ -86,7 +102,7 @@ extension_run_logged() {
 
 extension_install() {
   extension_fetch_extract
-  (cd "$EXTENSION_ROOT" && ./install.sh --init-config >/dev/null)
+  extension_run_logged init-config ./install.sh --init-config
   extension_write_config
 
   if grep -Rqs 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$CAPE_ROOT/web"; then
@@ -103,7 +119,7 @@ extension_install() {
     return 1
   fi
 
-  (cd "$EXTENSION_ROOT" && ./scripts/verify.sh)
+  extension_run_logged verify ./scripts/verify.sh
   extension_run_logged dry-run ./install.sh --dry-run
   extension_run_logged install ./install.sh --install
   grep -Rqs 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$CAPE_ROOT/web" || { fail "Extension route-none marker missing after install"; return 1; }
