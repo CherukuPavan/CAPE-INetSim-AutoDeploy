@@ -11,6 +11,11 @@ b=main.index("rollback_remove_staged_resources")
 c=main.index("rollback_finish_cape_handoff")
 assert a < b < c, "rollback teardown/handoff ordering regressed"
 
+prepare=s[s.index("rollback_prepare_cape_maintenance()"):s.index("rollback_restore_cutover()")]
+assert "services_stop_scheduler_for_handoff" in prepare
+assert "cape_wait_and_acquire_maintenance" in prepare
+assert prepare.index("services_stop_scheduler_for_handoff") < prepare.index("cape_wait_and_acquire_maintenance"), "scheduler must stop before rollback maintenance acquire"
+
 restore=s[s.index("rollback_restore_cutover()"):s.index("rollback_remove_staged_resources()")]
 assert "cape_release_maintenance" not in restore
 assert "services_restore_desired_state" not in restore
@@ -28,6 +33,7 @@ assert "preserving CAPE maintenance ownership and leaving scheduler closed" in f
 PY
 
 grep -Fq 'intentionally left the analysis VM shut off for network safety' "$ROOT/lib/windows-vm.sh"
-grep -Fq 'cape.service || systemctl is-active --quiet cape-processor.service' "$ROOT/lib/rollback.sh"
+grep -Fq 'local maintenance_needed=no' "$ROOT/lib/rollback.sh"
+grep -Fq 'services_stop_scheduler_for_handoff || return 1' "$ROOT/lib/rollback.sh"
 
 echo '[PASS] rollback keeps scheduling closed until network teardown is complete'

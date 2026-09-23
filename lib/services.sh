@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+CAPE_SERVICE_READY_TIMEOUT="${CAPE_SERVICE_READY_TIMEOUT:-60}"
+CAPE_SERVICE_READY_POLL="${CAPE_SERVICE_READY_POLL:-1}"
+
 service_active_flag() {
   if systemctl is-active --quiet "$1"; then printf yes; else printf no; fi
 }
@@ -53,6 +56,33 @@ services_restore_desired_state() {
   state_write_atomic
 }
 
+services_wait_expected_active() {
+  local svc="$1"
+  local timeout="${2:-$CAPE_SERVICE_READY_TIMEOUT}"
+  local poll="${CAPE_SERVICE_READY_POLL:-1}"
+  local elapsed=0 state="unknown"
+
+  [[ "$timeout" =~ ^[1-9][0-9]*$ ]] || timeout=60
+  [[ "$poll" =~ ^[1-9][0-9]*$ ]] || poll=1
+
+  while ((elapsed < timeout)); do
+    if systemctl is-active --quiet "$svc"; then
+      return 0
+    fi
+    if systemctl is-failed --quiet "$svc"; then
+      state="$(systemctl is-active "$svc" 2>/dev/null || true)"
+      fail "Expected CAPE service entered failed state during handoff: $svc (state=${state:-unknown})"
+      return 1
+    fi
+    sleep "$poll"
+    elapsed=$((elapsed+poll))
+  done
+
+  state="$(systemctl is-active "$svc" 2>/dev/null || true)"
+  fail "Timed out waiting for expected CAPE service readiness: $svc after ${timeout}s (state=${state:-unknown})"
+  return 1
+}
+
 services_validate_restored_state() {
   local svc flag
   for svc in cape.service cape-processor.service cape-web.service cape-rooter.service; do
@@ -63,7 +93,7 @@ services_validate_restored_state() {
       cape-rooter.service) flag="${CAPE_ROOTER_WAS_ACTIVE:-no}" ;;
     esac
     if [[ "$flag" == yes ]]; then
-      systemctl is-active --quiet "$svc" || { fail "Expected service is not active: $svc"; return 1; }
+      services_wait_expected_active "$svc" "$CAPE_SERVICE_READY_TIMEOUT" || return 1
     fi
   done
 }

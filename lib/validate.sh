@@ -181,10 +181,42 @@ PY
 
 validate_resultserver_host() {
   [[ "${CAPE_SERVICE_WAS_ACTIVE:-yes}" == yes ]] || return 0
-  timeout 3 bash -c "</dev/tcp/$CAPE_RESULTSERVER_IP/$CAPE_RESULTSERVER_PORT" >/dev/null 2>&1 || {
-    fail "CAPE ResultServer is not reachable for $CAPE_MACHINE_SECTION at $CAPE_RESULTSERVER_IP:$CAPE_RESULTSERVER_PORT"
-    return 1
-  }
+
+  local ready_timeout="${CAPE_RESULTSERVER_READY_TIMEOUT:-90}"
+  local poll="${CAPE_RESULTSERVER_READY_POLL:-2}"
+  local elapsed=0 attempt=0 log=""
+  [[ "$ready_timeout" =~ ^[1-9][0-9]*$ ]] || ready_timeout=90
+  [[ "$poll" =~ ^[1-9][0-9]*$ ]] || poll=2
+
+  if [[ -n "${AD_LOG_ROOT:-}" && -n "${DEPLOYMENT_ID:-}" ]]; then
+    log="$AD_LOG_ROOT/${DEPLOYMENT_ID}-cape-resultserver-readiness.log"
+    touch "$log"
+    chmod 0600 "$log" 2>/dev/null || true
+  fi
+
+  while ((elapsed < ready_timeout)); do
+    attempt=$((attempt+1))
+    if timeout 2 bash -c "</dev/tcp/$CAPE_RESULTSERVER_IP/$CAPE_RESULTSERVER_PORT" >/dev/null 2>&1; then
+      [[ -n "$log" ]] && printf '%s machine=%s endpoint=%s:%s attempt=%s elapsed=%ss status=ready\n' \
+        "$(date -Is)" "$CAPE_MACHINE_SECTION" "$CAPE_RESULTSERVER_IP" "$CAPE_RESULTSERVER_PORT" "$attempt" "$elapsed" >>"$log"
+      return 0
+    fi
+
+    if systemctl is-failed --quiet cape.service 2>/dev/null; then
+      [[ -n "$log" ]] && printf '%s machine=%s endpoint=%s:%s attempt=%s elapsed=%ss status=cape-failed\n' \
+        "$(date -Is)" "$CAPE_MACHINE_SECTION" "$CAPE_RESULTSERVER_IP" "$CAPE_RESULTSERVER_PORT" "$attempt" "$elapsed" >>"$log"
+      fail "CAPE scheduler failed while waiting for ResultServer readiness"
+      return 1
+    fi
+
+    [[ -n "$log" ]] && printf '%s machine=%s endpoint=%s:%s attempt=%s elapsed=%ss status=waiting\n' \
+      "$(date -Is)" "$CAPE_MACHINE_SECTION" "$CAPE_RESULTSERVER_IP" "$CAPE_RESULTSERVER_PORT" "$attempt" "$elapsed" >>"$log"
+    sleep "$poll"
+    elapsed=$((elapsed+poll))
+  done
+
+  fail "Timed out waiting ${ready_timeout}s for CAPE ResultServer readiness for $CAPE_MACHINE_SECTION at $CAPE_RESULTSERVER_IP:$CAPE_RESULTSERVER_PORT"
+  return 1
 }
 
 validate_all_targets_structural() {
