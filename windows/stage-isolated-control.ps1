@@ -11,7 +11,7 @@ $ErrorActionPreference='Stop'
 
 function Escape-JsonString([string]$Value) {
     if($null -eq $Value){return ''}
-    return $Value.Replace('\','\\').Replace('"','\"').Replace([char]13,'\r').Replace([char]10,'\n').Replace([char]9,'\t')
+    return $Value.Replace('\','\\').Replace('"','\"').Replace([string][char]13,'\r').Replace([string][char]10,'\n').Replace([string][char]9,'\t')
 }
 
 function Convert-SimpleJsonValue($Value) {
@@ -30,7 +30,7 @@ function Convert-SimpleJsonValue($Value) {
 
 function Write-Result($ok,$message,$extra) {
     $o=@{ok=[bool]$ok;message=[string]$message;time=(Get-Date).ToString('o');stage='isolated-control-ready'}
-    if($extra){foreach($k in @($extra.Keys)){$o[[string]$k]=$extra[$k]}}
+    if($extra){foreach($k in @($extra.Keys)){$key=[string]$k;$o[$key]=$extra[$k]}}
     $parts=@()
     foreach($k in @($o.Keys | Sort-Object)){
         $parts += ('"' + (Escape-JsonString ([string]$k)) + '":' + (Convert-SimpleJsonValue $o[$k]))
