@@ -77,6 +77,13 @@ extension_write_config() {
   return 0
 }
 
+extension_run_logged() {
+  local stage="$1"
+  shift
+  local log="$AD_LOG_ROOT/${DEPLOYMENT_ID}-extension-${stage}.log"
+  (cd "$EXTENSION_ROOT" && "$@") > >(tee "$log") 2>&1
+}
+
 extension_install() {
   extension_fetch_extract
   (cd "$EXTENSION_ROOT" && ./install.sh --init-config >/dev/null)
@@ -86,7 +93,7 @@ extension_install() {
     # Adoption is permitted only when this transaction has an extension recovery
     # point. A pre-existing untracked installation is never silently claimed.
     if [[ -s "$EXTENSION_ROOT/.installed_backup" ]] || state_resource_owned extension "CAPE-INetSim-VM-Extension-v$EXTENSION_VERSION"; then
-      (cd "$EXTENSION_ROOT" && ./scripts/verify.sh)
+      extension_run_logged verify ./scripts/verify.sh
       state_record_resource extension "CAPE-INetSim-VM-Extension-v$EXTENSION_VERSION" installed yes "$EXTENSION_ROOT"
       state_set_phase extension-installed
       pass "Existing transaction-owned INetSim web extension validated"
@@ -97,8 +104,8 @@ extension_install() {
   fi
 
   (cd "$EXTENSION_ROOT" && ./scripts/verify.sh)
-  (cd "$EXTENSION_ROOT" && ./install.sh --dry-run)
-  (cd "$EXTENSION_ROOT" && ./install.sh --install)
+  extension_run_logged dry-run ./install.sh --dry-run
+  extension_run_logged install ./install.sh --install
   grep -Rqs 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$CAPE_ROOT/web" || { fail "Extension route-none marker missing after install"; return 1; }
   [[ -s "$EXTENSION_ROOT/.installed_backup" ]] || { fail "Extension installed without a protected recovery-point reference"; return 1; }
   state_record_resource extension "CAPE-INetSim-VM-Extension-v$EXTENSION_VERSION" installed yes "$EXTENSION_ROOT"
