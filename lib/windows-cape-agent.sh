@@ -329,7 +329,7 @@ PY
 
 cape_agent_execpy_async_detached() {
   local ip="$1" remote_python="$2" log_file="$3"
-  local tmp="${log_file}.tmp.${BASHPID:-$}" http curl_rc=0
+  local tmp="${log_file}.tmp.${BASHPID}" http curl_rc=0
   rm -f "$tmp" "$log_file"
 
   # CAPE Agent 0.22 keeps the previous async subprocess slot until /status is
