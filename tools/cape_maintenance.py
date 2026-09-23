@@ -243,6 +243,7 @@ if a.action=="release":
     warnings=[]
     already_original=[]
     restored=[]
+    plan=[]
     with session.begin():
         by_label={m.label:m for m in machine_rows(session,lock=True)}
         for old in state.get("machines",[]):
@@ -258,24 +259,24 @@ if a.action=="release":
                 current_marker,
                 marker,
             )
+            plan.append((old,m,decision))
 
-            if decision=="restore-owned":
+            if decision=="already-original":
+                already_original.append(m.label)
+            elif decision=="external-change":
+                warnings.append(f"machine lock changed externally and is not at original state; not touching: {m.label}")
+
+        # Never partially release a multi-machine guard. If any row is missing
+        # or genuinely externally locked, leave every guarded row untouched and
+        # preserve the guard for deterministic recovery.
+        if not warnings:
+            for old,m,decision in plan:
+                if decision!="restore-owned":
+                    continue
                 m.locked=bool(old.get("locked",False))
                 m.locked_changed_on=dt_load(old.get("locked_changed_on"))
                 restored.append(m.label)
                 # We intentionally never changed status/status_changed_on.
-                continue
-
-            if decision=="already-original":
-                # CAPE legitimately touched the lock metadata after our
-                # maintenance window, but the lock boolean is already exactly
-                # back at its pre-maintenance value. Overwriting the newer
-                # timestamp would be the unsafe action; leave the row untouched
-                # and retire only our now-stale guard ownership record.
-                already_original.append(m.label)
-                continue
-
-            warnings.append(f"machine lock changed externally and is not at original state; not touching: {m.label}")
 
     if warnings:
         # Keep the guard file for deterministic follow-up/recovery. Removing it
