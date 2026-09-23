@@ -98,6 +98,20 @@ grep -Fq 'CAPE_RESULTSERVER_READY_TIMEOUT:-90' "$ROOT/lib/validate.sh"
 grep -Fq 'systemctl is-failed --quiet cape.service' "$ROOT/lib/validate.sh"
 grep -Fq 'Timed out waiting ${ready_timeout}s for CAPE ResultServer readiness' "$ROOT/lib/validate.sh"
 grep -Fq 'services_wait_expected_active' "$ROOT/lib/services.sh"
+
+# A service being systemd-active is not enough. If ResultServer never opens,
+# the bounded readiness gate must fail instead of accepting the handoff.
+CAPE_MACHINE_SECTION=win7
+CAPE_RESULTSERVER_IP=127.0.0.1
+CAPE_RESULTSERVER_PORT=9
+CAPE_RESULTSERVER_READY_TIMEOUT=2
+CAPE_RESULTSERVER_READY_POLL=1
+if validate_resultserver_host >/dev/null 2>&1; then
+  echo "ResultServer readiness accepted an active service with a closed endpoint" >&2
+  exit 1
+fi
+
+grep -Fq 'services_wait_expected_active' "$ROOT/lib/services.sh"
 grep -Fq 'CAPE_SERVICE_READY_TIMEOUT' "$ROOT/lib/services.sh"
 
 echo '[PASS] final CAPE handoff waits for real service/ResultServer readiness'
