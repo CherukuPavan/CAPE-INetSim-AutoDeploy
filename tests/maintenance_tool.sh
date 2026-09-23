@@ -32,6 +32,9 @@ grep -Fq 'def release_decision(' "$ROOT/tools/cape_maintenance.py"
 grep -Fq '"already-original"' "$ROOT/tools/cape_maintenance.py"
 grep -Fq '"external-change"' "$ROOT/tools/cape_maintenance.py"
 grep -Fq '"already_original":already_original' "$ROOT/tools/cape_maintenance.py"
+grep -Fq 'plan.append((old,m,decision))' "$ROOT/tools/cape_maintenance.py"
+grep -Fq 'if not warnings:' "$ROOT/tools/cape_maintenance.py"
+grep -Fq 'Never partially release a multi-machine guard' "$ROOT/tools/cape_maintenance.py"
 
 python3 - "$ROOT/tools/cape_maintenance.py" <<'PY'
 import ast,sys
