@@ -136,6 +136,9 @@ grep -Fq "Write-Progress 'connectivity-validated'" "$ROOT/windows/configure-inet
 ! grep -Fq '$a.Disable()' "$ROOT/windows/configure-inetsim.ps1"
 grep -Fq 'function Remove-Default4' "$ROOT/windows/configure-inetsim.ps1"
 grep -Fq '$route.Delete()' "$ROOT/windows/configure-inetsim.ps1"
+grep -Fq "'delete','0.0.0.0','mask','0.0.0.0'" "$ROOT/windows/configure-inetsim.ps1"
+grep -Fq 'IPv4 default route removal failed; count={0}; {1}' "$ROOT/windows/configure-inetsim.ps1"
+! grep -Fq '& route.exe delete 0.0.0.0|Out-Null' "$ROOT/windows/configure-inetsim.ps1"
 grep -Fq '$routes=@(Get-Default4)' "$ROOT/windows/configure-inetsim.ps1"
 grep -Fq '$defaults4=@(Get-Default4)' "$ROOT/windows/configure-inetsim.ps1"
 grep -Fq '$defaults6=@(Get-Default6Lines)' "$ROOT/windows/configure-inetsim.ps1"
@@ -159,7 +162,14 @@ grep -Fq 'function Escape-JsonString' "$ROOT/windows/configure-inetsim.ps1"
 grep -Fq 'function Convert-SimpleJsonValue' "$ROOT/windows/configure-inetsim.ps1"
 grep -Fq 'function Escape-JsonString' "$ROOT/windows/verify-inetsim.ps1"
 grep -Fq 'function Escape-JsonString' "$ROOT/windows/stage-isolated-control.ps1"
+grep -Fq ".Replace([string][char]13,'\\r')" "$ROOT/windows/configure-inetsim.ps1"
+grep -Fq ".Replace([string][char]13,'\\r')" "$ROOT/windows/verify-inetsim.ps1"
+grep -Fq ".Replace([string][char]13,'\\r')" "$ROOT/windows/stage-isolated-control.ps1"
+! grep -Fq ".Replace([char]13," "$ROOT/windows/configure-inetsim.ps1"
+! grep -Fq ".Replace([char]13," "$ROOT/windows/verify-inetsim.ps1"
+! grep -Fq ".Replace([char]13," "$ROOT/windows/stage-isolated-control.ps1"
 grep -Fq "System.Web.Script.Serialization.JavaScriptSerializer" "$ROOT/windows/configure-inetsim.ps1"
+grep -Fq '[System.IO.File]::WriteAllText($backupPath,$ser.Serialize($backup)' "$ROOT/windows/configure-inetsim.ps1"
 python3 - "$ROOT/windows/configure-inetsim.ps1" "$ROOT/windows/verify-inetsim.ps1" "$ROOT/windows/stage-isolated-control.ps1" <<'PY'
 import sys
 for p in sys.argv[1:]:
@@ -182,6 +192,12 @@ assert "$defaults6=Get-Default6Lines" not in cfg
 ver=open(sys.argv[2],encoding="utf-8").read()
 assert "$defaults4=Get-Default4" not in ver
 assert "$defaults6=Get-Default6Lines" not in ver
+for text in (cfg,ver,open(sys.argv[3],encoding="utf-8").read()):
+    assert '@{error=($_|Out-String)}' in text
+    write=text[text.index("function Write-Result"):]
+    write=write[:write.find("\nfunction ",1) if write.find("\nfunction ",1)>=0 else len(write)]
+    assert "Serialize($o)" not in write
+    assert "$o[$key]=$extra[$k]" in write
 PY
 grep -Fq 'validate_windows_result_path "$local_result"' "$ROOT/lib/windows-qga.sh"
 [[ "$(grep -Fc 'validate_windows_result_path "$local_result"' "$ROOT/lib/windows-winrm.sh")" -eq 2 ]]
