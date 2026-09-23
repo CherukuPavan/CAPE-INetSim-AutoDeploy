@@ -44,6 +44,8 @@ jobs:
         run: bash tests/transaction_logic.sh
       - name: Rollback safety ordering
         run: bash tests/rollback_logic.sh
+      - name: Rollback-incomplete automatic recovery
+        run: bash tests/rollback_incomplete_recovery.sh
       - name: Isolated network XML safety
         run: bash tests/network_xml.sh
       - name: Host fake-Internet firewall safety
