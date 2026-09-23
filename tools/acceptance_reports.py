@@ -59,31 +59,69 @@ def capture_path(task_id):
 def norm_host(value):
     return str(value or "").strip().lower().rstrip(".")
 
+def answer_values(event):
+    values=[]
+    for answer in (event.get("answers") or []) if isinstance(event,dict) else []:
+        if isinstance(answer,dict):
+            value=answer.get("data") or answer.get("answer") or answer.get("ip")
+            if value:
+                values.append(str(value).strip())
+        elif answer:
+            values.append(str(answer).strip())
+    return values
+
+def http_destination(event):
+    if not isinstance(event,dict):
+        return ""
+    return str(
+        event.get("dst")
+        or event.get("dstip")
+        or event.get("ip")
+        or ""
+    ).strip()
+
 def marker_evidence(network):
-    hits=[]
+    all_hits=[]
+    inetsim_hits=[]
     if not isinstance(network,dict):
-        return hits
+        return all_hits,inetsim_hits
+
+    marker_dns_maps_to_inetsim=False
     for event in network.get("dns") or []:
         if not isinstance(event,dict):
             continue
         request=norm_host(event.get("request"))
-        if request==marker:
-            hits.append({"kind":"dns","value":request})
+        if request!=marker:
+            continue
+        hit={"kind":"dns","value":request}
+        all_hits.append(hit)
+        if a.inetsim_ip in answer_values(event):
+            marker_dns_maps_to_inetsim=True
+            inetsim_hits.append({**hit,"inetsim_ip":a.inetsim_ip})
+
     for event in network.get("http") or []:
         if not isinstance(event,dict):
             continue
         host=norm_host(event.get("host") or event.get("hostname"))
-        if host==marker:
-            hits.append({"kind":"http-host","value":host})
         raw_url=str(event.get("url") or event.get("uri") or "").strip()
-        if raw_url:
-            try:
-                parsed=norm_host(urlsplit(raw_url).hostname)
-            except Exception:
-                parsed=""
-            if parsed==marker:
-                hits.append({"kind":"http-url","value":raw_url})
-    return hits
+        try:
+            parsed=norm_host(urlsplit(raw_url).hostname) if raw_url else ""
+        except Exception:
+            parsed=""
+        if host!=marker and parsed!=marker:
+            continue
+
+        hit={
+            "kind":"http",
+            "host":host,
+            "url":raw_url,
+            "destination":http_destination(event),
+        }
+        all_hits.append(hit)
+        if hit["destination"]==a.inetsim_ip or marker_dns_maps_to_inetsim:
+            inetsim_hits.append(hit)
+
+    return all_hits,inetsim_hits
 
 def evaluate(task_id):
     report,path=load_report(task_id)
@@ -97,7 +135,7 @@ def evaluate(task_id):
         network={}
     uses=bool(logic.network_uses_inetsim(network,a.inetsim_ip))
     context=logic.build_route_none_inetsim_context(network,a.inetsim_ip)
-    evidence=marker_evidence(network)
+    evidence,inetsim_evidence=marker_evidence(network)
     return {
         "task_id":int(task_id),
         "report_path":str(path),
@@ -109,6 +147,8 @@ def evaluate(task_id):
         "capture_path":str(capture) if capture else "",
         "marker_present":bool(evidence),
         "marker_evidence":evidence,
+        "marker_reached_inetsim":bool(inetsim_evidence),
+        "marker_inetsim_evidence":inetsim_evidence,
     }
 
 positive=evaluate(a.positive_task)
@@ -122,6 +162,7 @@ positive_ok=bool(
     and positive["uses_inetsim"]
     and positive["context_enabled"]
     and positive["marker_present"]
+    and positive["marker_reached_inetsim"]
 )
 negative_ok=bool(
     negative
@@ -131,7 +172,7 @@ negative_ok=bool(
 )
 
 if not positive_ok:
-    errors.append("explicit positive task is not a route=none INetSim report containing the required marker with a local pcap")
+    errors.append("explicit positive task is not a route=none report proving the required marker reached INetSim with a local pcap")
 if not negative_ok:
     errors.append("explicit negative task is not a route=none report without the required marker and a local pcap")
 
