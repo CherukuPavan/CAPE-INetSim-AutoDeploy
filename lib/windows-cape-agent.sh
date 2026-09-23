@@ -279,12 +279,8 @@ print(str(d.get("status") or "").lower())
 PY
 )" || status=""
       case "$status" in
-        complete) return 0 ;;
-        failed|exception)
-          fail "Previous CAPE Agent async job ended in terminal state: $status"
-          return 1
-          ;;
-        running|init|"") ;;
+        complete|failed|exception|init) return 0 ;;
+        running|"") ;;
         *)
           fail "Unexpected CAPE Agent async status: $status"
           return 1
@@ -298,9 +294,42 @@ PY
   return 1
 }
 
+cape_agent_wait_async_success() {
+  local ip="$1" timeout="${2:-30}" elapsed=0 body="" status=""
+  while ((elapsed < timeout)); do
+    if body="$(cape_agent_status "$ip" 5 2>/dev/null)"; then
+      status="$(python3 - "$body" <<'PY'
+import json,sys
+try:
+    d=json.loads(sys.argv[1])
+except Exception:
+    raise SystemExit(1)
+print(str(d.get("status") or "").lower())
+PY
+)" || status=""
+      case "$status" in
+        complete) return 0 ;;
+        failed|exception)
+          fail "CAPE Agent detached job ended in terminal state: $status"
+          return 1
+          ;;
+        running|init|"") ;;
+        *)
+          fail "Unexpected CAPE Agent detached-job status: $status"
+          return 1
+          ;;
+      esac
+    fi
+    sleep 1
+    elapsed=$((elapsed+1))
+  done
+  fail "Timed out waiting for CAPE Agent detached job to complete"
+  return 1
+}
+
 cape_agent_execpy_async_detached() {
   local ip="$1" remote_python="$2" log_file="$3"
-  local tmp="${log_file}.tmp.$" http curl_rc=0
+  local tmp="${log_file}.tmp.${BASHPID}" http curl_rc=0
   rm -f "$tmp" "$log_file"
 
   # CAPE Agent 0.22 keeps the previous async subprocess slot until /status is
@@ -379,7 +408,7 @@ PY
     fail "CAPE Agent did not return on the normal management path after isolated-control finalization"
     return 61
   }
-  cape_agent_reap_async_state "$management_ip" 30 || {
+  cape_agent_wait_async_success "$management_ip" 30 || {
     fail "CAPE Agent isolated-control finalizer did not complete cleanly"
     return 61
   }

@@ -13,18 +13,39 @@ param(
 )
 $ErrorActionPreference='Stop'
 
+function Escape-JsonString([string]$Value) {
+    if($null -eq $Value){return ''}
+    return $Value.Replace('\','\\').Replace('"','\"').Replace([char]13,'\r').Replace([char]10,'\n').Replace([char]9,'\t')
+}
+
+function Convert-SimpleJsonValue($Value) {
+    if($null -eq $Value){return 'null'}
+    if($Value -is [bool]){if($Value){return 'true'}else{return 'false'}}
+    if($Value -is [byte] -or $Value -is [sbyte] -or
+       $Value -is [int16] -or $Value -is [uint16] -or
+       $Value -is [int32] -or $Value -is [uint32] -or
+       $Value -is [int64] -or $Value -is [uint64] -or
+       $Value -is [single] -or $Value -is [double] -or
+       $Value -is [decimal]){
+        return [Convert]::ToString($Value,[Globalization.CultureInfo]::InvariantCulture)
+    }
+    return ('"' + (Escape-JsonString ([string]$Value)) + '"')
+}
+
 function Write-Result($ok,$message,$extra) {
+    # PowerShell 2 / JavaScriptSerializer may recurse into PSObject/WMI wrappers.
+    # The AutoDeploy result schema is deliberately flat, so serialize only
+    # primitive scalars ourselves and never hand PowerShell runtime objects to
+    # a generic serializer.
     $o=@{ok=[bool]$ok;message=[string]$message;time=(Get-Date).ToString('o')}
-    if($extra){foreach($k in $extra.Keys){$o[$k]=$extra[$k]}}
+    if($extra){foreach($k in @($extra.Keys)){$o[[string]$k]=$extra[$k]}}
+    $parts=@()
+    foreach($k in @($o.Keys | Sort-Object)){
+        $parts += ('"' + (Escape-JsonString ([string]$k)) + '":' + (Convert-SimpleJsonValue $o[$k]))
+    }
+    $json='{' + ($parts -join ',') + '}'
     $dir=Split-Path -Parent $ResultPath
     if($dir -and -not (Test-Path $dir)){New-Item -ItemType Directory -Force -Path $dir|Out-Null}
-    if(Get-Command ConvertTo-Json -ErrorAction SilentlyContinue){
-        $json=$o|ConvertTo-Json -Depth 8
-    } else {
-        Add-Type -AssemblyName System.Web.Extensions
-        $ser=New-Object System.Web.Script.Serialization.JavaScriptSerializer
-        $json=$ser.Serialize($o)
-    }
     [System.IO.File]::WriteAllText($ResultPath,$json,[System.Text.Encoding]::UTF8)
 }
 
@@ -90,6 +111,43 @@ function Get-Default4 {
       Where-Object{$_.Destination -eq '0.0.0.0' -and $_.Mask -eq '0.0.0.0'})
 }
 
+function Remove-Default4 {
+    # Win32_IP4RouteTable is supported on Windows Vista/7 and advertises
+    # SupportsDelete. Prefer deleting the exact WMI route instances; older
+    # route.exe builds can report "Element not found" even while WMI still
+    # exposes a default-route instance.
+    for($attempt=0;$attempt -lt 5;$attempt++){
+        $routes=@(Get-Default4)
+        if([int]$routes.Count -eq 0){return}
+        foreach($route in $routes){
+            $deleted=$false
+            try{
+                $route.Delete()
+                $deleted=$true
+            } catch {}
+            if(-not $deleted){
+                $args=@('delete','0.0.0.0','mask','0.0.0.0')
+                if([string]$route.NextHop -and [string]$route.NextHop -ne '0.0.0.0'){
+                    $args += [string]$route.NextHop
+                }
+                if([int]$route.InterfaceIndex -gt 0){
+                    $args += @('if',[string]$route.InterfaceIndex)
+                }
+                & route.exe @args 2>$null|Out-Null
+            }
+        }
+        Start-Sleep -Milliseconds 300
+    }
+
+    $remaining=@(Get-Default4)
+    if([int]$remaining.Count -ne 0){
+        $facts=@($remaining | ForEach-Object{
+            ('if={0} next={1} metric={2}' -f $_.InterfaceIndex,$_.NextHop,$_.Metric1)
+        })
+        throw ('IPv4 default route removal failed; count={0}; {1}' -f [int]$remaining.Count,($facts -join '; '))
+    }
+}
+
 function Get-Default6Lines {
     @((& netsh interface ipv6 show route 2>$null) |
       Where-Object{$_ -match '(^|\s)::/0(\s|$)'})
@@ -153,14 +211,39 @@ try{
     New-Item -ItemType Directory -Force -Path $backupDir|Out-Null
     $backupPath=Join-Path $backupDir 'network-before.json'
     if(-not (Test-Path $backupPath)){
+        # Store only plain values so the PowerShell 2 JSON fallback never
+        # receives live WMI/PSObject wrappers.
         $backup=@{
-            adapters=@(Get-WmiObject Win32_NetworkAdapter | Select-Object Index,InterfaceIndex,NetConnectionID,MACAddress,NetEnabled,NetConnectionStatus)
-            configs=@(Get-WmiObject Win32_NetworkAdapterConfiguration | Select-Object Index,InterfaceIndex,IPAddress,IPSubnet,DefaultIPGateway,DNSServerSearchOrder,DHCPEnabled)
-            route4=@(& route print -4)
-            route6=@(& netsh interface ipv6 show route)
+            adapters=@(Get-WmiObject Win32_NetworkAdapter | ForEach-Object{
+                @{
+                    Index=[int]$_.Index
+                    InterfaceIndex=[int]$_.InterfaceIndex
+                    NetConnectionID=[string]$_.NetConnectionID
+                    MACAddress=[string]$_.MACAddress
+                    NetEnabled=[bool]$_.NetEnabled
+                    NetConnectionStatus=[int]$_.NetConnectionStatus
+                }
+            })
+            configs=@(Get-WmiObject Win32_NetworkAdapterConfiguration | ForEach-Object{
+                @{
+                    Index=[int]$_.Index
+                    InterfaceIndex=[int]$_.InterfaceIndex
+                    IPAddress=@($_.IPAddress | Where-Object{$_} | ForEach-Object{[string]$_})
+                    IPSubnet=@($_.IPSubnet | Where-Object{$_} | ForEach-Object{[string]$_})
+                    DefaultIPGateway=@($_.DefaultIPGateway | Where-Object{$_} | ForEach-Object{[string]$_})
+                    DNSServerSearchOrder=@($_.DNSServerSearchOrder | Where-Object{$_} | ForEach-Object{[string]$_})
+                    DHCPEnabled=[bool]$_.DHCPEnabled
+                }
+            })
+            route4=@(& route print -4 | ForEach-Object{[string]$_})
+            route6=@(& netsh interface ipv6 show route | ForEach-Object{[string]$_})
         }
         if(Get-Command ConvertTo-Json -ErrorAction SilentlyContinue){
             $backup|ConvertTo-Json -Depth 8|Set-Content -Encoding UTF8 -Path $backupPath
+        } else {
+            Add-Type -AssemblyName System.Web.Extensions
+            $ser=New-Object System.Web.Script.Serialization.JavaScriptSerializer
+            [System.IO.File]::WriteAllText($backupPath,$ser.Serialize($backup),[System.Text.Encoding]::UTF8)
         }
     }
 
@@ -275,12 +358,7 @@ try{
     }
     Write-Progress 'unexpected-adapters-disabled'
 
-    for($i=0;$i -lt 5;$i++){
-        if((Get-Default4).Count -eq 0){break}
-        & route.exe delete 0.0.0.0|Out-Null
-        Start-Sleep -Milliseconds 300
-    }
-
+    Remove-Default4
     Write-Progress 'ipv4-default-route-removed'
     Ensure-TemporaryControlRoute $isoAdapter.InterfaceIndex
 
@@ -295,10 +373,10 @@ try{
     & ipconfig /flushdns|Out-Null
     Start-Sleep -Seconds 2
 
-    $defaults4=Get-Default4
-    $defaults6=Get-Default6Lines
-    if($defaults4.Count -ne 0){throw "IPv4 default route removal failed; count=$($defaults4.Count)"}
-    if($defaults6.Count -ne 0){throw "IPv6 default route removal failed; count=$($defaults6.Count)"}
+    $defaults4=@(Get-Default4)
+    $defaults6=@(Get-Default6Lines)
+    if([int]$defaults4.Count -ne 0){throw ("IPv4 default route removal failed; count={0}" -f [int]$defaults4.Count)}
+    if([int]$defaults6.Count -ne 0){throw ("IPv6 default route removal failed; count={0}" -f [int]$defaults6.Count)}
 
     $mgmtCfg=Refresh-Config $mgmtAdapter.Index
     $isoCfg=Refresh-Config $isoAdapter.Index

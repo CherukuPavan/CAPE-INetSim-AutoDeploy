@@ -44,13 +44,15 @@ grep -Fq 'cape_agent_execpy_async_detached' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'cape_agent_finalize_isolated_control' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'cape_agent_status' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'cape_agent_reap_async_state' "$ROOT/lib/windows-cape-agent.sh"
-grep -Fq 'Previous CAPE Agent async job ended in terminal state' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'complete|failed|exception|init) return 0' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'CAPE Agent detached job ended in terminal state' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'windows_poweroff_via_cape_agent' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'tools/windows_agent_poweroff.py' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'Windows shut down through CAPE Agent guest command' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'refusing forced snapshot' "$ROOT/lib/windows-cape-agent.sh"
-grep -Fq 'local tmp="${log_file}.tmp.$"' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'local tmp="${log_file}.tmp.${BASHPID}"' "$ROOT/lib/windows-cape-agent.sh"
 ! grep -Fq 'local tmp="${log_file}.tmp.$"' "$ROOT/lib/windows-cape-agent.sh"
+grep -Fq 'cape_agent_wait_async_success' "$ROOT/lib/windows-cape-agent.sh"
 ! grep -Fq 'cape_agent_wait_async_result' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq '{"execpy","largefile","pinning"}' "$ROOT/lib/windows-cape-agent.sh"
 grep -Fq 'd.get("is_user_admin") is not True' "$ROOT/lib/windows-cape-agent.sh"
@@ -132,7 +134,13 @@ grep -Fq "Write-Progress 'connectivity-validated'" "$ROOT/windows/configure-inet
 ! grep -Fq '.EnableStatic(' "$ROOT/windows/configure-inetsim.ps1"
 ! grep -Fq '.SetDNSServerSearchOrder(' "$ROOT/windows/configure-inetsim.ps1"
 ! grep -Fq '$a.Disable()' "$ROOT/windows/configure-inetsim.ps1"
-grep -q "route.exe delete 0.0.0.0" "$ROOT/windows/configure-inetsim.ps1"
+grep -Fq 'function Remove-Default4' "$ROOT/windows/configure-inetsim.ps1"
+grep -Fq '$route.Delete()' "$ROOT/windows/configure-inetsim.ps1"
+grep -Fq '$routes=@(Get-Default4)' "$ROOT/windows/configure-inetsim.ps1"
+grep -Fq '$defaults4=@(Get-Default4)' "$ROOT/windows/configure-inetsim.ps1"
+grep -Fq '$defaults6=@(Get-Default6Lines)' "$ROOT/windows/configure-inetsim.ps1"
+grep -Fq '$defaults4=@(Get-Default4)' "$ROOT/windows/verify-inetsim.ps1"
+grep -Fq '$defaults6=@(Get-Default6Lines)' "$ROOT/windows/verify-inetsim.ps1"
 grep -q "netsh interface ipv6 delete route" "$ROOT/windows/configure-inetsim.ps1"
 grep -q 'routerdiscovery=disabled' "$ROOT/windows/configure-inetsim.ps1"
 grep -q 'unexpected active network adapter' "$ROOT/windows/configure-inetsim.ps1"
@@ -147,6 +155,34 @@ grep -q 'inetsim_https_reachable' "$ROOT/windows/verify-inetsim.ps1"
 grep -Fq 'temporary_control_routes' "$ROOT/windows/verify-inetsim.ps1"
 grep -Fq 'isolated_agent_rules' "$ROOT/windows/verify-inetsim.ps1"
 grep -Fq 'HNetCfg.FwPolicy2' "$ROOT/windows/verify-inetsim.ps1"
+grep -Fq 'function Escape-JsonString' "$ROOT/windows/configure-inetsim.ps1"
+grep -Fq 'function Convert-SimpleJsonValue' "$ROOT/windows/configure-inetsim.ps1"
+grep -Fq 'function Escape-JsonString' "$ROOT/windows/verify-inetsim.ps1"
+grep -Fq 'function Escape-JsonString' "$ROOT/windows/stage-isolated-control.ps1"
+grep -Fq "System.Web.Script.Serialization.JavaScriptSerializer" "$ROOT/windows/configure-inetsim.ps1"
+python3 - "$ROOT/windows/configure-inetsim.ps1" "$ROOT/windows/verify-inetsim.ps1" "$ROOT/windows/stage-isolated-control.ps1" <<'PY'
+import sys
+for p in sys.argv[1:]:
+    s=open(p,encoding="utf-8").read()
+    w=s.index("function Write-Result")
+    # Result serialization itself must never pass runtime exception/WMI wrappers
+    # to JavaScriptSerializer on PowerShell 2.
+    end=s.find("\nfunction ", w+1)
+    if end < 0:
+        end=len(s)
+    body=s[w:end]
+    assert "New-Object System.Web.Script.Serialization.JavaScriptSerializer" not in body, p
+    assert ".Serialize(" not in body, p
+    assert "Convert-SimpleJsonValue" in s, p
+    assert "Escape-JsonString" in s, p
+cfg=open(sys.argv[1],encoding="utf-8").read()
+assert "(Get-Default4).Count" not in cfg
+assert "$defaults4=Get-Default4" not in cfg
+assert "$defaults6=Get-Default6Lines" not in cfg
+ver=open(sys.argv[2],encoding="utf-8").read()
+assert "$defaults4=Get-Default4" not in ver
+assert "$defaults6=Get-Default6Lines" not in ver
+PY
 grep -Fq 'validate_windows_result_path "$local_result"' "$ROOT/lib/windows-qga.sh"
 [[ "$(grep -Fc 'validate_windows_result_path "$local_result"' "$ROOT/lib/windows-winrm.sh")" -eq 2 ]]
 [[ "$(grep -Fc 'validate_windows_result_path "$local_result"' "$ROOT/lib/windows-cape-agent.sh")" -eq 2 ]]
