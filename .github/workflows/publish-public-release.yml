@@ -172,23 +172,13 @@ jobs:
           cp -a source/bin/. "$ROOT/bin/"
           cp -a source/tools/. "$ROOT/tools/"
           cp -a source/windows/. "$ROOT/windows/"
-          mkdir -p "$ROOT/vendor/CAPE-INetSim-VM-Extension-v1.0.1"
-          rsync -a --exclude ORIGIN.json             source/vendor/CAPE-INetSim-VM-Extension-v1.0.1/             "$ROOT/vendor/CAPE-INetSim-VM-Extension-v1.0.1/"
+          mkdir -p "$ROOT/vendor/CAPE-INetSim-VM-Extension-v1.0.2"
+          rsync -a --exclude ORIGIN.json             source/vendor/CAPE-INetSim-VM-Extension-v1.0.2/             "$ROOT/vendor/CAPE-INetSim-VM-Extension-v1.0.2/"
 
-          # Privacy-only public packaging transform: remove a historical lab
-          # hostname mention from a runtime-validator comment, then regenerate
-          # the vendored runtime checksum manifest over the same file set.
-          VENDOR="$ROOT/vendor/CAPE-INetSim-VM-Extension-v1.0.1"
-          python3 - "$VENDOR/tests/test_django_candidate_ui.py" <<'PY'
-          import pathlib,sys
-          p=pathlib.Path(sys.argv[1])
-          s=p.read_text()
-          old="No SSL45 address is hard-coded here."
-          new="No lab-specific address is hard-coded here."
-          if s.count(old) != 1:
-              raise SystemExit("expected exactly one historical lab comment")
-          p.write_text(s.replace(old,new))
-          PY
+          # Re-materialize the vendored runtime checksum manifest inside the
+          # stripped package. This is a packaging transformation only; the file
+          # set itself is frozen by the private source candidate.
+          VENDOR="$ROOT/vendor/CAPE-INetSim-VM-Extension-v1.0.2"
           (
             cd "$VENDOR"
             mapfile -t files < <(awk '{print $2}' RUNTIME-SHA256SUMS)
