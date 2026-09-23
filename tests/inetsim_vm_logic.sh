@@ -82,3 +82,20 @@ grep -Fq 'transport=baked-release-match' "$TMP/resource-record"
 grep -Fq 'inetsim-host-verify.log' "$ROOT/lib/inetsim-vm.sh"
 grep -Fq 'runtime_query=failed' "$ROOT/lib/inetsim-vm.sh"
 grep -Fq 'probe_attempt=' "$ROOT/lib/inetsim-vm.sh"
+
+
+# Regression: an earlier rollback attempt may already have removed the appliance
+# domain while leaving inetsim-guest ownership stale. Re-running rollback must
+# close that logical ownership without requiring the domain to exist.
+: >"$TMP/inetsim-rollback-records"
+INETSIM_DOMAIN_NAME="cape-inetsim-appliance"
+INETSIM_DISK_PATH=""
+state_resource_owned(){ [[ "$1" == inetsim-guest && "$2" == "$INETSIM_DOMAIN_NAME" ]]; }
+state_resource_intended(){ return 1; }
+state_record_resource(){ printf '%s|%s|%s|%s\n' "$1" "$2" "$3" "$4" >>"$TMP/inetsim-rollback-records"; }
+virsh(){ [[ "$1" == dominfo ]] && return 1; return 0; }
+
+inetsim_vm_rollback
+grep -Fq "inetsim-guest|$INETSIM_DOMAIN_NAME|removed-by-rollback|yes" "$TMP/inetsim-rollback-records"
+
+echo '[PASS] absent INetSim domain reconciles stale inetsim-guest ownership'
