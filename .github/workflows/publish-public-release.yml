@@ -223,33 +223,41 @@ jobs:
           cp -a source/bin/. "$ROOT/bin/"
           cp -a source/tools/. "$ROOT/tools/"
           cp -a source/windows/. "$ROOT/windows/"
-          mkdir -p "$ROOT/vendor/CAPE-INetSim-VM-Extension-v1.0.1"
-          rsync -a --exclude ORIGIN.json             source/vendor/CAPE-INetSim-VM-Extension-v1.0.1/             "$ROOT/vendor/CAPE-INetSim-VM-Extension-v1.0.1/"
 
-          # Privacy-only public packaging transform: remove a historical lab
-          # hostname mention from a runtime-validator comment, then regenerate
-          # the vendored runtime checksum manifest over the same file set.
-          VENDOR="$ROOT/vendor/CAPE-INetSim-VM-Extension-v1.0.1"
-          python3 - "$VENDOR/tests/test_django_candidate_ui.py" <<'PY'
-          import pathlib,sys
-          p=pathlib.Path(sys.argv[1])
-          s=p.read_text()
-          old="No SSL45 address is hard-coded here."
-          new="No lab-specific address is hard-coded here."
-          if s.count(old) != 1:
-              raise SystemExit("expected exactly one historical lab comment")
-          p.write_text(s.replace(old,new))
-          PY
+          # The public runtime MUST package the exact extension version requested
+          # by the exact candidate source. Never hard-code this value in release
+          # control: that is how RC30 shipped v1.0.1 while lib/extension.sh
+          # requested v1.0.2.
+          EXTENSION_VERSION="$(sed -nE 's/^EXTENSION_VERSION="([^"]+)"$/\1/p' source/lib/extension.sh | head -1)"
+          [[ "$EXTENSION_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "::error::could not derive a valid EXTENSION_VERSION from exact candidate source"
+            exit 3
+          }
+          SOURCE_VENDOR="source/vendor/CAPE-INetSim-VM-Extension-v$EXTENSION_VERSION"
+          VENDOR="$ROOT/vendor/CAPE-INetSim-VM-Extension-v$EXTENSION_VERSION"
+          [[ -d "$SOURCE_VENDOR" ]] || {
+            echo "::error::candidate source is missing required extension runtime: $SOURCE_VENDOR"
+            exit 3
+          }
+          [[ -s "$SOURCE_VENDOR/RUNTIME-SHA256SUMS" ]] || {
+            echo "::error::candidate extension checksum manifest is missing or empty"
+            exit 3
+          }
+          [[ "$(cat "$SOURCE_VENDOR/VERSION" 2>/dev/null || true)" == "$EXTENSION_VERSION" ]] || {
+            echo "::error::candidate extension VERSION does not match lib/extension.sh"
+            exit 3
+          }
           (
-            cd "$VENDOR"
-            mapfile -t files < <(awk '{print $2}' RUNTIME-SHA256SUMS)
-            : > RUNTIME-SHA256SUMS.new
-            for file in "${files[@]}"; do
-              sha256sum "$file" >> RUNTIME-SHA256SUMS.new
-            done
-            mv RUNTIME-SHA256SUMS.new RUNTIME-SHA256SUMS
+            cd "$SOURCE_VENDOR"
             sha256sum -c RUNTIME-SHA256SUMS >/dev/null
           )
+          mkdir -p "$VENDOR"
+          rsync -a --exclude ORIGIN.json "$SOURCE_VENDOR/" "$VENDOR/"
+          (
+            cd "$VENDOR"
+            sha256sum -c RUNTIME-SHA256SUMS >/dev/null
+          )
+
           chmod 0755 "$ROOT"/bin/cape-inetsim-*
           printf '%s\n' "$VERSION" >"$ROOT/VERSION"
 
@@ -349,12 +357,52 @@ jobs:
         run: |
           set -euo pipefail
           DIST="$RUNNER_TEMP/public-release"
+          ROOT="$RUNNER_TEMP/public-root/CAPE-INetSim-AutoDeploy-${RELEASE_TAG#v}"
+          SOURCE_NAME="CAPE-INetSim-AutoDeploy-${RELEASE_TAG#v}.tar.gz"
           bash -n "$DIST/install"
           grep -Fq 'REPO="CherukuPavan/CAPE-INetSim-AutoDeploy-Releases"' "$DIST/install"
           grep -Fq 'sha256sum -c' "$DIST/install"
           python3 -m json.tool "$DIST/appliance-manifest.json" >/dev/null
           grep -Fq "https://github.com/$PUBLIC_REPO/releases/download/$RELEASE_TAG/" "$DIST/appliance-manifest.json"
           [[ "$(stat -c '%s' "$DIST/cape-inetsim-appliance-v1.0.0.qcow2.gz")" -lt 2147483648 ]]
+
+          # Validate the ACTUAL final source tarball, not only the pre-tar staging
+          # directory. This reproduces the runtime lookup used by a real host.
+          EXTENSION_VERSION="$(sed -nE 's/^EXTENSION_VERSION="([^"]+)"$/\1/p' "$ROOT/lib/extension.sh" | head -1)"
+          [[ "$EXTENSION_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          FINAL_CHECK="$RUNNER_TEMP/final-runtime-check"
+          rm -rf "$FINAL_CHECK"
+          mkdir -p "$FINAL_CHECK"
+          tar -xzf "$DIST/$SOURCE_NAME" -C "$FINAL_CHECK"
+          FINAL_ROOT="$FINAL_CHECK/CAPE-INetSim-AutoDeploy-${RELEASE_TAG#v}"
+          FINAL_VENDOR="$FINAL_ROOT/vendor/CAPE-INetSim-VM-Extension-v$EXTENSION_VERSION"
+          [[ -d "$FINAL_VENDOR" ]]
+          [[ -s "$FINAL_VENDOR/RUNTIME-SHA256SUMS" ]]
+          [[ "$(cat "$FINAL_VENDOR/VERSION")" == "$EXTENSION_VERSION" ]]
+          (
+            cd "$FINAL_VENDOR"
+            sha256sum -c RUNTIME-SHA256SUMS >/dev/null
+          )
+
+          # Exercise the same extension materialization function the live host
+          # calls. A version/path mismatch in the final tarball must block
+          # publication before any public release is created.
+          export AUTODEPLOY_ROOT="$FINAL_ROOT"
+          export AD_STATE_ROOT="$RUNNER_TEMP/final-materialize-state"
+          export AD_LOG_ROOT="$RUNNER_TEMP/final-materialize-logs"
+          export DEPLOYMENT_ID=public-package-gate
+          rm -rf "$AD_STATE_ROOT" "$AD_LOG_ROOT"
+          mkdir -p "$AD_STATE_ROOT" "$AD_LOG_ROOT"
+          source "$FINAL_ROOT/lib/common.sh"
+          source "$FINAL_ROOT/lib/extension.sh"
+          extension_fetch_extract
+          [[ -x "$EXTENSION_ROOT/install.sh" ]]
+          [[ "$(cat "$EXTENSION_ROOT/VERSION")" == "$EXTENSION_VERSION" ]]
+          (
+            cd "$EXTENSION_ROOT"
+            sha256sum -c RUNTIME-SHA256SUMS >/dev/null
+          )
+          grep -Fq 'materialized=yes' "$AD_LOG_ROOT/public-package-gate-extension-materialize.log"
 
       - name: Execute CAPE runtime regression against stripped package
         run: |
@@ -406,6 +454,19 @@ jobs:
           curl -fsSL "$BASE/install" -o "$RUNNER_TEMP/public-install"
           bash -n "$RUNNER_TEMP/public-install"
           grep -Fq 'REPO="CherukuPavan/CAPE-INetSim-AutoDeploy-Releases"' "$RUNNER_TEMP/public-install"
-          curl -fsSIL "$BASE/CAPE-INetSim-AutoDeploy-${RELEASE_TAG#v}.tar.gz" >/dev/null
+          curl -fsSL "$BASE/CAPE-INetSim-AutoDeploy-${RELEASE_TAG#v}.tar.gz" -o "$RUNNER_TEMP/public-source.tar.gz"
+          curl -fsSL "$BASE/CAPE-INetSim-AutoDeploy-${RELEASE_TAG#v}.tar.gz.sha256" -o "$RUNNER_TEMP/public-source.tar.gz.sha256"
+          EXPECTED_SOURCE_SHA="$(awk '{print $1}' "$RUNNER_TEMP/public-source.tar.gz.sha256")"
+          [[ "$(sha256sum "$RUNNER_TEMP/public-source.tar.gz" | awk '{print $1}')" == "$EXPECTED_SOURCE_SHA" ]]
+          ANON_CHECK="$RUNNER_TEMP/anonymous-source-check"
+          rm -rf "$ANON_CHECK"
+          mkdir -p "$ANON_CHECK"
+          tar -xzf "$RUNNER_TEMP/public-source.tar.gz" -C "$ANON_CHECK"
+          ANON_ROOT="$ANON_CHECK/CAPE-INetSim-AutoDeploy-${RELEASE_TAG#v}"
+          EXTENSION_VERSION="$(sed -nE 's/^EXTENSION_VERSION="([^"]+)"$/\1/p' "$ANON_ROOT/lib/extension.sh" | head -1)"
+          ANON_VENDOR="$ANON_ROOT/vendor/CAPE-INetSim-VM-Extension-v$EXTENSION_VERSION"
+          [[ -d "$ANON_VENDOR" && -s "$ANON_VENDOR/RUNTIME-SHA256SUMS" ]]
+          [[ "$(cat "$ANON_VENDOR/VERSION")" == "$EXTENSION_VERSION" ]]
+          (cd "$ANON_VENDOR" && sha256sum -c RUNTIME-SHA256SUMS >/dev/null)
           curl -fsSIL "$BASE/cape-inetsim-appliance-v1.0.0.qcow2.gz" >/dev/null
           gh release view "$RELEASE_TAG" -R "$PUBLIC_REPO" --json isDraft,isPrerelease,tagName >/dev/null
