@@ -22,9 +22,10 @@ Usage:
 
 This is read-only with respect to CAPE, libvirt, Windows and networking.
 It validates a controlled route=none task pair already completed on the host.
-The positive task must contain the exact unique marker and INetSim evidence.
-The negative task must not contain that marker; ordinary Windows background
-traffic to INetSim is allowed and is not treated as a negative-control failure.
+The positive report must contain the exact unique marker and INetSim context.
+The positive packet capture must then contain that marker in traffic to/from
+INetSim. The negative task must not contain the marker; ordinary Windows
+background traffic to INetSim is allowed and is not a negative-control failure.
 EOF
 }
 
@@ -150,6 +151,7 @@ p.write_text(json.dumps(d,indent=2)+"\n")
 PY
 
 pass "Marker-based positive/negative real-task functional acceptance passed"
+pass "Positive PCAP proved marker-to-INetSim linkage independently of CAPE report field shape"
 kv "positive task:" "$POSITIVE_TASK"
 kv "negative task:" "$NEGATIVE_TASK"
 kv "marker:" "$MARKER"
