@@ -7,17 +7,23 @@ source "$ROOT/lib/targets.sh"
 AD_STATE_ROOT=/tmp/unused
 APPLIANCE_CACHE_ROOT=/tmp/unused-cache
 source "$ROOT/lib/extension.sh"
-[[ "$EXTENSION_VERSION" == 1.0.1 ]]
-[[ "$EXTENSION_RELEASE_ASSET_SHA256" == f3be934f08ad364d5964842d3db9bfea0f11cd40a44b76980855d692d3a34d87 ]]
-[[ "$EXTENSION_BUNDLED_ROOT" == "$ROOT/vendor/CAPE-INetSim-VM-Extension-v1.0.1" ]]
+
+[[ "$EXTENSION_VERSION" == 1.0.2 ]]
+[[ "$EXTENSION_BUNDLED_ROOT" == "$ROOT/vendor/CAPE-INetSim-VM-Extension-v1.0.2" ]]
 (cd "$EXTENSION_BUNDLED_ROOT" && sha256sum -c RUNTIME-SHA256SUMS >/dev/null)
 grep -Fq 'Bundled INetSim extension runtime' "$ROOT/lib/extension.sh"
 ! grep -Fq 'CAPE-INetSim-VM-Extension/releases/download' "$ROOT/lib/extension.sh"
-grep -Fq 'CAPE_DOMAIN=' "$ROOT/vendor/CAPE-INetSim-VM-Extension-v1.0.1/scripts/verify.sh"
+! grep -Fq 'EXTENSION_RELEASE_ASSET_SHA256' "$ROOT/lib/extension.sh"
+grep -Fq 'web/templates/analysis/network/index.html' "$EXTENSION_BUNDLED_ROOT/scripts/verify.sh"
+grep -Fq 'web/analysis/templatetags/__init__.py' "$EXTENSION_BUNDLED_ROOT/scripts/verify.sh"
+! grep -Fq '"web/analysis/templatetags/inetsim_tags.py"' "$EXTENSION_BUNDLED_ROOT/scripts/verify.sh"
+! grep -Fq '"web/templates/analysis/network/_inetsim_visual.html"' "$EXTENSION_BUNDLED_ROOT/scripts/verify.sh"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-EXTENSION_ROOT="$TMP/ext"
+
+# Config writer remains machine/domain-name safe.
+EXTENSION_ROOT="$TMP/config-ext"
 mkdir -p "$EXTENSION_ROOT/src"
 CAPE_ROOT='/opt/CAPE test/$root'
 INETSIM_IP='198.51.100.2'
@@ -38,4 +44,52 @@ source "$EXTENSION_ROOT/src/inetsim-vm.conf"
 [[ "$ANALYSIS_GUEST_IP" == '198.51.100.10' ]]
 [[ "$CAPTURE_INTERFACE" == 'capeisim7' ]]
 
-echo '[PASS] vendored extension runtime is version/checksum pinned and credential-free'
+# RC28 regression: modern CAPE has a network template but no legacy INetSim
+# template/tag modules. Candidate generation must be additive and succeed.
+RUNTIME="$TMP/runtime"
+CAPE="$TMP/cape"
+cp -a "$EXTENSION_BUNDLED_ROOT" "$RUNTIME"
+mkdir -p "$CAPE/web/templates/analysis/network" "$CAPE/web/analysis/templatetags"
+touch "$CAPE/web/analysis/templatetags/__init__.py"
+cat >"$CAPE/web/templates/analysis/network/index.html" <<'EOF'
+{% if network.pcap_sha256 %}<div>PCAP</div>{% endif %}
+<ul class="nav" id="networkTabs" role="tablist">
+  <li class="nav-item"><a href="#network_hosts_tab">Hosts</a></li>
+</ul>
+<div class="tab-content">
+  <div id="network_hosts_tab">hosts</div>
+</div>
+EOF
+cat >"$RUNTIME/src/inetsim-vm.conf" <<EOF
+CAPE_ROOT=$CAPE
+CAPE_MACHINE=win10
+CAPE_DOMAIN=win10
+CAPE_GUEST_CONTROL_IP=192.0.2.100
+CAPE_RESULTSERVER_IP=192.0.2.1
+INETSIM_SERVER_IP=198.51.100.2
+ANALYSIS_GUEST_IP=198.51.100.10
+CAPTURE_INTERFACE=capeisim7
+EOF
+
+python3 "$RUNTIME/scripts/prepare_install_candidate.py"
+C="$RUNTIME/build/install-candidate"
+[[ "$(cat "$C/INSTALL-LAYOUT")" == modern-network-template-v1 ]]
+grep -Fq 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$C/web/templates/analysis/network/index.html"
+grep -Fq 'CAPE_INETSIM_VM_MODERN_NETWORK_V1' "$C/web/templates/analysis/network/index.html"
+grep -Fq '{% load inetsim_vm_tags %}' "$C/web/templates/analysis/network/index.html"
+grep -Fq 'network_inetsim-tab' "$C/web/templates/analysis/network/index.html"
+grep -Fq 'network_inetsim_tab' "$C/web/templates/analysis/network/index.html"
+[[ -f "$C/web/analysis/templatetags/inetsim_vm_tags.py" ]]
+[[ -f "$C/web/templates/analysis/network/_inetsim_vm_visual.html" ]]
+[[ -f "$C/web/analysis/inetsim_vm_logic.py" ]]
+[[ ! -e "$C/web/analysis/views.py" ]]
+python3 -m py_compile "$C/web/analysis/inetsim_vm_logic.py" "$C/web/analysis/templatetags/inetsim_vm_tags.py"
+
+# Rollback manifest must include the modified network template and every new file.
+for rel in   web/templates/analysis/network/index.html   web/analysis/inetsim_vm_logic.py   web/analysis/templatetags/inetsim_vm_tags.py   web/templates/analysis/network/_inetsim_vm_visual.html
+do
+  grep -Fq ""$rel"" "$EXTENSION_BUNDLED_ROOT/scripts/backup.sh"
+done
+! grep -Fq '"web/analysis/views.py"' "$EXTENSION_BUNDLED_ROOT/scripts/backup.sh"
+
+echo '[PASS] vendored extension v1.0.2 supports modern CAPE without legacy INetSim UI and remains rollback-scoped'

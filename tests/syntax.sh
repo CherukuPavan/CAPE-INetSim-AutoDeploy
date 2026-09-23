@@ -9,7 +9,7 @@ done
 for f in "$ROOT"/bin/cape-inetsim-*; do
   [[ -x "$f" ]] || { echo "[FAIL] operator entrypoint is not executable: $f" >&2; exit 1; }
 done
-VENDOR="$ROOT/vendor/CAPE-INetSim-VM-Extension-v1.0.1"
+VENDOR="$ROOT/vendor/CAPE-INetSim-VM-Extension-v1.0.2"
 for f in "$VENDOR/install.sh" "$VENDOR"/scripts/*.sh; do
   bash -n "$f"
 done
