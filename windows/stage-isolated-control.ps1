@@ -9,21 +9,37 @@ param(
 )
 $ErrorActionPreference='Stop'
 
-function Write-Result($ok,$message,$extra) {
-    $o=@{ok=[bool]$ok;message=[string]$message;time=(Get-Date).ToString('o');stage='isolated-control-ready'}
-    if($extra){foreach($k in $extra.Keys){$o[$k]=$extra[$k]}}
-    $dir=Split-Path -Parent $ResultPath
-    if($dir -and -not (Test-Path $dir)){New-Item -ItemType Directory -Force -Path $dir|Out-Null}
-    if(Get-Command ConvertTo-Json -ErrorAction SilentlyContinue){
-        $json=$o|ConvertTo-Json -Depth 8
-    } else {
-        Add-Type -AssemblyName System.Web.Extensions
-        $ser=New-Object System.Web.Script.Serialization.JavaScriptSerializer
-        $json=$ser.Serialize($o)
-    }
-    [System.IO.File]::WriteAllText($ResultPath,$json,[System.Text.Encoding]::UTF8)
+function Escape-JsonString([string]$Value) {
+    if($null -eq $Value){return ''}
+    return $Value.Replace('\','\\').Replace('"','\"').Replace([char]13,'\r').Replace([char]10,'\n').Replace([char]9,'\t')
 }
 
+function Convert-SimpleJsonValue($Value) {
+    if($null -eq $Value){return 'null'}
+    if($Value -is [bool]){if($Value){return 'true'}else{return 'false'}}
+    if($Value -is [byte] -or $Value -is [sbyte] -or
+       $Value -is [int16] -or $Value -is [uint16] -or
+       $Value -is [int32] -or $Value -is [uint32] -or
+       $Value -is [int64] -or $Value -is [uint64] -or
+       $Value -is [single] -or $Value -is [double] -or
+       $Value -is [decimal]){
+        return [Convert]::ToString($Value,[Globalization.CultureInfo]::InvariantCulture)
+    }
+    return ('"' + (Escape-JsonString ([string]$Value)) + '"')
+}
+
+function Write-Result($ok,$message,$extra) {
+    $o=@{ok=[bool]$ok;message=[string]$message;time=(Get-Date).ToString('o');stage='isolated-control-ready'}
+    if($extra){foreach($k in @($extra.Keys)){$o[[string]$k]=$extra[$k]}}
+    $parts=@()
+    foreach($k in @($o.Keys | Sort-Object)){
+        $parts += ('"' + (Escape-JsonString ([string]$k)) + '":' + (Convert-SimpleJsonValue $o[$k]))
+    }
+    $json='{' + ($parts -join ',') + '}'
+    $dir=Split-Path -Parent $ResultPath
+    if($dir -and -not (Test-Path $dir)){New-Item -ItemType Directory -Force -Path $dir|Out-Null}
+    [System.IO.File]::WriteAllText($ResultPath,$json,[System.Text.Encoding]::UTF8)
+}
 function Normalize-Mac([string]$m){(($m -replace '[^0-9A-Fa-f]','').ToUpperInvariant())}
 
 function Prefix-ToMask([int]$Prefix){
