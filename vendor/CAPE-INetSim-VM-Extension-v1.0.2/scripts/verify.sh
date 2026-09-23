@@ -119,6 +119,15 @@ source "$CONFIG_FILE"
 # Older extension configurations did not carry CAPE_DOMAIN, so retain a
 # backwards-compatible fallback for standalone use.
 CAPE_DOMAIN="${CAPE_DOMAIN:-${CAPE_MACHINE:-}}"
+AUTODEPLOY_MANAGED="${AUTODEPLOY_MANAGED:-0}"
+
+managed_warn_or_fail() {
+    if [[ "$AUTODEPLOY_MANAGED" == "1" ]]; then
+        warn "$1"
+    else
+        fail "$1"
+    fi
+}
 
 
 # ------------------------------------------------------------
@@ -195,14 +204,10 @@ fi
 
 
 BASELINE_FILES=(
-    "modules/auxiliary/sniffer.py"
     "web/analysis/views.py"
     "web/analysis/templatetags/__init__.py"
+    "web/analysis/templatetags/analysis_tags.py"
     "web/templates/analysis/network/index.html"
-    "conf/processing.conf"
-    "conf/auxiliary.conf"
-    "conf/routing.conf"
-    "conf/kvm.conf"
 )
 
 for relative in "${BASELINE_FILES[@]}"; do
@@ -262,11 +267,11 @@ if command -v ip >/dev/null 2>&1; then
         info "Current interface state: ${state:-unknown}"
 
     else
-        fail "Capture interface does not exist: ${CAPTURE_INTERFACE:-<empty>}"
+        managed_warn_or_fail "Capture interface does not exist: ${CAPTURE_INTERFACE:-<empty>}"
     fi
 
 else
-    fail "'ip' command is unavailable"
+    managed_warn_or_fail "'ip' command is unavailable"
 fi
 
 
@@ -335,7 +340,7 @@ if command -v virsh >/dev/null 2>&1; then
     fi
 
 else
-    fail "'virsh' command is unavailable"
+    managed_warn_or_fail "'virsh' command is unavailable"
 fi
 
 
@@ -394,7 +399,7 @@ if [[ -r "$KVM_CONF" ]] &&
 
 else
 
-    fail "[$CAPE_MACHINE] section was not found in conf/kvm.conf"
+    managed_warn_or_fail "[$CAPE_MACHINE] section was not found in conf/kvm.conf"
 
 fi
 

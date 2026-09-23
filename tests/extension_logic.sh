@@ -14,6 +14,12 @@ source "$ROOT/lib/extension.sh"
 grep -Fq 'Bundled INetSim extension runtime' "$ROOT/lib/extension.sh"
 ! grep -Fq 'CAPE-INetSim-VM-Extension/releases/download' "$ROOT/lib/extension.sh"
 ! grep -Fq 'EXTENSION_RELEASE_ASSET_SHA256' "$ROOT/lib/extension.sh"
+grep -Fq 'AUTODEPLOY_MANAGED=1' "$ROOT/lib/extension.sh"
+grep -Fq 'refreshing-unowned-runtime' "$ROOT/lib/extension.sh"
+grep -Fq 'extension_run_logged init-config' "$ROOT/lib/extension.sh"
+grep -Fq 'extension_run_logged verify' "$ROOT/lib/extension.sh"
+grep -Fq 'managed_warn_or_fail' "$EXTENSION_BUNDLED_ROOT/scripts/verify.sh"
+grep -Fq 'web/analysis/templatetags/analysis_tags.py' "$EXTENSION_BUNDLED_ROOT/scripts/verify.sh"
 grep -Fq 'web/templates/analysis/network/index.html' "$EXTENSION_BUNDLED_ROOT/scripts/verify.sh"
 grep -Fq 'web/analysis/templatetags/__init__.py' "$EXTENSION_BUNDLED_ROOT/scripts/verify.sh"
 ! grep -Fq '"web/analysis/templatetags/inetsim_tags.py"' "$EXTENSION_BUNDLED_ROOT/scripts/verify.sh"
@@ -92,4 +98,19 @@ do
 done
 ! grep -Fq '"web/analysis/views.py"' "$EXTENSION_BUNDLED_ROOT/scripts/backup.sh"
 
-echo '[PASS] vendored extension v1.0.2 supports modern CAPE without legacy INetSim UI and remains rollback-scoped'
+# A same-version directory left by a failed run is not trusted unless it owns
+# a rollback reference; it must be refreshed from the bundled runtime.
+AD_LOG_ROOT="$TMP/logs"
+DEPLOYMENT_ID=test-extension-refresh
+mkdir -p "$AD_LOG_ROOT"
+EXTENSION_ROOT="$TMP/stale-extension"
+mkdir -p "$EXTENSION_ROOT"
+printf '1.0.2\n' >"$EXTENSION_ROOT/VERSION"
+printf '#!/bin/sh\nexit 99\n' >"$EXTENSION_ROOT/install.sh"
+chmod +x "$EXTENSION_ROOT/install.sh"
+extension_fetch_extract
+cmp "$EXTENSION_ROOT/install.sh" "$EXTENSION_BUNDLED_ROOT/install.sh"
+grep -Fq 'refreshing-unowned-runtime' "$AD_LOG_ROOT/${DEPLOYMENT_ID}-extension-materialize.log"
+grep -Fq 'materialized=yes' "$AD_LOG_ROOT/${DEPLOYMENT_ID}-extension-materialize.log"
+
+echo '[PASS] vendored extension v1.0.2 supports modern CAPE, managed preflight, and stale-runtime refresh'

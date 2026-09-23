@@ -108,6 +108,23 @@ fi
 if [[ -f "$AD_STATE_ROOT_CAPTURE/resources.tsv" ]]; then
   redact_conf "$AD_STATE_ROOT_CAPTURE/resources.tsv" "$OUT/autodeploy/resources.redacted.txt"
 fi
+for ext in "$AD_STATE_ROOT_CAPTURE"/extension-v*; do
+  [[ -d "$ext" ]] || continue
+  safe="$(basename "$ext" | tr -cs 'A-Za-z0-9._-' '_')"
+  {
+    echo "path=$ext"
+    echo "version=$(cat "$ext/VERSION" 2>/dev/null || true)"
+    echo "installed_backup=$(cat "$ext/.installed_backup" 2>/dev/null || true)"
+    echo "last_backup=$(cat "$ext/.last_backup" 2>/dev/null || true)"
+    if [[ -s "$ext/RUNTIME-SHA256SUMS" ]]; then
+      (cd "$ext" && sha256sum -c RUNTIME-SHA256SUMS) 2>&1 || true
+    fi
+  } >"$OUT/autodeploy/${safe}-runtime.txt"
+  if [[ -f "$ext/src/inetsim-vm.conf" ]]; then
+    redact_conf "$ext/src/inetsim-vm.conf" "$OUT/autodeploy/${safe}-config.redacted.txt"
+  fi
+done
+
 if [[ -d "$AD_STATE_ROOT_CAPTURE/logs" ]]; then
   find "$AD_STATE_ROOT_CAPTURE/logs" -maxdepth 1 -type f \( \
       -name '*diagnostics*.txt' -o \
