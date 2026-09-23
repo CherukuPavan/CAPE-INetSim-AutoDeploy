@@ -63,6 +63,23 @@ def output(obj,rc=0):
     print(json.dumps(obj,sort_keys=True))
     raise SystemExit(rc)
 
+def release_decision(old_locked,current_locked,current_marker,owned_marker):
+    """Classify how a maintenance-owned machine row may be released safely.
+
+    "restore-owned": the row still carries our unique lock marker, so restoring
+    the exact pre-maintenance lock fields is safe.
+    "already-original": another CAPE path changed the marker, but the lock
+    boolean is already back to the pre-maintenance value. Do not overwrite the
+    newer timestamp; simply treat our guard ownership as superseded.
+    "external-change": the row no longer carries our marker and is not back to
+    its original lock state. Never touch it automatically.
+    """
+    if current_locked and current_marker == owned_marker:
+        return "restore-owned"
+    if bool(current_locked) == bool(old_locked):
+        return "already-original"
+    return "external-change"
+
 if a.action=="inspect":
     with session.begin():
         tasks=task_rows(session)
@@ -224,6 +241,9 @@ if a.action=="release":
         output({"released":False,"reason":"guard-missing-lock-marker"},4)
 
     warnings=[]
+    already_original=[]
+    restored=[]
+    plan=[]
     with session.begin():
         by_label={m.label:m for m in machine_rows(session,lock=True)}
         for old in state.get("machines",[]):
@@ -232,22 +252,48 @@ if a.action=="release":
                 warnings.append(f"machine disappeared: {old['label']}")
                 continue
 
-            # Do not overwrite a machine that CAPE/operator touched after our
-            # acquisition. The unique timestamp marker is our ownership proof.
             current_marker=dt_dump(m.locked_changed_on)
-            if not m.locked or current_marker != marker:
-                warnings.append(f"machine lock changed externally; not touching: {m.label}")
-                continue
+            decision=release_decision(
+                bool(old.get("locked",False)),
+                bool(m.locked),
+                current_marker,
+                marker,
+            )
+            plan.append((old,m,decision))
 
-            m.locked=bool(old.get("locked",False))
-            m.locked_changed_on=dt_load(old.get("locked_changed_on"))
-            # We intentionally never changed status/status_changed_on.
+            if decision=="already-original":
+                already_original.append(m.label)
+            elif decision=="external-change":
+                warnings.append(f"machine lock changed externally and is not at original state; not touching: {m.label}")
+
+        # Never partially release a multi-machine guard. If any row is missing
+        # or genuinely externally locked, leave every guarded row untouched and
+        # preserve the guard for deterministic recovery.
+        if not warnings:
+            for old,m,decision in plan:
+                if decision!="restore-owned":
+                    continue
+                m.locked=bool(old.get("locked",False))
+                m.locked_changed_on=dt_load(old.get("locked_changed_on"))
+                restored.append(m.label)
+                # We intentionally never changed status/status_changed_on.
 
     if warnings:
         # Keep the guard file for deterministic follow-up/recovery. Removing it
-        # here would lose the proof required to resolve a partial release.
-        output({"released":False,"warnings":warnings},3)
+        # here would lose the proof required to resolve a genuinely conflicting
+        # external lock.
+        output({
+            "released":False,
+            "warnings":warnings,
+            "restored":restored,
+            "already_original":already_original,
+        },3)
 
     try: os.unlink(a.guard_file)
     except FileNotFoundError: pass
-    output({"released":True,"warnings":[]})
+    output({
+        "released":True,
+        "warnings":[],
+        "restored":restored,
+        "already_original":already_original,
+    })
