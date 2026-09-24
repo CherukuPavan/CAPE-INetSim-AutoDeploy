@@ -101,7 +101,8 @@ cat >"$TMP/cape/storage/analyses/18/reports/report.json" <<'JSON'
   }
 }
 JSON
-printf 'pcap-marker-linkage-is-validated-by-shell-layer\n' >"$TMP/cape/storage/analyses/18/dump.pcap"
+: >"$TMP/cape/storage/analyses/18/dump.pcap"
+printf 'pcap-marker-linkage-is-validated-by-shell-layer\n' >"$TMP/cape/storage/analyses/18/dump_sorted.pcap"
 python3 "$ROOT/tools/acceptance_reports.py" \
   --cape-root "$TMP/cape" --inetsim-ip 10.77.50.2 \
   --positive-task 18 --negative-task 19 \
@@ -115,12 +116,20 @@ assert d["status"]=="pass"
 assert d["positive"]["marker_present"] is True
 assert d["positive"]["uses_inetsim"] is True
 assert d["positive"]["marker_reached_inetsim"] is False
+assert d["positive"]["capture_path"].endswith("/dump_sorted.pcap")
 PY
 
 grep -Fq -- '--marker)' "$ROOT/install"
 grep -Fq 'ACCEPT_MARKER' "$ROOT/install"
 grep -Fq 'background traffic to INetSim is allowed' "$ROOT/bin/cape-inetsim-acceptance"
 grep -Fq 'pcap_has_marker' "$ROOT/bin/cape-inetsim-acceptance"
+grep -Fq 'acceptance_capture_path()' "$ROOT/bin/cape-inetsim-acceptance"
+grep -Fq '[[ -s "$POS_PCAP" ]]' "$ROOT/bin/cape-inetsim-acceptance"
+grep -Fq '[[ -s "$NEG_PCAP" ]]' "$ROOT/bin/cape-inetsim-acceptance"
+if grep -Fq 'local task="$1" base=' "$ROOT/bin/cape-inetsim-acceptance"; then
+  echo "acceptance helper reintroduced nounset-unsafe dependent local assignment" >&2
+  exit 1
+fi
 grep -Fq 'awk -v marker="$MARKER"' "$ROOT/bin/cape-inetsim-acceptance"
 grep -Fq '"marker_reached_inetsim":bool(inetsim_evidence)' "$ROOT/tools/acceptance_reports.py"
 grep -Fq 'packet capture must prove marker-to-INetSim linkage' "$ROOT/tools/acceptance_reports.py"
