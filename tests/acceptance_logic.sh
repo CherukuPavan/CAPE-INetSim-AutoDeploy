@@ -137,4 +137,79 @@ grep -Fq 'Positive PCAP proved marker-to-INetSim linkage' "$ROOT/bin/cape-inetsi
 grep -Fq 'negative_contains_marker' "$ROOT/bin/cape-inetsim-acceptance"
 grep -Fq 'background_inetsim_allowed_in_negative' "$ROOT/bin/cape-inetsim-acceptance"
 
+# Execute the real shell acceptance helper with a fully controlled stub
+# runtime. This catches set -u / shell-integration regressions that static
+# report tests cannot detect.
+RUNTIME="$TMP/runtime"
+mkdir -p "$RUNTIME"/{bin,lib,tools} "$TMP/fakebin" "$TMP/logs"
+cp "$ROOT/bin/cape-inetsim-acceptance" "$RUNTIME/bin/"
+cp "$ROOT/tools/acceptance_reports.py" "$RUNTIME/tools/"
+
+cat >"$RUNTIME/lib/common.sh" <<'SH'
+require_root(){ :; }
+fail(){ printf '[FAIL] %s\n' "$*" >&2; }
+pass(){ printf '[PASS] %s\n' "$*"; }
+kv(){ printf '%s %s\n' "$1" "$2"; }
+have(){ command -v "$1" >/dev/null 2>&1; }
+SH
+: >"$RUNTIME/lib/targets.sh"
+
+cat >"$RUNTIME/lib/state.sh" <<SH
+state_load(){
+  DEPLOYMENT_PHASE=committed
+  CAPE_ROOT="$TMP/cape"
+  INETSIM_IP="10.77.50.2"
+  AD_LOG_ROOT="$TMP/logs"
+  DEPLOYMENT_ID="acceptance-shell-test"
+  RELEASE_TAG=""
+  RELEASE_SOURCE_COMMIT=""
+  RELEASE_SOURCE_SHA256=""
+  return 0
+}
+SH
+
+cat >"$RUNTIME/bin/cape-inetsim-verify" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '[PASS] stub deployment verification passed\n'
+SH
+chmod +x "$RUNTIME/bin/cape-inetsim-verify" "$RUNTIME/bin/cape-inetsim-acceptance"
+
+cat >"$TMP/fakebin/tcpdump" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+pcap=""
+while (($#)); do
+  if [[ "$1" == "-r" ]]; then
+    pcap="$2"
+    shift 2
+    continue
+  fi
+  shift
+done
+[[ -n "$pcap" && -s "$pcap" ]] || exit 1
+cat "$pcap"
+SH
+chmod +x "$TMP/fakebin/tcpdump"
+
+printf '\n# CAPE_INETSIM_VM_ROUTE_NONE_V1\n' >>"$TMP/cape/web/analysis/inetsim_vm_logic.py"
+printf 'cape-inetsim-accept-123.invalid\n' >"$TMP/cape/storage/analyses/20/dump.pcap"
+printf 'background-only\n' >"$TMP/cape/storage/analyses/19/dump.pcap"
+
+PATH="$TMP/fakebin:$PATH" AUTODEPLOY_ROOT="$RUNTIME" \
+  bash "$RUNTIME/bin/cape-inetsim-acceptance" \
+    --positive-task 20 \
+    --negative-task 19 \
+    --marker cape-inetsim-accept-123.invalid \
+    --output "$TMP/shell-acceptance.json"
+
+python3 - "$TMP/shell-acceptance.json" <<'PY'
+import json,sys
+d=json.load(open(sys.argv[1]))
+assert d["status"]=="pass"
+assert d["pcap_validation"]["positive_contains_marker"] is True
+assert d["pcap_validation"]["negative_contains_marker"] is False
+assert d["pcap_validation"]["positive_contains_inetsim_ip"] is True
+PY
+
 echo '[PASS] marker-based acceptance tolerates CAPE field-shape loss and delegates marker linkage proof to INetSim-filtered PCAP evidence'
