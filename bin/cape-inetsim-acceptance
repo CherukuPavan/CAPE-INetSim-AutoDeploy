@@ -68,21 +68,38 @@ install -d -m 0700 "$AD_LOG_ROOT"
 
 python3 "$ROOT/tools/acceptance_reports.py"   --cape-root "$CAPE_ROOT"   --inetsim-ip "$INETSIM_IP"   --positive-task "$POSITIVE_TASK"   --negative-task "$NEGATIVE_TASK"   --marker "$MARKER"   --output "$OUTPUT"
 
-find_pcap() {
-  local task="$1" base="$CAPE_ROOT/storage/analyses/$task"
-  local p
-  for p in "$base/dump.pcap" "$base/dump_sorted.pcap"; do
-    [[ -f "$p" ]] && { printf '%s\n' "$p"; return 0; }
-  done
-  return 1
+acceptance_capture_path() {
+  local role
+  role="$1"
+  python3 - "$OUTPUT" "$role" <<'PY'
+import json
+import pathlib
+import sys
+
+path, role = sys.argv[1:]
+data = json.loads(pathlib.Path(path).read_text())
+capture = str((data.get(role) or {}).get("capture_path") or "").strip()
+if not capture:
+    raise SystemExit(1)
+print(capture)
+PY
 }
 
-POS_PCAP="$(find_pcap "$POSITIVE_TASK")" || {
-  fail "Positive task $POSITIVE_TASK has no local CAPE packet capture"
+POS_PCAP="$(acceptance_capture_path positive)" || {
+  fail "Positive task $POSITIVE_TASK has no non-empty local CAPE packet capture"
   exit 21
 }
-NEG_PCAP="$(find_pcap "$NEGATIVE_TASK")" || {
-  fail "Negative task $NEGATIVE_TASK has no local CAPE packet capture"
+NEG_PCAP="$(acceptance_capture_path negative)" || {
+  fail "Negative task $NEGATIVE_TASK has no non-empty local CAPE packet capture"
+  exit 22
+}
+
+[[ -s "$POS_PCAP" ]] || {
+  fail "Positive task $POSITIVE_TASK capture selected by report validation is missing or empty: $POS_PCAP"
+  exit 21
+}
+[[ -s "$NEG_PCAP" ]] || {
+  fail "Negative task $NEGATIVE_TASK capture selected by report validation is missing or empty: $NEG_PCAP"
   exit 22
 }
 
