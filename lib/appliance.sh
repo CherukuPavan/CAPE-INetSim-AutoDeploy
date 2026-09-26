@@ -214,12 +214,12 @@ appliance_fetch() {
       cp --reflink=auto "$transport" "$raw_part"
       ;;
     gzip)
-      have gzip || { fail "gzip is required to unpack the appliance release"; return 1; }
-      gzip -t "$transport" || { fail "Appliance gzip transport integrity check failed"; return 1; }
+      have gzip || { fail "gzip is required to unpack the appliance release" >&2; return 1; }
+      gzip -t "$transport" || { fail "Appliance gzip transport integrity check failed" >&2; return 1; }
       gzip -dc "$transport" >"$raw_part"
       ;;
     *)
-      fail "Unsupported appliance transport compression: $compression"
+      fail "Unsupported appliance transport compression: $compression" >&2
       return 1
       ;;
   esac
