@@ -154,8 +154,12 @@ cape_probe_inetsim_rooter_target() {
     fail "CAPE Rooter implementation is missing: $CAPE_ROOT/utils/rooter.py"
     return 1
   }
-  grep -Fq '"inetsim_enable": inetsim_enable' "$CAPE_ROOT/utils/rooter.py" || {
-    fail "CAPE Rooter does not expose the inetsim_enable handler"
+  grep -Fq 'def inetsim_enable(' "$CAPE_ROOT/utils/rooter.py" || {
+    fail "CAPE Rooter does not implement inetsim_enable"
+    return 1
+  }
+  grep -Eq "['\"]inetsim_enable['\"][[:space:]]*:[[:space:]]*inetsim_enable" "$CAPE_ROOT/utils/rooter.py" || {
+    fail "CAPE Rooter does not register the inetsim_enable handler"
     return 1
   }
 
