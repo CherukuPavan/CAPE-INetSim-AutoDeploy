@@ -38,21 +38,29 @@ cape_assert_owned_files_unchanged() {
 
 patch_sniffer_capture_override() {
   local file="$1"
-  if grep -q 'CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1' "$file"; then return 0; fi
+  if grep -q 'CAPE_INETSIM_AUTODEPLOY_CAPTURE_V2' "$file"; then return 0; fi
   python3 - "$file" <<'PY'
 import sys
 p=sys.argv[1]
-s=open(p).read()
-old='''        host = self.machine.ip\n        # Selects per-machine interface if available.\n'''
-new='''        # CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1\n        capture_host_key = f"capture_host_{self.machine.label}"\n        host = self.options.get(capture_host_key) or self.machine.ip\n        if host != self.machine.ip:\n            log.info("Using packet-capture host override %s=%s", capture_host_key, host)\n        # Selects per-machine interface if available.\n'''
+s=open(p,encoding="utf-8").read()
+old='''        host = self.machine.ip\n        # Selects per-machine interface if available.\n        interface = self.machine.interface or self.options.get("interface")\n'''
+new='''        host = self.machine.ip\n        # CAPE_INETSIM_AUTODEPLOY_CAPTURE_V2
+        # Keep normal CAPE capture for ordinary routes. Only explicit
+        # route=inetsim moves capture to the dedicated post-DNAT bridge.
+        interface = self.machine.interface or self.options.get("interface")
+        if str(self.task.route or "").lower() == "inetsim":
+            inetsim_interface = self.options.get("inetsim_capture_interface", "")
+            if inetsim_interface:
+                interface = inetsim_interface
+                log.info("Using route-scoped INetSim capture interface %s", interface)
+'''
 if old not in s:
-    raise SystemExit('known sniffer source block not found; refusing patch')
+    raise SystemExit("known sniffer source block not found; refusing patch")
 if s.count(old)!=1:
-    raise SystemExit('sniffer source block is not unique; refusing patch')
-open(p,'w').write(s.replace(old,new,1))
+    raise SystemExit("sniffer source block is not unique; refusing patch")
+open(p,"w",encoding="utf-8").write(s.replace(old,new,1))
 PY
 }
-
 cape_backup_integration_files() {
   local rel
   for rel in modules/auxiliary/sniffer.py conf/auxiliary.conf conf/kvm.conf conf/processing.conf conf/routing.conf; do
@@ -77,6 +85,9 @@ cape_configure_inetsim() {
   # native route=inetsim backend.
   cape_backup_integration_files
 
+  patch_sniffer_capture_override "$CAPE_ROOT/modules/auxiliary/sniffer.py"
+  python3 "$edit" "$CAPE_ROOT/conf/auxiliary.conf" sniffer inetsim_capture_interface "$ISOLATED_BRIDGE_NAME"
+
   python3 "$edit" "$CAPE_ROOT/conf/processing.conf" network dnswhitelist no
   python3 "$edit" "$CAPE_ROOT/conf/processing.conf" network ipwhitelist no
   python3 "$edit" "$CAPE_ROOT/conf/routing.conf" inetsim enabled yes
@@ -98,6 +109,8 @@ cape_configure_inetsim() {
     targets_capture_bound "$i"
   done
 
+  state_record_resource cape-file "$CAPE_ROOT/modules/auxiliary/sniffer.py" modified yes "route-scoped-inetsim-capture"
+  state_record_resource cape-file "$CAPE_ROOT/conf/auxiliary.conf" modified yes "inetsim-capture-interface=$ISOLATED_BRIDGE_NAME"
   state_record_resource cape-file "$CAPE_ROOT/conf/processing.conf" modified yes "dnswhitelist=no ipwhitelist=no"
   state_record_resource cape-file "$CAPE_ROOT/conf/routing.conf" modified yes "native-route=inetsim server=$INETSIM_IP interface=$ISOLATED_BRIDGE_NAME"
   cape_capture_post_hashes
