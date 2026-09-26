@@ -42,9 +42,12 @@ PY
 )"
   rm -f "$f"
   if [[ -z "$ISOLATED_SUBNET" ]]; then add_error "No unused candidate private /24 subnet could be selected"; return 0; fi
-  read -r BRIDGE_IP INETSIM_IP WINDOWS_FAKE_IP < <(python3 - "$ISOLATED_SUBNET" <<'PY'
+  read -r BRIDGE_IP INETSIM_IP < <(python3 - "$ISOLATED_SUBNET" <<'PY'
 import ipaddress,sys
-n=ipaddress.ip_network(sys.argv[1]); print(n.network_address+1,n.network_address+2,n.network_address+10)
+n=ipaddress.ip_network(sys.argv[1]); print(n.network_address+1,n.network_address+2)
 PY
 )
+  # Kept only as an empty compatibility state field for rollback of older
+  # deployments. Route-separated releases never assign a Windows fake IP.
+  WINDOWS_FAKE_IP=""
 }
