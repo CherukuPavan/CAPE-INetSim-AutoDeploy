@@ -237,6 +237,56 @@ windows_restore_configured_snapshot_paused() {
   pass "Restored configured CAPE running snapshot '$CAPE_MACHINE_SNAPSHOT' in paused state"
 }
 
+windows_ensure_normal_route_snapshot() {
+  if [[ -n "${NORMAL_SNAPSHOT:-}" ]] &&
+     windows_snapshot_exists "$NORMAL_SNAPSHOT" &&
+     snapshot_is_running_analysis_baseline "$NORMAL_SNAPSHOT"; then
+    pass "Normal-route CAPE snapshot ready: $NORMAL_SNAPSHOT"
+    return 0
+  fi
+
+  if [[ -n "${CAPE_MACHINE_SNAPSHOT:-}" ]] &&
+     windows_snapshot_exists "$CAPE_MACHINE_SNAPSHOT" &&
+     snapshot_is_running_analysis_baseline "$CAPE_MACHINE_SNAPSHOT"; then
+    NORMAL_SNAPSHOT="$CAPE_MACHINE_SNAPSHOT"
+    state_write_atomic
+    pass "Using existing CAPE snapshot for normal routes: $NORMAL_SNAPSHOT"
+    return 0
+  fi
+
+  [[ "$(virsh domstate "$DOMAIN" | xargs)" == running ]] || {
+    fail "Normal-route snapshot creation requires a running Windows guest"
+    return 1
+  }
+
+  NORMAL_SNAPSHOT="cape-normal-ready-$(windows_snapshot_token)"
+  local desc="CAPE-INetSim AutoDeploy normal-route analysis snapshot $DEPLOYMENT_ID"
+  state_write_atomic
+
+  if windows_snapshot_exists "$NORMAL_SNAPSHOT"; then
+    if ! state_resource_owned snapshot "$DOMAIN:$NORMAL_SNAPSHOT"; then
+      state_resource_intended snapshot "$DOMAIN:$NORMAL_SNAPSHOT" &&
+      [[ "$(windows_snapshot_description "$NORMAL_SNAPSHOT")" == "$desc" ]] &&
+      snapshot_is_running_analysis_baseline "$NORMAL_SNAPSHOT" || {
+        fail "Normal-route snapshot exists but is not safely attributable to this deployment"
+        return 1
+      }
+      state_record_resource snapshot "$DOMAIN:$NORMAL_SNAPSHOT" recovered-created yes "state=running purpose=normal-route"
+    fi
+  else
+    state_record_intent snapshot "$DOMAIN:$NORMAL_SNAPSHOT" creating "state=running purpose=normal-route"
+    virsh snapshot-create-as "$DOMAIN" "$NORMAL_SNAPSHOT" --description "$desc" --atomic >/dev/null
+    state_record_resource snapshot "$DOMAIN:$NORMAL_SNAPSHOT" created yes "state=running purpose=normal-route"
+  fi
+
+  snapshot_is_running_analysis_baseline "$NORMAL_SNAPSHOT" || {
+    fail "Normal-route snapshot is not a running analysis baseline"
+    return 1
+  }
+  state_write_atomic
+  pass "Created normal-route running CAPE snapshot $NORMAL_SNAPSHOT"
+}
+
 windows_create_working_snapshot() {
   [[ "$(virsh domstate "$DOMAIN" | xargs)" == "shut off" ]] || { fail "Configured rollback snapshot requires shut-off Windows domain"; return 1; }
   if [[ -z "${WORKING_SNAPSHOT:-}" ]]; then
@@ -353,7 +403,7 @@ print(r.findtext("./parent/name") or "")
 windows_delete_owned_snapshots_leaf_first() {
   local -a owned=()
   local snap progress remaining i
-  for snap in "${FINAL_SNAPSHOT:-}" "${WORKING_SNAPSHOT:-}" "${SAFETY_SNAPSHOT:-}"; do
+  for snap in "${FINAL_SNAPSHOT:-}" "${WORKING_SNAPSHOT:-}" "${NORMAL_SNAPSHOT:-}" "${SAFETY_SNAPSHOT:-}"; do
     [[ -n "$snap" ]] || continue
     state_resource_owned snapshot "$DOMAIN:$snap" && owned+=("$snap")
   done
@@ -398,6 +448,17 @@ windows_rollback_to_safety() {
       fail "Safety snapshot exists but cannot be attributed to this deployment"
       return 1
     }
+  fi
+  if [[ -n "${NORMAL_SNAPSHOT:-}" && "${NORMAL_SNAPSHOT:-}" != "${CAPE_MACHINE_SNAPSHOT:-}" ]] &&
+     windows_snapshot_exists "$NORMAL_SNAPSHOT" &&
+     ! state_resource_owned snapshot "$DOMAIN:$NORMAL_SNAPSHOT"; then
+    state_resource_intended snapshot "$DOMAIN:$NORMAL_SNAPSHOT" &&
+    [[ "$(windows_snapshot_description "$NORMAL_SNAPSHOT")" == "CAPE-INetSim AutoDeploy normal-route analysis snapshot $DEPLOYMENT_ID" ]] &&
+    snapshot_is_running_analysis_baseline "$NORMAL_SNAPSHOT" || {
+      fail "Normal-route snapshot exists but cannot be attributed to this deployment"
+      return 1
+    }
+    state_record_resource snapshot "$DOMAIN:$NORMAL_SNAPSHOT" recovered-created yes "state=running purpose=normal-route"
   fi
   if [[ -n "${WORKING_SNAPSHOT:-}" ]] && windows_snapshot_exists "$WORKING_SNAPSHOT" &&
      ! state_resource_owned snapshot "$DOMAIN:$WORKING_SNAPSHOT"; then
