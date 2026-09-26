@@ -977,7 +977,7 @@ echo
 echo "14. Verify installed extension markers"
 
 grep -q \
-    'CAPE_INETSIM_VM_ROUTE_NONE_V1' \
+    'CAPE_INETSIM_VM_ROUTE_GATED_V2' \
     "$NETWORK_TARGET"
 
 grep -q \
