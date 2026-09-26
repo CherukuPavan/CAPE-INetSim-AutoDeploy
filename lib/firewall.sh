@@ -36,67 +36,30 @@ PY
 }
 
 firewall_render_rules() {
-  local isolated_bridge="$1" include_management="${2:-no}"
-  local records="" resultserver_records=""
-  [[ "$include_management" == yes ]] && records="$(firewall_management_records)"
-  resultserver_records="$(firewall_isolated_resultserver_records)"
+  local isolated_bridge="$1"
+  [[ -n "${INETSIM_IP:-}" ]] || { fail "INetSim IP is required for firewall rendering"; return 1; }
 
   cat <<EOF
 # CAPE-INetSim-AutoDeploy managed rules. Do not edit while deployment is active.
 table inet $FIREWALL_TABLE {
   chain input_guard {
     type filter hook input priority -50; policy accept;
-    iifname "$isolated_bridge" ct state established,related accept
-EOF
-  if [[ -n "$resultserver_records" ]]; then
-    echo "    # Permit only CAPE ResultServer ingress from planned fake-IP identities."
-    local fake_ip result_ip result_port result_domain
-    while IFS='|' read -r fake_ip result_ip result_port result_domain; do
-      [[ -n "$fake_ip" && -n "$result_ip" && "$result_port" =~ ^[0-9]+$ ]] || continue
-      printf '    iifname "%s" ip saddr %s ip daddr %s tcp dport %s accept\n' \
-        "$isolated_bridge" "$fake_ip" "$result_ip" "$result_port"
-    done <<<"$resultserver_records"
-  fi
-  cat <<EOF
     iifname "$isolated_bridge" drop
   }
 
   chain forward_guard {
     type filter hook forward priority -50; policy accept;
+    # CAPE route=inetsim DNAT is task-scoped. Permit only connections that
+    # conntrack confirms were DNATed by CAPE to the dedicated INetSim server.
+    oifname "$isolated_bridge" ip daddr $INETSIM_IP ct status dnat accept
+    iifname "$isolated_bridge" ip saddr $INETSIM_IP ct state established,related accept
+
+    # Direct/lateral traffic to or from the isolated bridge remains blocked.
     iifname "$isolated_bridge" drop
     oifname "$isolated_bridge" drop
-EOF
-  if [[ -n "$records" ]]; then
-    echo "    # Block routed/lateral egress from every protected CAPE analysis management NIC."
-    local bridge mac ip domain
-    while IFS='|' read -r bridge mac ip domain; do
-      [[ -n "$bridge" && -n "$mac" && -n "$ip" ]] || continue
-      printf '    iifname "%s" ether saddr %s drop\n' "$bridge" "$mac"
-      printf '    iifname "%s" ip saddr %s drop\n' "$bridge" "$ip"
-    done <<<"$records"
-  fi
-  cat <<'EOF'
   }
 }
 EOF
-
-  if [[ -n "$records" ]]; then
-    cat <<EOF
-
-table bridge $FIREWALL_BRIDGE_TABLE {
-  chain forward_guard {
-    type filter hook forward priority -50; policy accept;
-EOF
-    local bridge mac ip domain
-    while IFS='|' read -r bridge mac ip domain; do
-      [[ -n "$mac" ]] || continue
-      printf '    ether saddr %s drop\n' "$mac"
-    done <<<"$records"
-    cat <<'EOF'
-  }
-}
-EOF
-  fi
 }
 firewall_render_unit() {
   cat <<EOF
@@ -362,11 +325,8 @@ firewall_verify() {
   firewall_file_matches_base || return 1
   firewall_unit_matches_project || return 1
   firewall_table_matches_base || return 1
-  firewall_file_has_resultserver_exceptions_all || return 1
-  firewall_resultserver_exceptions_match_all || return 1
-  firewall_validate_management_antispof_all || return 1
-  firewall_file_has_management_guards_all || return 1
-  firewall_management_guards_match_all || return 1
+  grep -Fq "ct status dnat accept" "$FIREWALL_RULES" || return 1
+  grep -Fq "ip daddr $INETSIM_IP" "$FIREWALL_RULES" || return 1
   systemctl is-active --quiet cape-inetsim-autodeploy-firewall.service
 }
 firewall_rollback() {
