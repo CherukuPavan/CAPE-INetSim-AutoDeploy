@@ -38,6 +38,8 @@ gzip -t "$TMP/a.qcow2.gz"
 
 # Regression: exact-release partial transport downloads resume in place and
 # appliance_fetch reuses the completed, checksum-verified transport.
+# Keep qemu-img disabled for the synthetic bytes while allowing real gzip.
+have(){ [[ "$1" == gzip ]]; }
 APPLIANCE_CACHE_ROOT="$TMP/cache"
 mkdir -p "$APPLIANCE_CACHE_ROOT"
 partial="$APPLIANCE_CACHE_ROOT/a.qcow2.gz.$transport_sha.part"
