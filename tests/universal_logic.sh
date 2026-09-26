@@ -195,8 +195,7 @@ grep -Fq 'excluded from snapshots' <<<"${DISCOVERY_ERRORS[0]}"
 PATH="$OLD_PATH"
 
 grep -Fq 'targets_discover_all' "$ROOT/lib/plan.sh"
-grep -Fq 'snapshot_capable")=="yes"' "$ROOT/lib/deploy.sh"
-echo "[PASS] Windows internal-snapshot capability safe-stop preflight"
+echo "[PASS] legacy snapshot-capability helper remains safe; route-scoped deploy does not require new snapshots"
 
 # The configured CAPE snapshot itself must be running and may store saved
 # memory internally or externally. It must carry the same proven management NIC.
@@ -274,5 +273,5 @@ discover_cape_analysis_snapshot
 [[ "${#DISCOVERY_ERRORS[@]}" -eq 0 ]]
 
 grep -Fq 'discover_cape_analysis_snapshot' "$ROOT/lib/targets.sh"
-grep -Fq 'analysis_snapshot_status") in ("proven","not-configured")' "$ROOT/lib/deploy.sh"
-echo "[PASS] configured-or-AutoDeploy-created CAPE analysis snapshot preflight"
+grep -Fq 'analysis_snapshot_status") == "proven"' "$ROOT/lib/deploy.sh"
+echo "[PASS] route-scoped deployment requires an existing proven CAPE analysis snapshot"
