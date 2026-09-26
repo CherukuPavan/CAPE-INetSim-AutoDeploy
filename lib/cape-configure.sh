@@ -68,46 +68,38 @@ cape_configure_inetsim() {
   local edit="$AUTODEPLOY_ROOT/tools/ini_edit.py"
   [[ -x "$edit" || -f "$edit" ]] || { fail "INI editor missing"; return 1; }
   [[ -n "${ISOLATED_BRIDGE_NAME:-}" ]] || { fail "Isolated bridge name is not set"; return 1; }
+  [[ -n "${INETSIM_IP:-}" ]] || { fail "INetSim server address is not set"; return 1; }
   [[ "${CAPE_TARGETS_COUNT:-0}" -gt 0 ]] || { fail "No CAPE analysis targets are available for configuration"; return 1; }
 
+  # Route-scoped architecture: do not rewrite the Windows guest, KVM capture
+  # interface, or sniffer host. CAPE's existing per-task route selector remains
+  # authoritative. We only register the dedicated INetSim appliance as CAPE's
+  # native route=inetsim backend.
   cape_backup_integration_files
-  patch_sniffer_capture_override "$CAPE_ROOT/modules/auxiliary/sniffer.py"
+
+  python3 "$edit" "$CAPE_ROOT/conf/processing.conf" network dnswhitelist no
+  python3 "$edit" "$CAPE_ROOT/conf/processing.conf" network ipwhitelist no
+  python3 "$edit" "$CAPE_ROOT/conf/routing.conf" inetsim enabled yes
+  python3 "$edit" "$CAPE_ROOT/conf/routing.conf" inetsim server "$INETSIM_IP"
+  python3 "$edit" "$CAPE_ROOT/conf/routing.conf" inetsim dnsport 53
+  python3 "$edit" "$CAPE_ROOT/conf/routing.conf" inetsim interface "$ISOLATED_BRIDGE_NAME"
+  python3 "$edit" "$CAPE_ROOT/conf/routing.conf" routing enable_pcap yes
 
   local saved="${TARGET_INDEX:-}" i
   CAPE_TARGETS_COUNT="$(targets_count)"
   for ((i=0;i<CAPE_TARGETS_COUNT;i++)); do
     targets_bind "$i"
-    [[ -n "${FINAL_SNAPSHOT:-}" ]] || { fail "Final running snapshot is not set for $CAPE_MACHINE_SECTION"; return 1; }
-    [[ -n "${WINDOWS_FAKE_IP:-}" ]] || { fail "Windows fake-Internet IP is not set for $CAPE_MACHINE_SECTION"; return 1; }
-
-    python3 "$edit" "$CAPE_ROOT/conf/auxiliary.conf" sniffer "capture_host_${CAPE_MACHINE_LABEL}" "$WINDOWS_FAKE_IP"
-    python3 "$edit" "$CAPE_ROOT/conf/kvm.conf" "$CAPE_MACHINE_SECTION" snapshot "$FINAL_SNAPSHOT"
-    python3 "$edit" "$CAPE_ROOT/conf/kvm.conf" "$CAPE_MACHINE_SECTION" interface "$ISOLATED_BRIDGE_NAME"
-
-    grep -Fq "capture_host_${CAPE_MACHINE_LABEL} = $WINDOWS_FAKE_IP" "$CAPE_ROOT/conf/auxiliary.conf"
-    local machine_block
-    machine_block="$(grep -A160 -F "[$CAPE_MACHINE_SECTION]" "$CAPE_ROOT/conf/kvm.conf" || true)"
-    grep -m1 -Fq "snapshot = $FINAL_SNAPSHOT" <<<"$machine_block"
-    grep -m1 -Fq "interface = $ISOLATED_BRIDGE_NAME" <<<"$machine_block"
-
+    [[ -n "${FINAL_SNAPSHOT:-}" ]] || { fail "Route-neutral CAPE snapshot is not set for $CAPE_MACHINE_SECTION"; return 1; }
+    [[ "$FINAL_SNAPSHOT" == "$CAPE_MACHINE_SNAPSHOT" ]] || {
+      fail "Route-scoped mode must preserve the original CAPE snapshot for $CAPE_MACHINE_SECTION"
+      return 1
+    }
     TARGET_PHASE=cape-configured
     targets_capture_bound "$i"
   done
 
-  python3 "$edit" "$CAPE_ROOT/conf/processing.conf" network dnswhitelist no
-  python3 "$edit" "$CAPE_ROOT/conf/processing.conf" network ipwhitelist no
-  python3 "$edit" "$CAPE_ROOT/conf/routing.conf" routing route none
-  python3 "$edit" "$CAPE_ROOT/conf/routing.conf" routing enable_pcap yes
-
-  local py
-  py="$(cape_runtime_python)"
-  "$py" -m py_compile "$CAPE_ROOT/modules/auxiliary/sniffer.py"
-
-  state_record_resource cape-file "$CAPE_ROOT/modules/auxiliary/sniffer.py" modified yes "capture-host-override"
-  state_record_resource cape-file "$CAPE_ROOT/conf/auxiliary.conf" modified yes "per-machine-capture-hosts=${CAPE_TARGETS_COUNT}"
-  state_record_resource cape-file "$CAPE_ROOT/conf/kvm.conf" modified yes "managed-machines=${CAPE_TARGETS_COUNT} snapshot+interface"
   state_record_resource cape-file "$CAPE_ROOT/conf/processing.conf" modified yes "dnswhitelist=no ipwhitelist=no"
-  state_record_resource cape-file "$CAPE_ROOT/conf/routing.conf" modified yes "route=none enable_pcap=yes"
+  state_record_resource cape-file "$CAPE_ROOT/conf/routing.conf" modified yes "native-route=inetsim server=$INETSIM_IP interface=$ISOLATED_BRIDGE_NAME"
   cape_capture_post_hashes
   state_set_phase cape-configured
 
