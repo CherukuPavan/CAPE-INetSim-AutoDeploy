@@ -94,10 +94,39 @@ grep -Fq 'inetsim server "$INETSIM_IP"' "$ROOT/lib/cape-configure.sh"
 grep -Fq 'inetsim interface "$ISOLATED_BRIDGE_NAME"' "$ROOT/lib/cape-configure.sh"
 grep -Fq 'CAPE_INETSIM_AUTODEPLOY_CAPTURE_V2' "$ROOT/lib/validate.sh"
 
-# Legacy route-global capture must not be adopted as route-separated.
-sed 's/CAPE_INETSIM_AUTODEPLOY_CAPTURE_V2/CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1/' "$TMP/sniffer.py" >"$CAPE_ROOT/modules/auxiliary/sniffer.py"
+# Legacy RC44 route-global capture remains rejected for normal deploys.
+cat >"$CAPE_ROOT/modules/auxiliary/sniffer.py" <<'PY'
+import logging
+log=logging.getLogger(__name__)
+class X:
+    def f(self):
+        # CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1
+        capture_host_key = f"capture_host_{self.machine.label}"
+        host = self.options.get(capture_host_key) or self.machine.ip
+        if host != self.machine.ip:
+            log.info("Using packet-capture host override %s=%s", capture_host_key, host)
+        # Selects per-machine interface if available.
+        interface = self.machine.interface or self.options.get("interface")
+PY
 COMPAT_NOTES=()
+unset CAPE_INETSIM_ALLOW_LEGACY_UPGRADE || true
 check_cape_layout
 [[ "$COMPAT_STATUS" == plan-only-unknown-cape-layout ]]
 
-echo '[PASS] compatibility rejects legacy global fake-network capture semantics'
+# Explicit repair migration may upgrade only this exact known legacy source.
+CAPE_INETSIM_ALLOW_LEGACY_UPGRADE=yes
+export CAPE_INETSIM_ALLOW_LEGACY_UPGRADE
+COMPAT_NOTES=()
+check_cape_layout
+[[ "$COMPAT_STATUS" == plan-compatible ]]
+patch_sniffer_capture_override "$CAPE_ROOT/modules/auxiliary/sniffer.py"
+[[ "$(grep -Fc CAPE_INETSIM_AUTODEPLOY_CAPTURE_V2 "$CAPE_ROOT/modules/auxiliary/sniffer.py")" -eq 1 ]]
+! grep -Fq CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1 "$CAPE_ROOT/modules/auxiliary/sniffer.py"
+grep -Fq 'effective_route == "inetsim"' "$CAPE_ROOT/modules/auxiliary/sniffer.py"
+
+# Migration must put the normal/original CAPE snapshot back in kvm.conf.
+grep -Fq 'snapshot "$NORMAL_SNAPSHOT"' "$ROOT/lib/cape-configure.sh"
+! grep -Fq 'snapshot "$FINAL_SNAPSHOT"' "$ROOT/lib/cape-configure.sh"
+grep -Fq 'Normal-route CAPE snapshot is not set' "$ROOT/lib/cape-configure.sh"
+
+echo '[PASS] compatibility rejects unowned legacy capture but permits explicit owned RC44 route migration'

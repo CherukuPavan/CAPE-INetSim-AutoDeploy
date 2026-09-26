@@ -48,3 +48,29 @@ grep -Fxq 'systemctl:enable cape-inetsim-autodeploy-firewall.service' "$LOG"
 grep -Fq 'firewall_inetsim_client_records' "$ROOT/lib/firewall.sh"
 grep -Fq 'firewall_inetsim_route_exceptions_match_all' "$ROOT/lib/firewall.sh"
 echo '[PASS] active firewall rules are atomically replaced for route separation'
+
+# An RC44-era file without the route-separation marker must never satisfy the
+# new fast-path matcher; repair must rewrite it atomically.
+FIREWALL_RULES="$TMP/firewall.nft"
+cat >"$FIREWALL_RULES" <<EOF
+# CAPE-INetSim-AutoDeploy managed rules. Do not edit while deployment is active.
+table inet $FIREWALL_TABLE {
+  chain input_guard {
+    type filter hook input priority -50; policy accept;
+    iifname "$ISOLATED_BRIDGE_NAME" drop
+  }
+  chain forward_guard {
+    type filter hook forward priority -50; policy accept;
+    iifname "$ISOLATED_BRIDGE_NAME" drop
+    oifname "$ISOLATED_BRIDGE_NAME" drop
+  }
+}
+EOF
+if firewall_file_matches_base; then
+  echo 'legacy RC44 firewall incorrectly matched route-separated policy' >&2
+  exit 1
+fi
+grep -Fq "Per-task route separation" "$ROOT/lib/firewall.sh"
+grep -Fq '! firewall_bridge_table_exists' "$ROOT/lib/firewall.sh"
+
+echo '[PASS] legacy RC44 firewall cannot bypass the route-aware rewrite'

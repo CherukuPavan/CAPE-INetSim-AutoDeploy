@@ -54,4 +54,23 @@ fi
 grep -Fq 'A different AutoDeploy release is already committed' "$ROOT/lib/deploy.sh"
 grep -Fq 'Roll it back with that exact release before installing this route-separated release' "$ROOT/lib/deploy.sh"
 
-echo '[PASS] recovery assets are protected and cross-release upgrade is rollback-first'
+# Ordinary deployment remains rollback-first across releases. The only supported
+# in-place RC44 conversion is the explicit, ownership-gated --repair path.
+grep -Fq 'Owned legacy route-global deployment detected' "$ROOT/bin/cape-inetsim-repair"
+grep -Fq 'Legacy route-global CAPE patch is not transaction-owned' "$ROOT/bin/cape-inetsim-repair"
+grep -Fq 'Legacy route-global web extension is not transaction-owned' "$ROOT/bin/cape-inetsim-repair"
+python3 - "$ROOT/bin/cape-inetsim-repair" <<'PY'
+import pathlib,sys
+s=pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+detect=s.index("Owned legacy route-global deployment detected")
+maintenance=s.index("A legacy RC44 migration changes routing policy")
+firewall=s.index("\nfirewall_apply\n", maintenance)
+cape_mutation=s.index("\ncape_configure_inetsim\n", firewall)
+extension=s.index("\nextension_upgrade_route_gated\n", cape_mutation)
+validate=s.index("\nvalidate_deployment_structural\n", extension)
+promote=s.index("Promote provenance only after every migration/repair gate succeeds", validate)
+commit=s.index("\nstate_set_phase committed\n", promote)
+assert detect < maintenance < firewall < cape_mutation < extension < validate < promote < commit
+PY
+
+echo '[PASS] recovery assets are protected; deploy is rollback-first and explicit RC44 repair migration is ownership-gated'

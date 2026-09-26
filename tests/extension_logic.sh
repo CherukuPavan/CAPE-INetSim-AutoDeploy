@@ -115,4 +115,12 @@ cmp "$EXTENSION_ROOT/install.sh" "$EXTENSION_BUNDLED_ROOT/install.sh"
 grep -Fq 'refreshing-unowned-runtime' "$AD_LOG_ROOT/${DEPLOYMENT_ID}-extension-materialize.log"
 grep -Fq 'materialized=yes' "$AD_LOG_ROOT/${DEPLOYMENT_ID}-extension-materialize.log"
 
-echo '[PASS] vendored extension v1.0.2 supports modern CAPE, managed preflight, and stale-runtime refresh'
+grep -Fq 'extension_upgrade_route_gated' "$ROOT/lib/extension.sh"
+grep -Fq 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$ROOT/lib/extension.sh"
+grep -Fq 'Legacy INetSim extension is not transaction-owned' "$ROOT/lib/extension.sh"
+grep -Fq './scripts/rollback.sh --check' "$ROOT/lib/extension.sh"
+grep -Fq "printf 'RESTORE\\n'" "$ROOT/lib/extension.sh"
+grep -Fq 'extension-legacy' "$ROOT/lib/extension.sh"
+grep -Fq 'CAPE_INETSIM_VM_ROUTE_GATED_V2' "$ROOT/lib/extension.sh"
+
+echo '[PASS] vendored extension v1.0.2 supports modern CAPE, managed preflight, stale-runtime refresh, and protected RC44 upgrade'

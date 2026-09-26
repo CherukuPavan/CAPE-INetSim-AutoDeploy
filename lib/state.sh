@@ -94,6 +94,7 @@ state_write_atomic() {
     printf 'SAFETY_SNAPSHOT=%q\n' "${SAFETY_SNAPSHOT:-}"
     printf 'WORKING_SNAPSHOT=%q\n' "${WORKING_SNAPSHOT:-}"
     printf 'FINAL_SNAPSHOT=%q\n' "${FINAL_SNAPSHOT:-}"
+    printf 'NORMAL_SNAPSHOT=%q\n' "${NORMAL_SNAPSHOT:-}"
     printf 'CAPE_POST_SHA_SNIFFER=%q\n' "${CAPE_POST_SHA_SNIFFER:-}"
     printf 'CAPE_POST_SHA_AUXILIARY=%q\n' "${CAPE_POST_SHA_AUXILIARY:-}"
     printf 'CAPE_POST_SHA_KVM=%q\n' "${CAPE_POST_SHA_KVM:-}"

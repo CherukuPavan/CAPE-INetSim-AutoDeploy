@@ -43,6 +43,23 @@ case "${DEPLOYMENT_PHASE:-}" in
   *) fail "Repair is not safe from deployment phase: ${DEPLOYMENT_PHASE:-unknown}"; exit 2 ;;
 esac
 
+LEGACY_ROUTE_UPGRADE=no
+if grep -q 'CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1' "$CAPE_ROOT/modules/auxiliary/sniffer.py" 2>/dev/null ||
+   grep -Rqs 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$CAPE_ROOT/web" 2>/dev/null; then
+  state_resource_owned cape-file "$CAPE_ROOT/modules/auxiliary/sniffer.py" || {
+    fail "Legacy route-global CAPE patch is not transaction-owned; refusing migration"
+    exit 28
+  }
+  state_resource_owned extension "CAPE-INetSim-VM-Extension-v1.0.2" || {
+    fail "Legacy route-global web extension is not transaction-owned; refusing migration"
+    exit 28
+  }
+  LEGACY_ROUTE_UPGRADE=yes
+  CAPE_INETSIM_ALLOW_LEGACY_UPGRADE=yes
+  export CAPE_INETSIM_ALLOW_LEGACY_UPGRADE
+  info "Owned legacy route-global deployment detected; preparing route-separated migration"
+fi
+
 REPAIR_CAPE_ACTIVE="$(service_active_flag cape.service)"
 REPAIR_PROCESSOR_ACTIVE="$(service_active_flag cape-processor.service)"
 REPAIR_WEB_ACTIVE="$(service_active_flag cape-web.service)"
@@ -80,14 +97,25 @@ trap 'repair_restore_runtime 130; exit 130' INT TERM
 
 for ((i=0;i<CAPE_TARGETS_COUNT;i++)); do
   targets_bind "$i"
+  NORMAL_SNAPSHOT="${NORMAL_SNAPSHOT:-${CAPE_MACHINE_SNAPSHOT:-}}"
+  [[ -n "$NORMAL_SNAPSHOT" ]] || {
+    fail "Normal-route CAPE snapshot is unknown for $CAPE_MACHINE_SECTION/$DOMAIN"
+    exit 20
+  }
+  virsh snapshot-info "$DOMAIN" "$NORMAL_SNAPSHOT" >/dev/null 2>&1 || {
+    fail "Normal-route CAPE snapshot is missing for $CAPE_MACHINE_SECTION/$DOMAIN: $NORMAL_SNAPSHOT"
+    exit 20
+  }
   if [[ -n "${FINAL_SNAPSHOT:-}" ]]; then
     virsh snapshot-info "$DOMAIN" "$FINAL_SNAPSHOT" >/dev/null 2>&1 || {
-      fail "Preserved CAPE analysis snapshot is missing for $CAPE_MACHINE_SECTION/$DOMAIN; repair will not invent a replacement."
+      fail "Preserved legacy/final snapshot is missing for $CAPE_MACHINE_SECTION/$DOMAIN; repair will not invent a replacement."
       exit 20
     }
   fi
+  targets_capture_bound "$i"
 done
 targets_bind 0
+state_write_atomic
 
 DISCOVERY_ERRORS=()
 COMPAT_NOTES=()
@@ -101,6 +129,15 @@ cape_assert_owned_files_unchanged || {
   fail "CAPE-managed files drifted after deployment; refusing repair overwrite. Inspect or rollback deliberately."
   exit 26
 }
+
+# A legacy RC44 migration changes routing policy. Acquire the task/machine
+# maintenance guard before replacing the old permanent management-egress
+# firewall so no analysis can observe a half-migrated network policy.
+if [[ "$LEGACY_ROUTE_UPGRADE" == yes &&
+      ( "$REPAIR_CAPE_ACTIVE" == yes || "$REPAIR_PROCESSOR_ACTIVE" == yes ) ]]; then
+  cape_wait_and_acquire_maintenance "${REPAIR_WAIT_SECONDS:-3600}"
+  REPAIR_MAINTENANCE_ACQUIRED=yes
+fi
 
 # Non-disruptive recovery first.
 if ! virsh net-info "$ISOLATED_NETWORK_NAME" >/dev/null 2>&1; then
@@ -125,7 +162,8 @@ inetsim_verify_host
 # completed task. Acquire the database/machine maintenance guard whenever either
 # scheduler or processor is active. Only a fully stopped scheduler+processor
 # pair may skip the guard.
-if [[ "$REPAIR_CAPE_ACTIVE" == yes || "$REPAIR_PROCESSOR_ACTIVE" == yes ]]; then
+if [[ "$REPAIR_MAINTENANCE_ACQUIRED" != yes &&
+      ( "$REPAIR_CAPE_ACTIVE" == yes || "$REPAIR_PROCESSOR_ACTIVE" == yes ) ]]; then
   cape_wait_and_acquire_maintenance "${REPAIR_WAIT_SECONDS:-3600}"
   REPAIR_MAINTENANCE_ACQUIRED=yes
 fi
@@ -134,9 +172,7 @@ DEPLOYMENT_PHASE=repairing
 state_write_atomic
 cape_configure_inetsim
 
-if ! grep -Rqs 'CAPE_INETSIM_VM_ROUTE_GATED_V2' "$CAPE_ROOT/web"; then
-  extension_install
-fi
+extension_upgrade_route_gated
 
 validate_deployment_structural
 
@@ -154,6 +190,30 @@ if [[ "$REPAIR_ROOTER_ACTIVE" == yes ]]; then systemctl is-active --quiet cape-r
 if [[ "$REPAIR_CAPE_ACTIVE" == yes ]]; then systemctl start cape.service; else systemctl stop cape.service >/dev/null 2>&1 || true; fi
 
 validate_deployment_services
+
+# A checksum-pinned release may repair an older committed deployment in place.
+# Promote provenance only after every migration/repair gate succeeds.
+if [[ -n "${CAPE_INETSIM_RELEASE_TAG:-}" ||
+      -n "${CAPE_INETSIM_RELEASE_SOURCE_BUNDLE:-}" ||
+      -n "${CAPE_INETSIM_RELEASE_SOURCE_SHA256:-}" ||
+      -n "${CAPE_INETSIM_RELEASE_SOURCE_COMMIT:-}" ]]; then
+  [[ -n "${CAPE_INETSIM_RELEASE_TAG:-}" &&
+     -n "${CAPE_INETSIM_RELEASE_SOURCE_BUNDLE:-}" &&
+     -n "${CAPE_INETSIM_RELEASE_SOURCE_SHA256:-}" &&
+     -n "${CAPE_INETSIM_RELEASE_SOURCE_COMMIT:-}" ]] || {
+    fail "Repair release provenance is incomplete; refusing to commit"
+    exit 27
+  }
+
+  PREVIOUS_RELEASE_TAG="${RELEASE_TAG:-development/unknown}"
+  RELEASE_TAG="$CAPE_INETSIM_RELEASE_TAG"
+  RELEASE_SOURCE_BUNDLE="$CAPE_INETSIM_RELEASE_SOURCE_BUNDLE"
+  RELEASE_SOURCE_SHA256="$CAPE_INETSIM_RELEASE_SOURCE_SHA256"
+  RELEASE_SOURCE_COMMIT="$CAPE_INETSIM_RELEASE_SOURCE_COMMIT"
+  state_record_resource repair-release "${PREVIOUS_RELEASE_TAG}->${RELEASE_TAG}" upgraded yes "route-separated-migration"
+  validate_release_provenance
+fi
+
 state_set_phase committed
 trap - ERR INT TERM
 pass "Safe task-aware repair completed"

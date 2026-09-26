@@ -128,6 +128,60 @@ extension_install() {
   state_set_phase extension-installed
 }
 
+extension_route_gated_installed() {
+  grep -Rqs 'CAPE_INETSIM_VM_ROUTE_GATED_V2' "$CAPE_ROOT/web" 2>/dev/null
+}
+
+extension_upgrade_route_gated() {
+  if extension_route_gated_installed; then
+    extension_install
+    return 0
+  fi
+
+  if grep -Rqs 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$CAPE_ROOT/web" 2>/dev/null; then
+    state_resource_owned extension "CAPE-INetSim-VM-Extension-v${EXTENSION_VERSION}" || {
+      fail "Legacy INetSim extension is not transaction-owned; refusing route-aware upgrade"
+      return 1
+    }
+    [[ -d "$EXTENSION_ROOT" && -x "$EXTENSION_ROOT/scripts/rollback.sh" ]] || {
+      fail "Legacy INetSim extension rollback tooling is unavailable"
+      return 1
+    }
+    [[ -s "$EXTENSION_ROOT/.installed_backup" || -s "$EXTENSION_ROOT/.last_backup" ]] || {
+      fail "Legacy INetSim extension has no protected rollback point"
+      return 1
+    }
+
+    info "Upgrading transaction-owned INetSim web extension to route-gated semantics"
+    (cd "$EXTENSION_ROOT" && ./scripts/rollback.sh --check)
+    (cd "$EXTENSION_ROOT" && printf 'RESTORE\n' | ./scripts/rollback.sh --restore)
+
+    if grep -Rqs 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$CAPE_ROOT/web" 2>/dev/null; then
+      fail "Legacy INetSim extension marker remained after protected rollback"
+      return 1
+    fi
+
+    local legacy_root="${EXTENSION_ROOT}.legacy-${DEPLOYMENT_ID}"
+    if [[ -e "$legacy_root" ]]; then
+      state_resource_owned extension-legacy "$legacy_root" || {
+        fail "Legacy extension archive path exists but is not transaction-owned: $legacy_root"
+        return 1
+      }
+    else
+      mv "$EXTENSION_ROOT" "$legacy_root"
+      state_record_resource extension-legacy "$legacy_root" preserved yes "pre-route-gated-runtime"
+      state_write_atomic
+    fi
+  fi
+
+  extension_install
+  extension_route_gated_installed || {
+    fail "Route-gated INetSim web extension marker is missing after upgrade"
+    return 1
+  }
+  pass "Route-gated INetSim web extension installed"
+}
+
 extension_rollback() {
   [[ -d "$EXTENSION_ROOT" ]] || return 0
   if ! state_resource_owned extension "CAPE-INetSim-VM-Extension-v$EXTENSION_VERSION" &&

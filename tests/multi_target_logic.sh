@@ -50,6 +50,7 @@ targets_bind 1
 [[ "$CAPE_MACHINE_SECTION" == win10 ]]
 [[ "$DOMAIN" == win10 ]]
 [[ -z "$WINDOWS_FAKE_IP" ]]
+[[ "$NORMAL_SNAPSHOT" == snap10 ]]
 
 identity_before="$(targets_identity_sha256)"
 WINDOWS_ISOLATED_MAC=52:54:00:aa:bb:cc
@@ -57,10 +58,12 @@ WINDOWS_BACKEND_USED=cape-agent-execpy
 SAFETY_SNAPSHOT=pre
 WORKING_SNAPSHOT=working
 FINAL_SNAPSHOT=ready
+NORMAL_SNAPSHOT=snap10
 TARGET_PHASE=snapshots-ready
 targets_capture_bound 1
 [[ "$(targets_get 1 isolated_mac)" == 52:54:00:aa:bb:cc ]]
 [[ "$(targets_get 1 final_snapshot)" == ready ]]
+[[ "$(targets_get 1 normal_snapshot)" == snap10 ]]
 [[ "$(targets_get 1 phase)" == snapshots-ready ]]
 [[ "$(targets_identity_sha256)" == "$identity_before" ]]
 
