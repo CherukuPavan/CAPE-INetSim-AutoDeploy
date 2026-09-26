@@ -64,6 +64,11 @@ targets_capture_bound 1
 [[ "$(targets_get 1 phase)" == snapshots-ready ]]
 [[ "$(targets_identity_sha256)" == "$identity_before" ]]
 
+summary="$(targets_summary_lines)"
+grep -Fq 'win10 -> win10' <<<"$summary"
+grep -Fq 'snapshot=ready' <<<"$summary"
+! grep -Fq 'snapshot=snap10' <<<"$summary"
+
 # --machine remains a deliberate single-target override, but the default is all.
 REQUESTED_MACHINE=win7
 DISCOVERY_ERRORS=()
