@@ -60,6 +60,10 @@ print_plan() {
   kv "Fake Internet selection:" "CAPE route=inetsim (per task)"
   kv "CAPE INetSim capture:" "${ISOLATED_BRIDGE_NAME:-planned isolated bridge}; source remains original CAPE VM IP"
 
+  echo; echo "Deployment decision"
+  kv "decision:" "${DEPLOYMENT_DECISION:-unknown}"
+  kv "reason:" "${DEPLOYMENT_DECISION_REASON:-unknown}"
+
   echo; echo "Safety / compatibility"
   kv "CAPE busy signal:" "${CAPE_BUSY:-unknown}"
   kv "busy reason:" "${BUSY_REASON:-unknown}"
