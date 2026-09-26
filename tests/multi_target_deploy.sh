@@ -81,3 +81,64 @@ grep -Fxq 'configure:vm-b:198.51.100.11' "$LOG"
 grep -Fxq 'configure:vm-c:198.51.100.12' "$LOG"
 
 echo '[PASS] transactional Windows cutover iterates and persists every CAPE analysis VM'
+
+# SSL-44 regression: after successful live configuration/verification, final
+# running snapshot must be captured BEFORE the single shutdown used for the
+# configured rollback snapshot. A second boot/backend probe is forbidden.
+# Restore the real implementation after the multi-target harness stub above.
+source "$ROOT/lib/deploy.sh"
+SNAPLOG="$TMP/snapshot-order.log"
+: >"$SNAPLOG"
+DOMAIN=ssl44-win10
+CAPE_MACHINE_SECTION=win10
+TARGET_PHASE=configured
+FINAL_SNAPSHOT=""
+WORKING_SNAPSHOT=""
+VM_STATE=running
+
+windows_snapshot_exists(){ return 1; }
+virsh(){
+  case "$1" in
+    domstate) echo "$VM_STATE" ;;
+    *) return 0 ;;
+  esac
+}
+windows_create_running_snapshot(){
+  [[ "$VM_STATE" == running ]]
+  FINAL_SNAPSHOT=ready-ssl44
+  echo final >>"$SNAPLOG"
+}
+windows_poweroff_selected_backend(){
+  echo poweroff >>"$SNAPLOG"
+  VM_STATE="shut off"
+}
+windows_create_working_snapshot(){
+  [[ "$VM_STATE" == "shut off" ]]
+  WORKING_SNAPSHOT=working-ssl44
+  echo working >>"$SNAPLOG"
+}
+snapshot_state_memory(){
+  case "$1" in
+    working-ssl44) echo 'shutoff|no' ;;
+    ready-ssl44) echo 'running|internal' ;;
+    *) return 1 ;;
+  esac
+}
+snapshot_is_running_analysis_baseline(){
+  [[ "$1" == ready-ssl44 ]]
+}
+target_state_set_phase(){ TARGET_PHASE="$1"; }
+
+windows_start_for_cutover(){ echo unexpected-start >>"$SNAPLOG"; return 91; }
+windows_select_live_backend(){ echo unexpected-backend >>"$SNAPLOG"; return 92; }
+windows_verify_selected_backend(){ echo unexpected-verify >>"$SNAPLOG"; return 93; }
+
+deploy_finish_windows_snapshots
+
+mapfile -t SNAP_EVENTS <"$SNAPLOG"
+[[ "${SNAP_EVENTS[*]}" == "final poweroff working" ]]
+[[ "$TARGET_PHASE" == snapshots-ready ]]
+[[ "$VM_STATE" == "shut off" ]]
+! grep -Fq 'unexpected-' "$SNAPLOG"
+
+echo '[PASS] final CAPE running snapshot is preserved before one-shot shutdown; no second control bootstrap'

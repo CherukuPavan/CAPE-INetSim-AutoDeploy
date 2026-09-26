@@ -395,17 +395,28 @@ deploy_verify_safety_snapshot() {
 
 deploy_finish_windows_snapshots() {
   local state
+
+  # Capture the final CAPE running-memory snapshot while the already-proven
+  # guest-control session is still alive. Some CAPE images (for example the
+  # SSL-44 baseline) run CAPE Agent only inside the configured memory snapshot
+  # and do not expose it after a cold boot. Never throw away that known-good
+  # control plane just to manufacture the rollback snapshot first.
+  if [[ -z "${FINAL_SNAPSHOT:-}" ]] || ! windows_snapshot_exists "$FINAL_SNAPSHOT"; then
+    state="$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)"
+    [[ "$state" == running ]] || {
+      fail "Verified Windows guest is no longer running before final CAPE snapshot creation (state=${state:-unknown})"
+      return 1
+    }
+    windows_create_running_snapshot
+  fi
+
+  # After the running analysis snapshot is durable, power the guest off once
+  # through the already-selected backend and capture a configured shutoff
+  # rollback snapshot as a child. No second boot/control rediscovery is needed.
   if [[ -z "${WORKING_SNAPSHOT:-}" ]] || ! windows_snapshot_exists "$WORKING_SNAPSHOT"; then
     state="$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)"
     [[ "$state" == "shut off" ]] || windows_poweroff_selected_backend
     windows_create_working_snapshot
-  fi
-
-  if [[ -z "${FINAL_SNAPSHOT:-}" ]] || ! windows_snapshot_exists "$FINAL_SNAPSHOT"; then
-    windows_start_for_cutover
-    windows_select_live_backend
-    windows_verify_selected_backend
-    windows_create_running_snapshot
   fi
 
   state="$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)"
