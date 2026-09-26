@@ -981,6 +981,10 @@ grep -q \
     "$NETWORK_TARGET"
 
 grep -q \
+    'CAPE_INETSIM_VM_ROUTE_AWARE_V1' \
+    "$NETWORK_TARGET"
+
+grep -q \
     'CAPE_INETSIM_VM_MODERN_NETWORK_V1' \
     "$NETWORK_TARGET"
 
