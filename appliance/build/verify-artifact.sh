@@ -85,6 +85,17 @@ dpkg_status="$(virt-cat -a "$IMAGE" /var/lib/dpkg/status)"
 # Keep the package checks in shell so package names are visible in logs.
 grep -Eq '^Package: inetsim$' <<<"$dpkg_status"
 grep -Eq '^Package: qemu-guest-agent$' <<<"$dpkg_status"
+grep -Eq '^Package: xfce4$' <<<"$dpkg_status"
+grep -Eq '^Package: lightdm$' <<<"$dpkg_status"
+grep -Eq '^Package: lightdm-gtk-greeter$' <<<"$dpkg_status"
+grep -Eq '^Package: accountsservice$' <<<"$dpkg_status"
+grep -Eq '^Package: xserver-xorg-video-qxl$' <<<"$dpkg_status"
+
+xorg_drivers="$(virt-ls -a "$IMAGE" /usr/lib/xorg/modules/drivers 2>/dev/null || true)"
+grep -Fxq 'qxl_drv.so' <<<"$xorg_drivers" || {
+  echo "[FAIL] candidate is missing the QXL Xorg driver required by the libvirt SPICE/QXL console" >&2
+  exit 6
+}
 
 cloud_instances="$(virt-ls -R -a "$IMAGE" /var/lib/cloud/instances 2>/dev/null || true)"
 [[ -z "${cloud_instances//[[:space:]]/}" ]] || {
