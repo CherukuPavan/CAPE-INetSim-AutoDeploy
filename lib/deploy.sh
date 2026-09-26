@@ -351,6 +351,7 @@ deploy_validate_staged_resources() {
   inetsim_define_domain
   virsh start "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1 || true
   qga_wait "$INETSIM_DOMAIN_NAME" 60 || { fail "INetSim appliance QGA unavailable during resume"; return 1; }
+  inetsim_enable_gui_guest
   inetsim_verify_host
 }
 
