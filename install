@@ -39,6 +39,8 @@ source "$AUTODEPLOY_ROOT/lib/windows-vm.sh"
 source "$AUTODEPLOY_ROOT/lib/network.sh"
 source "$AUTODEPLOY_ROOT/lib/compat.sh"
 source "$AUTODEPLOY_ROOT/lib/plan.sh"
+source "$AUTODEPLOY_ROOT/lib/decision.sh"
+source "$AUTODEPLOY_ROOT/lib/inventory.sh"
 source "$AUTODEPLOY_ROOT/lib/appliance.sh"
 source "$AUTODEPLOY_ROOT/lib/isolated-network.sh"
 source "$AUTODEPLOY_ROOT/lib/firewall.sh"
@@ -132,6 +134,7 @@ case "$MODE" in
   plan)
     require_root_for_plan
     run_discovery
+    deployment_decision_classify
     print_plan
     if ((${#DISCOVERY_ERRORS[@]})); then exit 10; fi
     case "${COMPAT_STATUS:-blocked}" in
