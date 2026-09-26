@@ -46,12 +46,12 @@ if [ "\$rc" -eq 0 ]; then
   gui_ok=no
   for _ in \$(seq 1 90); do
     if systemctl is-active --quiet lightdm.service &&
-       test -f /etc/cape-inetsim-gui-v4 &&
+       test -f /etc/cape-inetsim-gui-v5 &&
        test -f /usr/lib/xorg/modules/drivers/qxl_drv.so &&
        test -S /tmp/.X11-unix/X0 &&
        pgrep -x Xorg >/dev/null &&
        grep -Fxq 'greeter-show-manual-login=true' /etc/lightdm/lightdm.conf.d/99-cape-inetsim-console-login.conf &&
-       grep -Fxq 'user-session=cape-inetsim-xfce' /etc/lightdm/lightdm.conf.d/99-cape-inetsim-console-login.conf; then
+       grep -Fxq 'user-session=xfce' /etc/lightdm/lightdm.conf.d/99-cape-inetsim-console-login.conf; then
       gui_ok=yes
       break
     fi
