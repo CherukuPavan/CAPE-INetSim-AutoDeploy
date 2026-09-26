@@ -38,7 +38,7 @@ CAPE_TARGETS_JSON='[{"section":"win test","label":"win-label","ip":"192.0.2.100"
 CAPE_TARGETS_COUNT=1
 TARGET_INDEX=""
 extension_write_config
-unset CAPE_ROOT CAPE_MACHINE CAPE_DOMAIN CAPE_GUEST_CONTROL_IP CAPE_RESULTSERVER_IP INETSIM_SERVER_IP ANALYSIS_GUEST_IP CAPTURE_INTERFACE
+unset CAPE_ROOT CAPE_MACHINE CAPE_DOMAIN CAPE_GUEST_CONTROL_IP CAPE_RESULTSERVER_IP INETSIM_SERVER_IP CAPTURE_INTERFACE
 # shellcheck disable=SC1090
 source "$EXTENSION_ROOT/src/inetsim-vm.conf"
 [[ "$CAPE_ROOT" == '/opt/CAPE test/$root' ]]
@@ -47,7 +47,6 @@ source "$EXTENSION_ROOT/src/inetsim-vm.conf"
 [[ "$CAPE_GUEST_CONTROL_IP" == '192.0.2.100' ]]
 [[ "$CAPE_RESULTSERVER_IP" == '192.0.2.1' ]]
 [[ "$INETSIM_SERVER_IP" == '198.51.100.2' ]]
-[[ "$ANALYSIS_GUEST_IP" == '198.51.100.10' ]]
 [[ "$CAPTURE_INTERFACE" == 'capeisim7' ]]
 
 # RC28 regression: modern CAPE has a network template but no legacy INetSim
@@ -73,7 +72,6 @@ CAPE_DOMAIN=win10
 CAPE_GUEST_CONTROL_IP=192.0.2.100
 CAPE_RESULTSERVER_IP=192.0.2.1
 INETSIM_SERVER_IP=198.51.100.2
-ANALYSIS_GUEST_IP=198.51.100.10
 CAPTURE_INTERFACE=capeisim7
 EOF
 
@@ -84,6 +82,7 @@ grep -Fq 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$C/web/templates/analysis/network/inde
 grep -Fq 'CAPE_INETSIM_VM_MODERN_NETWORK_V1' "$C/web/templates/analysis/network/index.html"
 grep -Fq '{% load inetsim_vm_tags %}' "$C/web/templates/analysis/network/index.html"
 grep -Fq 'network_inetsim-tab' "$C/web/templates/analysis/network/index.html"
+grep -Fq 'analysis.info.route == "inetsim"' "$C/web/templates/analysis/network/index.html"
 grep -Fq 'network_inetsim_tab' "$C/web/templates/analysis/network/index.html"
 [[ -f "$C/web/analysis/templatetags/inetsim_vm_tags.py" ]]
 [[ -f "$C/web/templates/analysis/network/_inetsim_vm_visual.html" ]]
