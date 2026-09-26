@@ -64,7 +64,21 @@ REPAIR_CAPE_ACTIVE="$(service_active_flag cape.service)"
 REPAIR_PROCESSOR_ACTIVE="$(service_active_flag cape-processor.service)"
 REPAIR_WEB_ACTIVE="$(service_active_flag cape-web.service)"
 REPAIR_ROOTER_ACTIVE="$(service_active_flag cape-rooter.service)"
+REPAIR_ROOTER_ENABLED="$(service_enabled_flag cape-rooter.service)"
+REPAIR_IPV4_FORWARD="$(sysctl -n net.ipv4.ip_forward 2>/dev/null || true)"
+REPAIR_ROUTING_SYSCTL_EXISTED=no
+[[ -e "$ROUTING_SYSCTL_FILE" ]] && REPAIR_ROUTING_SYSCTL_EXISTED=yes
 REPAIR_MAINTENANCE_ACQUIRED=no
+
+# RC61 and older state predates explicit ownership of Rooter enablement and
+# host IPv4 forwarding. Adopt the current pre-repair values exactly once.
+if [[ -z "${CAPE_ROOTER_WAS_ENABLED:-}" ]]; then
+  CAPE_ROOTER_WAS_ENABLED="$REPAIR_ROOTER_ENABLED"
+fi
+if [[ -z "${HOST_IPV4_FORWARD_WAS:-}" ]]; then
+  HOST_IPV4_FORWARD_WAS="$REPAIR_IPV4_FORWARD"
+fi
+state_write_atomic
 
 repair_restore_runtime() {
   local rc="$1"
@@ -81,6 +95,16 @@ repair_restore_runtime() {
   if [[ "$REPAIR_PROCESSOR_ACTIVE" == yes ]]; then systemctl start cape-processor.service >/dev/null 2>&1 || true; else systemctl stop cape-processor.service >/dev/null 2>&1 || true; fi
   if [[ "$REPAIR_WEB_ACTIVE" == yes ]]; then systemctl start cape-web.service >/dev/null 2>&1 || true; else systemctl stop cape-web.service >/dev/null 2>&1 || true; fi
   if [[ "$REPAIR_ROOTER_ACTIVE" == yes ]]; then systemctl start cape-rooter.service >/dev/null 2>&1 || true; else systemctl stop cape-rooter.service >/dev/null 2>&1 || true; fi
+  if [[ "$REPAIR_ROOTER_ENABLED" == yes ]]; then systemctl enable cape-rooter.service >/dev/null 2>&1 || true; else systemctl disable cape-rooter.service >/dev/null 2>&1 || true; fi
+  case "$REPAIR_IPV4_FORWARD" in
+    0|1) sysctl -w "net.ipv4.ip_forward=$REPAIR_IPV4_FORWARD" >/dev/null 2>&1 || true ;;
+  esac
+  if [[ "$REPAIR_ROUTING_SYSCTL_EXISTED" == no &&
+        -e "$ROUTING_SYSCTL_FILE" ]] &&
+     state_resource_owned routing-sysctl-file "$ROUTING_SYSCTL_FILE"; then
+    rm -f "$ROUTING_SYSCTL_FILE"
+    state_record_resource routing-sysctl-file "$ROUTING_SYSCTL_FILE" removed-after-repair-failure yes "" >/dev/null 2>&1 || true
+  fi
   if [[ "$REPAIR_CAPE_ACTIVE" == yes ]]; then systemctl start cape.service >/dev/null 2>&1 || true; else systemctl stop cape.service >/dev/null 2>&1 || true; fi
 
   if [[ "$rc" -ne 0 ]]; then
@@ -177,6 +201,10 @@ DEPLOYMENT_PHASE=repairing
 state_write_atomic
 cape_configure_inetsim
 
+# CAPE's native route=inetsim path uses Rooter DNAT plus forwarding from the
+# analysis VM management bridge to the isolated INetSim bridge.
+routing_forwarding_apply
+
 extension_upgrade_route_gated
 
 validate_deployment_structural
@@ -191,7 +219,12 @@ fi
 
 if [[ "$REPAIR_PROCESSOR_ACTIVE" == yes ]]; then systemctl restart cape-processor.service; else systemctl stop cape-processor.service >/dev/null 2>&1 || true; fi
 if [[ "$REPAIR_WEB_ACTIVE" == yes ]]; then systemctl restart cape-web.service; else systemctl stop cape-web.service >/dev/null 2>&1 || true; fi
-if [[ "$REPAIR_ROOTER_ACTIVE" == yes ]]; then systemctl is-active --quiet cape-rooter.service || systemctl start cape-rooter.service; else systemctl stop cape-rooter.service >/dev/null 2>&1 || true; fi
+
+# Rooter is mandatory for a committed route=inetsim deployment.
+systemctl enable cape-rooter.service >/dev/null
+systemctl restart cape-rooter.service
+services_wait_expected_active cape-rooter.service "$CAPE_SERVICE_READY_TIMEOUT"
+
 if [[ "$REPAIR_CAPE_ACTIVE" == yes ]]; then systemctl start cape.service; else systemctl stop cape.service >/dev/null 2>&1 || true; fi
 
 validate_deployment_services
