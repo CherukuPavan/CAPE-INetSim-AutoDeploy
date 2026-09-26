@@ -61,6 +61,12 @@ touch /etc/cloud/cloud-init.disabled
 
 # The deployment executes this through QEMU Guest Agent after both NICs exist.
 install -m 0755 /usr/local/src/cape-inetsim-guest-configure /usr/local/sbin/cape-inetsim-guest-configure
+install -m 0755 /usr/local/src/cape-inetsim-gui-enable /usr/local/sbin/cape-inetsim-gui-enable
+
+# Bake a lightweight XFCE/LightDM desktop into the immutable appliance so
+# virt-manager can display a real Ubuntu graphical console without needing
+# package downloads on a fresh deployment.
+/usr/local/sbin/cape-inetsim-gui-enable
 
 # Do not bind/start simulator services during image construction. Deployment enables it.
 systemctl disable inetsim.service >/dev/null 2>&1 || true
