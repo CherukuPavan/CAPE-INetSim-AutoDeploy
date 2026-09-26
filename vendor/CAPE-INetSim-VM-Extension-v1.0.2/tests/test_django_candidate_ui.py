@@ -88,8 +88,10 @@ unrelated = {
     "udp": [],
     "http": [],
 }
-if inetsim_vm_tags.inetsim_vm_active(unrelated, "inetsim"):
-    raise SystemExit("FAIL: unrelated task traffic incorrectly enabled INetSim visual")
+if not inetsim_vm_tags.inetsim_vm_active(unrelated, "inetsim"):
+    raise SystemExit("FAIL: explicit route=inetsim did not keep the INetSim route-status visual visible")
+if inetsim_vm_tags.inetsim_vm_context(unrelated, "inetsim").get("enabled"):
+    raise SystemExit("FAIL: unrelated task traffic incorrectly became INetSim evidence")
 
 other_server = "203.0.113.2"
 other_network = {
@@ -103,7 +105,7 @@ if not inetsim_vm_logic.build_inetsim_route_context(other_network, other_server)
 
 print("PASS: modern CAPE template filters registered")
 print("PASS: task-local INetSim evidence enables visual")
-print("PASS: unrelated and internet-routed task traffic keeps visual hidden")
+print("PASS: route=inetsim stays visible while unrelated traffic remains non-INetSim evidence")
 print("PASS: modern visual renders DNS/HTTP evidence")
 print("PASS: helper remains subnet-independent")
 print("STATUS: UNIVERSAL CAPE DJANGO CANDIDATE VALIDATION PASSED")
