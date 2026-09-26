@@ -92,10 +92,24 @@ if [[ "$DEFAULTS" -eq 1 ]]; then
 fi
 
 for client in "${CLIENT_IPS[@]}"; do
-  ip -4 route get "$client" | grep -Fq "via $GATEWAY dev $ISO_IF" || {
-    echo "client return route is not isolated: $client" >&2
+  route_ready=no
+  route_result=""
+  for _ in $(seq 1 30); do
+    route_result="$(ip -4 route get "$client" 2>/dev/null || true)"
+    if grep -Fq "via $GATEWAY dev $ISO_IF" <<<"$route_result"; then
+      route_ready=yes
+      break
+    fi
+    sleep 1
+  done
+  if [[ "$route_ready" != yes ]]; then
+    echo "client return route is not isolated after 30 seconds: $client" >&2
+    echo "--- route lookup ---" >&2
+    printf '%s\n' "$route_result" >&2
+    echo "--- route table ---" >&2
+    ip -4 route >&2 || true
     exit 37
-  }
+  fi
 done
 
 CONF=/etc/inetsim/inetsim.conf
