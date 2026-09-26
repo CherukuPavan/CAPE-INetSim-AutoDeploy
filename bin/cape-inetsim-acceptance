@@ -66,12 +66,12 @@ bash "$ROOT/bin/cape-inetsim-verify"
 install -d -m 0700 "$AD_LOG_ROOT"
 [[ -n "$OUTPUT" ]] || OUTPUT="$AD_LOG_ROOT/${DEPLOYMENT_ID}-functional-acceptance.json"
 
-python3 "$ROOT/tools/acceptance_reports.py"   --cape-root "$CAPE_ROOT"   --inetsim-ip "$INETSIM_IP"   --positive-task "$POSITIVE_TASK"   --negative-task "$NEGATIVE_TASK"   --marker "$MARKER"   --output "$OUTPUT"
+ad_python "$ROOT/tools/acceptance_reports.py"   --cape-root "$CAPE_ROOT"   --inetsim-ip "$INETSIM_IP"   --positive-task "$POSITIVE_TASK"   --negative-task "$NEGATIVE_TASK"   --marker "$MARKER"   --output "$OUTPUT"
 
 acceptance_capture_path() {
   local role
   role="$1"
-  python3 - "$OUTPUT" "$role" <<'PY'
+  ad_python - "$OUTPUT" "$role" <<'PY'
 import json
 import pathlib
 import sys
@@ -145,7 +145,7 @@ grep -Rqs 'CAPE_INETSIM_VM_ROUTE_GATED_V2' "$CAPE_ROOT/web" || {
   exit 27
 }
 
-python3 - "$OUTPUT" "$POS_PCAP" "$NEG_PCAP" "$MARKER" "$NEG_HAS_INETSIM" "${RELEASE_TAG:-}" "${RELEASE_SOURCE_COMMIT:-}" "${RELEASE_SOURCE_SHA256:-}" <<'PY'
+ad_python - "$OUTPUT" "$POS_PCAP" "$NEG_PCAP" "$MARKER" "$NEG_HAS_INETSIM" "${RELEASE_TAG:-}" "${RELEASE_SOURCE_COMMIT:-}" "${RELEASE_SOURCE_SHA256:-}" <<'PY'
 import json,pathlib,sys
 path,pos,neg,marker,neg_has_inetsim,release_tag,release_commit,release_sha=sys.argv[1:]
 p=pathlib.Path(path)
