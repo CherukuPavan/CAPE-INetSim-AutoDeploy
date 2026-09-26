@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-MARKER="/etc/cape-inetsim-gui-v3"
+MARKER="/etc/cape-inetsim-gui-v4"
 GUI_USER="capeinetsim"
 SESSION_NAME="cape-inetsim-xfce"
 export DEBIAN_FRONTEND=noninteractive
@@ -25,13 +25,11 @@ if ! id "$GUI_USER" >/dev/null 2>&1; then
   useradd -m -s /bin/bash "$GUI_USER"
 fi
 
-# No account password is used by the appliance. Keep interactive password
-# authentication locked; LightDM uses its standard autologin path only.
+# Password credentials are assigned by the host repair/deployment runtime when
+# CAPE_INETSIM_GUI_PASSWORD is explicitly supplied. The baked image itself does
+# not contain a shared default credential.
 passwd -l "$GUI_USER" >/dev/null 2>&1 || true
 usermod -aG video "$GUI_USER" >/dev/null 2>&1 || true
-groupadd -f autologin
-groupadd -f nopasswdlogin
-usermod -aG autologin,nopasswdlogin "$GUI_USER" >/dev/null 2>&1 || true
 
 # Use a dedicated session entry instead of relying on distro session-wrapper
 # behavior. The wrapper gives XFCE an explicit D-Bus session and preserves a
@@ -61,17 +59,14 @@ chmod 0644 /usr/share/xsessions/$SESSION_NAME.desktop
 
 install -d -m 0755 /etc/lightdm/lightdm.conf.d
 rm -f /etc/lightdm/lightdm.conf.d/50-cape-inetsim-autologin.conf
-cat >/etc/lightdm/lightdm.conf.d/99-cape-inetsim-autologin.conf <<EOF
+rm -f /etc/lightdm/lightdm.conf.d/99-cape-inetsim-autologin.conf
+cat >/etc/lightdm/lightdm.conf.d/99-cape-inetsim-console-login.conf <<EOF
 [Seat:*]
-autologin-user=$GUI_USER
-autologin-user-timeout=0
-autologin-session=$SESSION_NAME
 user-session=$SESSION_NAME
-pam-autologin-service=lightdm-autologin
-allow-user-switching=false
+allow-user-switching=true
 allow-guest=false
-greeter-hide-users=true
-greeter-show-manual-login=false
+greeter-hide-users=false
+greeter-show-manual-login=true
 EOF
 
 install -d -m 0755 /var/lib/AccountsService/users
@@ -106,4 +101,4 @@ touch "$MARKER"
 apt-get clean
 rm -rf /var/lib/apt/lists/*
 
-echo "CAPE_INETSIM_GUI_OK autologin-v3"
+echo "CAPE_INETSIM_GUI_OK console-login-v4"
