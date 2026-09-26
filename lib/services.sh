@@ -32,14 +32,13 @@ routing_forwarding_apply() {
     return 1
   fi
 
-  state_record_intent routing-sysctl-file "$ROUTING_SYSCTL_FILE" creating "net.ipv4.ip_forward=1"
-  cat >"$ROUTING_SYSCTL_FILE" <<'EOF'
+  if ! state_resource_owned routing-sysctl-file "$ROUTING_SYSCTL_FILE"; then
+    state_record_intent routing-sysctl-file "$ROUTING_SYSCTL_FILE" creating "net.ipv4.ip_forward=1"
+    cat >"$ROUTING_SYSCTL_FILE" <<'EOF'
 # CAPE-INetSim-AutoDeploy: CAPE Rooter requires IPv4 forwarding for route=inetsim.
 net.ipv4.ip_forward = 1
 EOF
-  chmod 0644 "$ROUTING_SYSCTL_FILE"
-
-  if ! state_resource_owned routing-sysctl-file "$ROUTING_SYSCTL_FILE"; then
+    chmod 0644 "$ROUTING_SYSCTL_FILE"
     state_record_resource routing-sysctl-file "$ROUTING_SYSCTL_FILE" created yes "net.ipv4.ip_forward=1"
   fi
 
@@ -49,11 +48,9 @@ EOF
     return 1
   }
 
-  if ! state_resource_owned routing-sysctl-runtime net.ipv4.ip_forward; then
-    state_record_resource routing-sysctl-runtime net.ipv4.ip_forward enabled yes "before=${HOST_IPV4_FORWARD_WAS:-unknown}"
-  fi
+  state_record_resource routing-sysctl-runtime net.ipv4.ip_forward enabled yes "before=${HOST_IPV4_FORWARD_WAS:-unknown}"
   state_write_atomic
-  pass "Host IPv4 forwarding is enabled persistently for CAPE per-task routing"
+  pass "Host IPv4 forwarding is enabled persistently for CAPE route=inetsim"
 }
 
 routing_forwarding_verify() {
@@ -80,6 +77,7 @@ routing_forwarding_rollback() {
         ;;
     esac
   fi
+  state_write_atomic
 }
 
 services_capture_original_state() {
@@ -132,25 +130,13 @@ services_wait_expected_active() {
   return 1
 }
 
-services_prepare_route_control_plane() {
-  systemctl cat cape-rooter.service >/dev/null 2>&1 || {
-    fail "cape-rooter.service is required for route=inetsim"
-    return 1
-  }
-  systemctl enable cape-rooter.service >/dev/null
-  systemctl restart cape-rooter.service
-  services_wait_expected_active cape-rooter.service "$CAPE_SERVICE_READY_TIMEOUT" || return 1
-  pass "CAPE Rooter control plane is ready for INetSim route probing"
-}
-
 services_activate_deployment_state() {
-  # route=inetsim is implemented by CAPE Rooter and host forwarding. These are
-  # required features of a committed AutoDeploy deployment, not optional
-  # reflections of the host's pre-deployment service state.
   systemctl cat cape-rooter.service >/dev/null 2>&1 || {
     fail "cape-rooter.service is required for route=inetsim"
     return 1
   }
+
+  routing_forwarding_apply || return 1
 
   if [[ "${CAPE_PROCESSOR_WAS_ACTIVE:-no}" == yes ]]; then
     systemctl restart cape-processor.service
@@ -176,12 +162,10 @@ services_activate_deployment_state() {
 
   CAPE_SCHEDULER_STOPPED_BY_AUTODEPLOY=no
   state_write_atomic
-  pass "CAPE Rooter is enabled and active for per-task INetSim routing"
+  pass "CAPE Rooter is enabled/active and IPv4 forwarding is ready for route=inetsim"
 }
 
 services_restore_desired_state() {
-  # Rollback restores the exact service activation/enabled state that existed
-  # before AutoDeploy introduced the route=inetsim requirement.
   if [[ "${CAPE_PROCESSOR_WAS_ACTIVE:-no}" == yes ]]; then
     systemctl restart cape-processor.service
   else
@@ -199,7 +183,6 @@ services_restore_desired_state() {
   else
     systemctl stop cape-rooter.service >/dev/null 2>&1 || true
   fi
-
   if [[ "${CAPE_ROOTER_WAS_ENABLED:-no}" == yes ]]; then
     systemctl enable cape-rooter.service >/dev/null 2>&1 || true
   else
@@ -218,23 +201,6 @@ services_restore_desired_state() {
 
 services_validate_restored_state() {
   local svc flag
-  for svc in cape.service cape-processor.service cape-web.service cape-rooter.service; do
-    case "$svc" in
-      cape.service) flag="${CAPE_SERVICE_WAS_ACTIVE:-no}" ;;
-      cape-processor.service) flag="${CAPE_PROCESSOR_WAS_ACTIVE:-no}" ;;
-      cape-web.service) flag="${CAPE_WEB_WAS_ACTIVE:-no}" ;;
-      cape-rooter.service) flag="${CAPE_ROOTER_WAS_ACTIVE:-no}" ;;
-    esac
-    if [[ "$flag" == yes ]]; then
-      services_wait_expected_active "$svc" "$CAPE_SERVICE_READY_TIMEOUT" || return 1
-    fi
-  done
-}
-
-services_validate_deployment_state() {
-  # Keep the original CAPE service expectations, then enforce the two routing
-  # prerequisites AutoDeploy itself owns.
-  local svc flag
   for svc in cape.service cape-processor.service cape-web.service; do
     case "$svc" in
       cape.service) flag="${CAPE_SERVICE_WAS_ACTIVE:-no}" ;;
@@ -245,6 +211,10 @@ services_validate_deployment_state() {
       services_wait_expected_active "$svc" "$CAPE_SERVICE_READY_TIMEOUT" || return 1
     fi
   done
+}
+
+services_validate_deployment_state() {
+  services_validate_restored_state || return 1
 
   systemctl is-active --quiet cape-rooter.service || {
     fail "cape-rooter.service is not active; route=inetsim cannot function"
