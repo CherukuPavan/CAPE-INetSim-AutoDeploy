@@ -65,11 +65,12 @@ validate_recovery_assets() {
   CAPE_TARGETS_COUNT="$(targets_count)"
   for ((i=0;i<CAPE_TARGETS_COUNT;i++)); do
     targets_bind "$i"
-    if [[ -z "${SAFETY_SNAPSHOT:-}" ]] ||
-       ! state_resource_owned snapshot "$DOMAIN:$SAFETY_SNAPSHOT" ||
-       ! virsh snapshot-info "$DOMAIN" "$SAFETY_SNAPSHOT" >/dev/null 2>&1; then
-      fail "Deployment-owned pre-change Windows safety snapshot is missing for $CAPE_MACHINE_SECTION/$DOMAIN"
-      failures=$((failures+1))
+    if [[ -n "${SAFETY_SNAPSHOT:-}" ]]; then
+      if ! state_resource_owned snapshot "$DOMAIN:$SAFETY_SNAPSHOT" ||
+         ! virsh snapshot-info "$DOMAIN" "$SAFETY_SNAPSHOT" >/dev/null 2>&1; then
+        fail "Recorded deployment-owned Windows safety snapshot is missing for $CAPE_MACHINE_SECTION/$DOMAIN"
+        failures=$((failures+1))
+      fi
     fi
   done
   [[ "$saved" =~ ^[0-9]+$ ]] && targets_bind "$saved"
@@ -155,30 +156,28 @@ if not mgmt_guard: raise SystemExit("snapshot does not preserve the Windows mana
 }
 
 validate_cape_configuration() {
-  python3 - "$CAPE_ROOT" "$CAPE_MACHINE_SECTION" "$CAPE_MACHINE_LABEL" "$FINAL_SNAPSHOT" "$ISOLATED_BRIDGE_NAME" "$WINDOWS_FAKE_IP" <<'PY'
+  python3 - "$CAPE_ROOT" "$CAPE_MACHINE_SECTION" "$FINAL_SNAPSHOT" "$INETSIM_IP" "$ISOLATED_BRIDGE_NAME" <<'PY'
 import configparser,sys
-root,section,label,snapshot,iface,fake=sys.argv[1:]
+root,section,snapshot,inetsim_ip,inetsim_iface=sys.argv[1:]
 def load(name):
     c=configparser.ConfigParser(interpolation=None,strict=False)
     c.optionxform=str.lower
     c.read(f"{root}/conf/{name}.conf")
     return c
 k=load("kvm")
-a=load("auxiliary")
 p=load("processing")
 r=load("routing")
 if not k.has_section(section): raise SystemExit("CAPE machine section missing")
 if k.get(section,"snapshot",fallback="") != snapshot: raise SystemExit("CAPE snapshot mismatch")
-if k.get(section,"interface",fallback="") != iface: raise SystemExit("CAPE interface mismatch")
-if a.get("sniffer",f"capture_host_{label}",fallback="") != fake: raise SystemExit("capture host mismatch")
 if p.get("network","dnswhitelist",fallback="").lower() != "no": raise SystemExit("dnswhitelist not disabled")
 if p.get("network","ipwhitelist",fallback="").lower() != "no": raise SystemExit("ipwhitelist not disabled")
-if r.get("routing","route",fallback="").lower() != "none": raise SystemExit("CAPE default route is not none")
-if r.get("routing","enable_pcap",fallback="").lower() not in ("yes","true","1","on"): raise SystemExit("CAPE packet capture is disabled for route none")
+if r.get("inetsim","enabled",fallback="").lower() not in ("yes","true","1","on"): raise SystemExit("CAPE inetsim route is not enabled")
+if r.get("inetsim","server",fallback="") != inetsim_ip: raise SystemExit("CAPE inetsim server mismatch")
+if r.get("inetsim","interface",fallback="") != inetsim_iface: raise SystemExit("CAPE inetsim interface mismatch")
+if r.get("inetsim","dnsport",fallback="") != "53": raise SystemExit("CAPE inetsim DNS port mismatch")
+if r.get("routing","enable_pcap",fallback="").lower() not in ("yes","true","1","on"): raise SystemExit("CAPE packet capture is disabled")
 PY
-  grep -q 'CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1' "$CAPE_ROOT/modules/auxiliary/sniffer.py"
 }
-
 validate_resultserver_host() {
   [[ "${CAPE_SERVICE_WAS_ACTIVE:-yes}" == yes ]] || return 0
 
@@ -231,28 +230,22 @@ validate_all_targets_structural() {
       failures=$((failures+1))
       continue
     }
-    windows_management_dhcp_verify_if_owned || {
-      fail "Windows management DHCP alignment validation failed for $CAPE_MACHINE_SECTION"
+    if [[ -z "${FINAL_SNAPSHOT:-}" ]] || ! windows_snapshot_exists "$FINAL_SNAPSHOT" || ! snapshot_is_running_analysis_baseline "$FINAL_SNAPSHOT"; then
+      fail "Route-neutral CAPE running snapshot is invalid for $CAPE_MACHINE_SECTION"
       failures=$((failures+1))
-    }
-    windows_management_guard_verify || {
-      fail "Windows management anti-spoof guard validation failed for $CAPE_MACHINE_SECTION"
-      failures=$((failures+1))
-    }
-    validate_windows_result_file || failures=$((failures+1))
-    validate_final_snapshot_hardware || {
-      fail "Final snapshot hardware validation failed for $CAPE_MACHINE_SECTION"
+    fi
+    [[ "$FINAL_SNAPSHOT" == "$CAPE_MACHINE_SNAPSHOT" ]] || {
+      fail "Route-scoped deployment changed the CAPE analysis snapshot for $CAPE_MACHINE_SECTION"
       failures=$((failures+1))
     }
     validate_cape_configuration || {
-      fail "CAPE configuration validation failed for $CAPE_MACHINE_SECTION"
+      fail "CAPE route-scoped configuration validation failed for $CAPE_MACHINE_SECTION"
       failures=$((failures+1))
     }
   done
   [[ "$saved" =~ ^[0-9]+$ ]] && targets_bind "$saved"
   ((failures == 0))
 }
-
 validate_all_resultservers() {
   [[ "${CAPE_SERVICE_WAS_ACTIVE:-yes}" == yes ]] || return 0
   local saved="${TARGET_INDEX:-}" i failures=0
