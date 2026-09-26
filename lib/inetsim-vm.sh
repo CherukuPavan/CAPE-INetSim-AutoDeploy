@@ -98,7 +98,12 @@ inetsim_refresh_baked_gui_appliance() {
 
   if ! virsh start "$INETSIM_DOMAIN_NAME" >/dev/null ||
      ! qga_wait "$INETSIM_DOMAIN_NAME" 240 ||
-     ! qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/test -f /etc/cape-inetsim-gui-v1 >/dev/null 2>&1; then
+     ! qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/sh -c '
+       test -f /etc/cape-inetsim-gui-v1 &&
+       test -f /usr/lib/xorg/modules/drivers/qxl_drv.so &&
+       test -f /usr/share/dbus-1/system-services/org.freedesktop.Accounts.service &&
+       systemctl list-unit-files lightdm.service >/dev/null 2>&1
+     ' >/dev/null 2>&1; then
     virsh destroy "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1 || true
     rm -f "$INETSIM_DISK_PATH"
     mv "$old_disk" "$INETSIM_DISK_PATH"
@@ -179,16 +184,24 @@ inetsim_enable_gui_guest() {
     return 1
   }
 
-  if ! qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/test -f /etc/cape-inetsim-gui-v1 >/dev/null 2>&1; then
-    info "Existing INetSim appliance predates the baked graphical desktop; refreshing only the AutoDeploy-owned appliance"
+  if ! qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/sh -c '
+       test -f /etc/cape-inetsim-gui-v1 &&
+       test -f /usr/lib/xorg/modules/drivers/qxl_drv.so &&
+       test -f /usr/share/dbus-1/system-services/org.freedesktop.Accounts.service
+     ' >/dev/null 2>&1; then
+    info "Existing INetSim appliance has an incomplete/legacy graphical stack; refreshing only the AutoDeploy-owned appliance"
     inetsim_refresh_baked_gui_appliance || return 1
     inetsim_configure_guest || return 1
     inetsim_verify_host || return 1
     restart=yes
   fi
 
-  if qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/test -f /etc/cape-inetsim-gui-v1 >/dev/null 2>&1; then
-    pass "INetSim Ubuntu graphical desktop already installed"
+  if qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/sh -c '
+       test -f /etc/cape-inetsim-gui-v1 &&
+       test -f /usr/lib/xorg/modules/drivers/qxl_drv.so &&
+       test -f /usr/share/dbus-1/system-services/org.freedesktop.Accounts.service
+     ' >/dev/null 2>&1; then
+    pass "INetSim Ubuntu graphical desktop and QXL display stack already installed"
   else
     : >"$guest_log"
     chmod 0600 "$guest_log"
@@ -275,26 +288,47 @@ inetsim_enable_gui_guest() {
   qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/systemctl enable lightdm.service >/dev/null 2>&1 || true
 
   local lightdm_ready=no lightdm_try
-  for lightdm_try in $(seq 1 30); do
-    if qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/systemctl is-active --quiet lightdm.service >/dev/null 2>&1; then
-      lightdm_ready=yes
-      break
-    fi
+  for lightdm_try in $(seq 1 45); do
+    qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/systemctl reset-failed lightdm.service >/dev/null 2>&1 || true
     qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/systemctl start lightdm.service >/dev/null 2>&1 || true
+    if qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/sh -c '
+         systemctl is-active --quiet lightdm.service &&
+         test -f /usr/lib/xorg/modules/drivers/qxl_drv.so &&
+         test -S /tmp/.X11-unix/X0 &&
+         pgrep -x Xorg >/dev/null
+       ' >/dev/null 2>&1; then
+      sleep 3
+      if qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/sh -c '
+           systemctl is-active --quiet lightdm.service &&
+           test -S /tmp/.X11-unix/X0 &&
+           pgrep -x Xorg >/dev/null
+         ' >/dev/null 2>&1; then
+        lightdm_ready=yes
+        break
+      fi
+    fi
     sleep 1
   done
   if [[ "$lightdm_ready" != yes ]]; then
     {
+      echo "=== qxl driver ==="
+      qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/ls -l /usr/lib/xorg/modules/drivers/qxl_drv.so || true
+      echo "=== accountsservice ==="
+      qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/systemctl status accounts-daemon.service --no-pager -l || true
       echo "=== lightdm status ==="
       qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/systemctl status lightdm.service --no-pager -l || true
       echo "=== lightdm journal ==="
-      qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/journalctl -u lightdm.service -n 120 --no-pager || true
+      qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/journalctl -u lightdm.service -n 160 --no-pager || true
+      echo "=== xorg log ==="
+      qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/sh -c 'tail -n 200 /var/log/Xorg.0.log 2>/dev/null || true' || true
+      echo "=== x11 socket ==="
+      qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/ls -la /tmp/.X11-unix || true
       echo "=== display manager link ==="
       qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/readlink -f /etc/systemd/system/display-manager.service || true
       echo "=== default target ==="
       qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/systemctl get-default || true
     } >>"$guest_log" 2>&1
-    fail "INetSim graphical display manager did not become active; diagnostics captured at $guest_log"
+    fail "INetSim graphical session did not become stable (LightDM + Xorg + X11 socket); diagnostics captured at $guest_log"
     return 1
   fi
 
