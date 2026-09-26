@@ -115,14 +115,17 @@ grep -Fxq 'Session=xfce' <<<"$accounts_user"
 grep -Fxq 'SystemAccount=false' <<<"$accounts_user"
 
 group_file="$(virt-cat -a "$IMAGE" /etc/group)"
-grep -Eq '^autologin:.*(^|,)capeinetsim(,|$)' <<<"$group_file" || {
-  echo "[FAIL] capeinetsim is not authorized for LightDM autologin" >&2
-  exit 7
-}
-grep -Eq '^nopasswdlogin:.*(^|,)capeinetsim(,|$)' <<<"$group_file" || {
-  echo "[FAIL] capeinetsim is not in nopasswdlogin" >&2
-  exit 7
-}
+python3 - "$group_file" <<'PY'
+import sys
+groups={}
+for line in sys.argv[1].splitlines():
+    p=line.split(":")
+    if len(p)>=4:
+        groups[p[0]]=[x for x in p[3].split(",") if x]
+for name in ("autologin","nopasswdlogin"):
+    if "capeinetsim" not in groups.get(name,[]):
+        raise SystemExit(f"capeinetsim is not a member of {name}")
+PY
 
 pam_autologin="$(virt-cat -a "$IMAGE" /etc/pam.d/lightdm-autologin)"
 grep -Fq 'pam_permit.so' <<<"$pam_autologin" || {
