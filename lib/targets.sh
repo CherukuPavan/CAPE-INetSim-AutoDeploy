@@ -277,8 +277,9 @@ a=json.loads(sys.argv[1])
 for i,d in enumerate(a,1):
     err=d.get("errors") or []
     status="ready" if not err else "blocked"
-    snap=d.get("final_snapshot") or d.get("original_snapshot") or "<none>"
-    print(f"{i}. {d.get('section','?')} -> {d.get('domain','?')} | mgmt={d.get('ip','?')} | fake={d.get('fake_ip','?')} | snapshot={snap} | {status}")
+    normal=d.get("original_snapshot") or "<none>"
+    fake=d.get("final_snapshot") or "<none>"
+    print(f"{i}. {d.get('section','?')} -> {d.get('domain','?')} | mgmt={d.get('ip','?')} | fake_ip={d.get('fake_ip','?')} | normal_snapshot={normal} | inetsim_snapshot={fake} | {status}")
 PY
 }
 
