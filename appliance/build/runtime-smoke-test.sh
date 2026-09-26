@@ -40,9 +40,30 @@ set +e
   --gateway $ISO_GATEWAY > /var/log/cape-inetsim-runtime-smoke.log 2>&1
 rc=\$?
 if [ "\$rc" -eq 0 ]; then
+  systemctl restart lightdm.service >/dev/null 2>&1 || rc=90
+fi
+if [ "\$rc" -eq 0 ]; then
+  gui_ok=no
+  for _ in \$(seq 1 90); do
+    if systemctl is-active --quiet lightdm.service &&
+       test -f /etc/cape-inetsim-gui-v2 &&
+       test -f /usr/lib/xorg/modules/drivers/qxl_drv.so &&
+       test -S /tmp/.X11-unix/X0 &&
+       pgrep -x Xorg >/dev/null &&
+       pgrep -u capeinetsim -f 'xfce4-session|xfce4-panel|xfdesktop' >/dev/null; then
+      gui_ok=yes
+      break
+    fi
+    sleep 1
+  done
+  [ "\$gui_ok" = yes ] || rc=91
+fi
+if [ "\$rc" -eq 0 ]; then
   touch /var/lib/cape-inetsim-runtime-smoke-ok
 else
   printf '%s\n' "\$rc" >/var/lib/cape-inetsim-runtime-smoke-failed
+  systemctl status lightdm.service --no-pager -l > /var/log/cape-inetsim-gui-smoke.log 2>&1 || true
+  ps -ef >> /var/log/cape-inetsim-gui-smoke.log 2>&1 || true
 fi
 sync
 poweroff -f
@@ -88,19 +109,22 @@ timeout --signal=TERM --kill-after=20s 240 \
     -device "virtio-net-pci,netdev=mgmt,mac=$MGMT_MAC" \
     -netdev user,id=isolated,restrict=on \
     -device "virtio-net-pci,netdev=isolated,mac=$ISO_MAC" \
+    -vga qxl \
     -nographic -monitor none -no-reboot \
     >"$CONSOLE" 2>&1
 QEMU_RC=$?
 set -e
 
 if virt-cat -a "$OVERLAY" /var/lib/cape-inetsim-runtime-smoke-ok >/dev/null 2>&1; then
-  echo "[PASS] appliance runtime smoke test configured both NICs and started INetSim"
+  echo "[PASS] appliance runtime smoke test configured both NICs, started INetSim, and proved passwordless XFCE/QXL autologin"
   exit 0
 fi
 
 echo "[FAIL] appliance runtime smoke test failed (qemu_rc=$QEMU_RC)" >&2
 echo "----- guest runtime smoke log -----" >&2
 virt-cat -a "$OVERLAY" /var/log/cape-inetsim-runtime-smoke.log >&2 || true
+echo "----- guest GUI smoke log -----" >&2
+virt-cat -a "$OVERLAY" /var/log/cape-inetsim-gui-smoke.log >&2 || true
 echo "----- failure marker -----" >&2
 virt-cat -a "$OVERLAY" /var/lib/cape-inetsim-runtime-smoke-failed >&2 || true
 echo "----- console tail -----" >&2
