@@ -16,6 +16,8 @@ source "$ROOT/lib/compat.sh"
 source "$ROOT/lib/appliance.sh"
 source "$ROOT/lib/qga.sh"
 source "$ROOT/lib/windows-network-guard.sh"
+source "$ROOT/lib/windows-management-dhcp.sh"
+source "$ROOT/lib/windows-vm.sh"
 source "$ROOT/lib/isolated-network.sh"
 source "$ROOT/lib/firewall.sh"
 source "$ROOT/lib/inetsim-vm.sh"
@@ -65,6 +67,7 @@ REPAIR_PROCESSOR_ACTIVE="$(service_active_flag cape-processor.service)"
 REPAIR_WEB_ACTIVE="$(service_active_flag cape-web.service)"
 REPAIR_ROOTER_ACTIVE="$(service_active_flag cape-rooter.service)"
 REPAIR_MAINTENANCE_ACQUIRED=no
+REPAIR_ROUTE_MIGRATION_MUTATED=no
 
 repair_restore_runtime() {
   local rc="$1"
@@ -81,12 +84,22 @@ repair_restore_runtime() {
   if [[ "$REPAIR_PROCESSOR_ACTIVE" == yes ]]; then systemctl start cape-processor.service >/dev/null 2>&1 || true; else systemctl stop cape-processor.service >/dev/null 2>&1 || true; fi
   if [[ "$REPAIR_WEB_ACTIVE" == yes ]]; then systemctl start cape-web.service >/dev/null 2>&1 || true; else systemctl stop cape-web.service >/dev/null 2>&1 || true; fi
   if [[ "$REPAIR_ROOTER_ACTIVE" == yes ]]; then systemctl start cape-rooter.service >/dev/null 2>&1 || true; else systemctl stop cape-rooter.service >/dev/null 2>&1 || true; fi
-  if [[ "$REPAIR_CAPE_ACTIVE" == yes ]]; then systemctl start cape.service >/dev/null 2>&1 || true; else systemctl stop cape.service >/dev/null 2>&1 || true; fi
+  if [[ "$rc" -ne 0 && "$LEGACY_ROUTE_UPGRADE" == yes && "$REPAIR_ROUTE_MIGRATION_MUTATED" == yes ]]; then
+    systemctl stop cape.service >/dev/null 2>&1 || true
+  elif [[ "$REPAIR_CAPE_ACTIVE" == yes ]]; then
+    systemctl start cape.service >/dev/null 2>&1 || true
+  else
+    systemctl stop cape.service >/dev/null 2>&1 || true
+  fi
 
   if [[ "$rc" -ne 0 ]]; then
     DEPLOYMENT_PHASE=repair-incomplete
     state_write_atomic >/dev/null 2>&1 || true
-    fail "Repair did not complete; runtime state was restored as far as possible"
+    if [[ "$LEGACY_ROUTE_UPGRADE" == yes && "$REPAIR_ROUTE_MIGRATION_MUTATED" == yes ]]; then
+      fail "Route migration did not complete; CAPE scheduler was intentionally left stopped. Re-run the exact repair after inspection."
+    else
+      fail "Repair did not complete; runtime state was restored as far as possible"
+    fi
   fi
   set -e
   return "$rc"
@@ -94,6 +107,53 @@ repair_restore_runtime() {
 
 trap 'rc=$?; repair_restore_runtime "$rc"; exit "$rc"' ERR
 trap 'repair_restore_runtime 130; exit 130' INT TERM
+
+repair_cleanup_legacy_windows_cutover() {
+  [[ "$LEGACY_ROUTE_UPGRADE" == yes ]] || return 0
+
+  local saved="${TARGET_INDEX:-}" i old_mac normal
+  CAPE_TARGETS_COUNT="$(targets_count)"
+
+  for ((i=0;i<CAPE_TARGETS_COUNT;i++)); do
+    targets_bind "$i"
+    normal="${NORMAL_SNAPSHOT:-${CAPE_MACHINE_SNAPSHOT:-}}"
+    old_mac="${WINDOWS_ISOLATED_MAC:-}"
+
+    [[ -n "$normal" ]] || {
+      fail "Legacy migration cannot identify the original CAPE snapshot for $CAPE_MACHINE_SECTION/$DOMAIN"
+      return 1
+    }
+    [[ -n "${SAFETY_SNAPSHOT:-}" ]] || {
+      fail "Legacy migration requires the RC44 pre-change safety snapshot for $CAPE_MACHINE_SECTION/$DOMAIN"
+      return 1
+    }
+    state_resource_owned snapshot "$DOMAIN:$SAFETY_SNAPSHOT" || {
+      fail "Legacy migration safety snapshot is not transaction-owned: $DOMAIN/$SAFETY_SNAPSHOT"
+      return 1
+    }
+    windows_snapshot_exists "$SAFETY_SNAPSHOT" || {
+      fail "Legacy migration safety snapshot is missing: $DOMAIN/$SAFETY_SNAPSHOT"
+      return 1
+    }
+
+    windows_rollback_to_safety
+
+    if [[ -n "$old_mac" ]] && windows_isolated_mac_present "$old_mac"; then
+      fail "Legacy AutoDeploy Windows isolated NIC still exists after baseline restore: $DOMAIN/$old_mac"
+      return 1
+    fi
+    virsh snapshot-info "$DOMAIN" "$normal" >/dev/null 2>&1 || {
+      fail "Original CAPE snapshot disappeared during legacy migration: $DOMAIN/$normal"
+      return 1
+    }
+
+    targets_clear_legacy_windows_cutover "$i"
+    state_write_atomic
+    pass "Restored original Windows baseline and removed legacy fake-network cutover resources for $CAPE_MACHINE_SECTION"
+  done
+
+  if [[ "$saved" =~ ^[0-9]+$ ]]; then targets_bind "$saved"; else targets_bind 0; fi
+}
 
 for ((i=0;i<CAPE_TARGETS_COUNT;i++)); do
   targets_bind "$i"
@@ -170,9 +230,17 @@ fi
 
 DEPLOYMENT_PHASE=repairing
 state_write_atomic
+if [[ "$LEGACY_ROUTE_UPGRADE" == yes ]]; then
+  REPAIR_ROUTE_MIGRATION_MUTATED=yes
+fi
 cape_configure_inetsim
 
 extension_upgrade_route_gated
+
+# Once CAPE points back at the original analysis snapshot and management
+# interface, remove every RC44-owned Windows fake-network artifact while the
+# scheduler is still held under maintenance.
+repair_cleanup_legacy_windows_cutover
 
 validate_deployment_structural
 
