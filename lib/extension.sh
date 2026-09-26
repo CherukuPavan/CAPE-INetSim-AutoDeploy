@@ -105,7 +105,7 @@ extension_install() {
   extension_run_logged init-config ./install.sh --init-config
   extension_write_config
 
-  if grep -Rqs 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$CAPE_ROOT/web"; then
+  if grep -Rqs 'CAPE_INETSIM_VM_ROUTE_AWARE_V1' "$CAPE_ROOT/web"; then
     # Adoption is permitted only when this transaction has an extension recovery
     # point. A pre-existing untracked installation is never silently claimed.
     if [[ -s "$EXTENSION_ROOT/.installed_backup" ]] || state_resource_owned extension "CAPE-INetSim-VM-Extension-v$EXTENSION_VERSION"; then
@@ -122,10 +122,60 @@ extension_install() {
   extension_run_logged verify ./scripts/verify.sh
   extension_run_logged dry-run ./install.sh --dry-run
   extension_run_logged install ./install.sh --install
-  grep -Rqs 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$CAPE_ROOT/web" || { fail "Extension route-none marker missing after install"; return 1; }
+  grep -Rqs 'CAPE_INETSIM_VM_ROUTE_AWARE_V1' "$CAPE_ROOT/web" || { fail "Route-aware extension marker missing after install"; return 1; }
   [[ -s "$EXTENSION_ROOT/.installed_backup" ]] || { fail "Extension installed without a protected recovery-point reference"; return 1; }
   state_record_resource extension "CAPE-INetSim-VM-Extension-v$EXTENSION_VERSION" installed yes "$EXTENSION_ROOT"
   state_set_phase extension-installed
+}
+
+extension_route_aware_installed() {
+  grep -Rqs 'CAPE_INETSIM_VM_ROUTE_AWARE_V1' "$CAPE_ROOT/web" 2>/dev/null
+}
+
+extension_upgrade_route_aware() {
+  if extension_route_aware_installed; then
+    extension_install
+    return 0
+  fi
+
+  if grep -Rqs 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$CAPE_ROOT/web" 2>/dev/null; then
+    state_resource_owned extension "CAPE-INetSim-VM-Extension-v${EXTENSION_VERSION}" || {
+      fail "Legacy INetSim extension is not transaction-owned; refusing route-aware upgrade"
+      return 1
+    }
+    [[ -d "$EXTENSION_ROOT" && -x "$EXTENSION_ROOT/scripts/rollback.sh" ]] || {
+      fail "Legacy INetSim extension rollback tooling is unavailable"
+      return 1
+    }
+    [[ -s "$EXTENSION_ROOT/.installed_backup" || -s "$EXTENSION_ROOT/.last_backup" ]] || {
+      fail "Legacy INetSim extension has no protected rollback point"
+      return 1
+    }
+
+    info "Upgrading transaction-owned INetSim web extension to route-aware semantics"
+    (cd "$EXTENSION_ROOT" && ./scripts/rollback.sh --check)
+    (cd "$EXTENSION_ROOT" && printf 'RESTORE\n' | ./scripts/rollback.sh --restore)
+
+    if grep -Rqs 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$CAPE_ROOT/web" 2>/dev/null; then
+      fail "Legacy INetSim extension marker remained after protected rollback"
+      return 1
+    fi
+
+    local legacy_root="${EXTENSION_ROOT}.legacy-${DEPLOYMENT_ID}"
+    [[ ! -e "$legacy_root" ]] || {
+      fail "Legacy extension archive path already exists: $legacy_root"
+      return 1
+    }
+    mv "$EXTENSION_ROOT" "$legacy_root"
+    state_record_resource extension-legacy "$legacy_root" preserved yes "pre-route-aware-runtime"
+  fi
+
+  extension_install
+  extension_route_aware_installed || {
+    fail "Route-aware INetSim web extension marker is missing after upgrade"
+    return 1
+  }
+  pass "Route-aware INetSim web extension installed"
 }
 
 extension_rollback() {
