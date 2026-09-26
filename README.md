@@ -53,14 +53,14 @@ install/bootstrap
   -> deterministic plan
   -> transaction + backup/ownership journal
   -> isolated libvirt network
-  -> persistent host egress/input firewall guard
+  -> isolated-bridge route-separation firewall guard
   -> generalized Ubuntu INetSim appliance
   -> preserve existing Windows analysis VM network/snapshot baseline
   -> CAPE-native per-task route selection (internet / inetsim / none-drop)
   -> host-routed isolated INetSim path with no Windows fake NIC/IP/DNS
-  -> CAPE isolated capture integration
+  -> route-aware CAPE packet-capture integration
   -> Network Analysis processing visibility
-  -> CAPE-INetSim-VM-Extension v1.0.1
+  -> CAPE-INetSim-VM-Extension v1.0.2
   -> structural + live validation
   -> commit or ownership-aware rollback
 ```
