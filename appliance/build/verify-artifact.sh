@@ -92,7 +92,7 @@ grep -Fxq 'qxl_drv.so' <<<"$xorg_drivers" || {
   exit 6
 }
 
-virt-cat -a "$IMAGE" /etc/cape-inetsim-gui-v3 >/dev/null
+virt-cat -a "$IMAGE" /etc/cape-inetsim-gui-v4 >/dev/null
 session_wrapper="$(virt-cat -a "$IMAGE" /usr/local/bin/cape-inetsim-xfce-session)"
 grep -Fq 'dbus-run-session -- /usr/bin/xfce4-session' <<<"$session_wrapper"
 
@@ -100,13 +100,17 @@ session_desktop="$(virt-cat -a "$IMAGE" /usr/share/xsessions/cape-inetsim-xfce.d
 grep -Fxq 'Exec=/usr/local/bin/cape-inetsim-xfce-session' <<<"$session_desktop"
 grep -Fxq 'TryExec=/usr/local/bin/cape-inetsim-xfce-session' <<<"$session_desktop"
 
-lightdm_policy="$(virt-cat -a "$IMAGE" /etc/lightdm/lightdm.conf.d/99-cape-inetsim-autologin.conf)"
-for required in   'autologin-user=capeinetsim'   'autologin-user-timeout=0'   'autologin-session=cape-inetsim-xfce'   'user-session=cape-inetsim-xfce'   'pam-autologin-service=lightdm-autologin'   'allow-user-switching=false'   'allow-guest=false'   'greeter-hide-users=true'   'greeter-show-manual-login=false'; do
+lightdm_policy="$(virt-cat -a "$IMAGE" /etc/lightdm/lightdm.conf.d/99-cape-inetsim-console-login.conf)"
+for required in   'user-session=cape-inetsim-xfce'   'allow-user-switching=true'   'allow-guest=false'   'greeter-hide-users=false'   'greeter-show-manual-login=true'; do
   grep -Fxq "$required" <<<"$lightdm_policy" || {
-    echo "[FAIL] candidate is missing LightDM policy: $required" >&2
+    echo "[FAIL] candidate is missing LightDM console-login policy: $required" >&2
     exit 7
   }
 done
+! grep -Eq '^autologin-user=' <<<"$lightdm_policy" || {
+  echo "[FAIL] candidate unexpectedly enables LightDM autologin" >&2
+  exit 7
+}
 
 dmrc="$(virt-cat -a "$IMAGE" /home/capeinetsim/.dmrc)"
 grep -Fxq 'Session=cape-inetsim-xfce' <<<"$dmrc"
@@ -116,24 +120,10 @@ grep -Fxq 'Session=cape-inetsim-xfce' <<<"$accounts_user"
 grep -Fxq 'XSession=cape-inetsim-xfce' <<<"$accounts_user"
 grep -Fxq 'SystemAccount=false' <<<"$accounts_user"
 
-group_file="$(virt-cat -a "$IMAGE" /etc/group)"
-python3 - "$group_file" <<'PY'
-import sys
-groups={}
-for line in sys.argv[1].splitlines():
-    p=line.split(":")
-    if len(p)>=4:
-        groups[p[0]]=[x for x in p[3].split(",") if x]
-for name in ("autologin","nopasswdlogin"):
-    if "capeinetsim" not in groups.get(name,[]):
-        raise SystemExit(f"capeinetsim is not a member of {name}")
-PY
-
-pam_autologin="$(virt-cat -a "$IMAGE" /etc/pam.d/lightdm-autologin)"
-grep -Fq 'pam_permit.so' <<<"$pam_autologin" || {
-  echo "[FAIL] stock LightDM autologin PAM service does not permit autologin" >&2
-  exit 7
-}
+ssh_policy="$(virt-cat -a "$IMAGE" /etc/ssh/sshd_config.d/99-cape-inetsim-no-password-auth.conf)"
+grep -Fxq 'PasswordAuthentication no' <<<"$ssh_policy"
+grep -Fxq 'KbdInteractiveAuthentication no' <<<"$ssh_policy"
+grep -Fxq 'PermitRootLogin no' <<<"$ssh_policy"
 
 passwd_db="$(virt-cat -a "$IMAGE" /etc/passwd)"
 shadow_db="$(virt-cat -a "$IMAGE" /etc/shadow)"
