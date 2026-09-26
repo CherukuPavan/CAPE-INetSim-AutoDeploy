@@ -497,7 +497,12 @@ deploy_windows_cutover() {
     targets_capture_bound "$i"
     state_write_atomic
   done
+
+  # Every guest is now shut off with both route baselines durable. Remove the
+  # temporary management egress blocks before CAPE resumes so route=internet
+  # can use the normal management path. The isolated bridge remains fail-closed.
   targets_bind 0
+  firewall_apply base
   state_set_phase windows-all-ready
 }
 
