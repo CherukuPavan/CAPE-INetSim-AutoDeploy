@@ -104,6 +104,32 @@ PY
   CAPE_TARGETS_COUNT="$(targets_count)"
 }
 
+targets_clear_legacy_windows_cutover() {
+  local index="${1:-${TARGET_INDEX:-}}"
+  [[ "$index" =~ ^[0-9]+$ ]] || { fail "Legacy Windows cleanup requires a bound target index"; return 1; }
+
+  CAPE_TARGETS_JSON="$(python3 - "${CAPE_TARGETS_JSON:-[]}" "$index" <<'PY'
+import json,sys
+a=json.loads(sys.argv[1]); i=int(sys.argv[2]); d=a[i]
+d["normal_snapshot"] = d.get("normal_snapshot") or d.get("original_snapshot") or ""
+for key in (
+    "fake_ip",
+    "isolated_nic_model",
+    "isolated_mac",
+    "backend_used",
+    "original_domain_state",
+    "safety_snapshot",
+    "working_snapshot",
+    "final_snapshot",
+):
+    d[key] = ""
+print(json.dumps(a,separators=(",",":")))
+PY
+)"
+  CAPE_TARGETS_COUNT="$(targets_count)"
+  targets_bind "$index"
+}
+
 targets_identity_json() {
   python3 - "${CAPE_TARGETS_JSON:-[]}" <<'PY'
 import json,sys
