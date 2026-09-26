@@ -104,6 +104,11 @@ grep -Fq 'qemu-img check "$file"' "$ROOT/lib/appliance.sh"
 grep -Fq 'gzip -dc "$transport"' "$ROOT/lib/appliance.sh"
 grep -Fq 'transport.sha256' "$ROOT/lib/appliance.sh"
 
+# The baked guest configurator requires an explicit isolated gateway even when
+# the smoke test does not install any client return routes.
+grep -Fq 'ISO_GATEWAY=192.168.200.1' "$ROOT/appliance/build/runtime-smoke-test.sh"
+grep -Fq -- '--gateway $ISO_GATEWAY' "$ROOT/appliance/build/runtime-smoke-test.sh"
+
 source "$ROOT/lib/validate.sh"
 APPLIANCE_MANIFEST="$TMP/manifest.json"
 RELEASE_TAG=v1.0.0-rc.9
