@@ -96,7 +96,8 @@ grep -Fq 'CAPE_INETSIM_AUTODEPLOY_CAPTURE_V2' "$ROOT/lib/validate.sh"
 grep -Fq 'inetsim_capture_host_${CAPE_MACHINE_LABEL}" "$CAPE_MACHINE_IP"' "$ROOT/lib/cape-configure.sh"
 grep -Fq 'cape_probe_inetsim_rooter_all' "$ROOT/lib/validate.sh"
 grep -Fq 'rooter(command, iface)' "$ROOT/lib/cape-configure.sh"
-grep -Fq '"inetsim_enable": inetsim_enable' "$ROOT/lib/cape-configure.sh"
+grep -Fq 'def inetsim_enable(' "$ROOT/lib/cape-configure.sh"
+grep -Fq 'grep -Eq' "$ROOT/lib/cape-configure.sh"
 
 # Legacy RC44 route-global capture remains rejected for normal deploys.
 cat >"$CAPE_ROOT/modules/auxiliary/sniffer.py" <<'PY'
