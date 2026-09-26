@@ -266,10 +266,38 @@ inetsim_enable_gui_guest() {
     fail "INetSim graphical desktop marker is missing after setup"
     return 1
   }
-  qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/systemctl is-active --quiet lightdm.service >/dev/null 2>&1 || {
-    fail "INetSim graphical display manager is not active after setup"
+
+  # A freshly refreshed cloud-derived appliance can reach multi-user state
+  # before systemd starts the display manager even though LightDM is baked and
+  # enabled. Make graphical activation explicit and verify it instead of
+  # treating that boot-order race as an appliance failure.
+  qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/systemctl set-default graphical.target >/dev/null 2>&1 || true
+  qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/systemctl enable lightdm.service >/dev/null 2>&1 || true
+
+  local lightdm_ready=no lightdm_try
+  for lightdm_try in $(seq 1 30); do
+    if qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/systemctl is-active --quiet lightdm.service >/dev/null 2>&1; then
+      lightdm_ready=yes
+      break
+    fi
+    qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/systemctl start lightdm.service >/dev/null 2>&1 || true
+    sleep 1
+  done
+  if [[ "$lightdm_ready" != yes ]]; then
+    {
+      echo "=== lightdm status ==="
+      qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/systemctl status lightdm.service --no-pager -l || true
+      echo "=== lightdm journal ==="
+      qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/journalctl -u lightdm.service -n 120 --no-pager || true
+      echo "=== display manager link ==="
+      qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/readlink -f /etc/systemd/system/display-manager.service || true
+      echo "=== default target ==="
+      qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/systemctl get-default || true
+    } >>"$guest_log" 2>&1
+    fail "INetSim graphical display manager did not become active; diagnostics captured at $guest_log"
     return 1
-  }
+  fi
+
   local display_uri
   display_uri="$(virsh domdisplay "$INETSIM_DOMAIN_NAME" 2>/dev/null || true)"
   [[ "$display_uri" == spice://* ]] || {
