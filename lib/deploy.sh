@@ -89,24 +89,13 @@ PY
     fail "One or more CAPE analysis VMs failed the multi-machine safety preflight"
     return 1
   }
-  case "${MANAGEMENT_NWFILTER_AVAILABLE:-no}" in
-    yes|activatable) ;;
-    *)
-      fail "libvirt clean-traffic nwfilter is neither ready nor safely activatable"
-      return 1
-      ;;
-  esac
   [[ -n "${MANAGEMENT_NETWORK_NAME:-}" ]] || { fail "Management libvirt network is unknown"; return 1; }
   [[ -n "${CAPE_RESULTSERVER_IP:-}" && "${CAPE_RESULTSERVER_PORT:-}" =~ ^[0-9]+$ ]] || {
     fail "CAPE ResultServer path could not be derived"
     return 1
   }
 
-  # A brand-new deployment needs the scheduler/ResultServer alive so the
-  # management path can be proven before Windows is changed. A completed
-  # rollback is also a fresh deployment boundary; only an actually resumable
-  # transaction may legitimately have cape.service stopped at handoff.
-  local existing_phase=""
+  # A brand-new deployment needs the scheduler/ResultServer alive before CAPE configuration handoff.\n  local existing_phase=""
   if [[ -f "$AD_STATE_FILE" ]]; then
     existing_phase="$( (state_load >/dev/null 2>&1 && printf '%s' "$DEPLOYMENT_PHASE") || true )"
   fi
@@ -115,7 +104,7 @@ PY
       fail "cape.service must be active before a new deployment"
       return 1
     }
-    if grep -q 'CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1' "$CAPE_ROOT/modules/auxiliary/sniffer.py" 2>/dev/null; then
+    if grep -Eq 'CAPE_INETSIM_AUTODEPLOY_CAPTURE_V(1|2)' "$CAPE_ROOT/modules/auxiliary/sniffer.py" 2>/dev/null; then
       fail "An untracked AutoDeploy sniffer patch already exists; refusing to claim or overwrite it"
       return 1
     fi
@@ -316,7 +305,6 @@ deploy_initialize_or_resume_state() {
 deploy_stage_non_disruptive() {
   local artifact
   info "Staging isolated network and generalized INetSim appliance; CAPE analyses are not interrupted."
-  nwfilter_runtime_prepare
   artifact="$(appliance_fetch "$APPLIANCE_MANIFEST")"
 
   isolated_network_apply
