@@ -305,7 +305,7 @@ firewall_apply() {
 }
 
 firewall_enable_windows_management_guard() {
-  [[ -n "\${MANAGEMENT_BRIDGE_NAME:-}" && -n "\${WINDOWS_MANAGEMENT_MAC:-}" && -n "\${CAPE_MACHINE_IP:-}" ]] || {
+  [[ -n "${MANAGEMENT_BRIDGE_NAME:-}" && -n "${WINDOWS_MANAGEMENT_MAC:-}" && -n "${CAPE_MACHINE_IP:-}" ]] || {
     fail "Management bridge/MAC/IP are required before route-aware Windows protection"
     return 1
   }
