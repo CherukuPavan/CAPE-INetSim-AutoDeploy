@@ -42,7 +42,7 @@ Do **not** treat the development branch as a production release until `appliance
 
 `--collect` is the supported single-command read-only evidence collector. It writes one credential-redacted `.tar.gz` plus SHA-256 without changing CAPE, libvirt, Windows, networking, firewall, snapshots, or services.
 
-`--acceptance` is a post-deployment read-only functional gate. It re-runs the structural verifier, then validates a controlled pair of completed `route=none` tasks using a unique hostname marker. The positive task must contain the marker in task-local INetSim evidence and its pcap; the negative task must not contain the marker. Normal Windows background traffic may still reach INetSim in either task and is not treated as sample-induced evidence. This avoids host/image-specific domain blacklists while keeping the negative control meaningful.
+`--acceptance` is a post-deployment read-only functional gate. It re-runs the structural verifier, then validates a controlled pair of completed `route=inetsim` tasks using a unique hostname marker. The positive task must contain the marker in task-local INetSim evidence and its pcap; the negative task must not contain the marker. Normal Windows background traffic may still reach INetSim in either task and is not treated as sample-induced evidence. This avoids host/image-specific domain blacklists while keeping the negative control meaningful.
 
 ## Architecture
 
