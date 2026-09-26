@@ -104,20 +104,39 @@ INETSIM_VM_IP = "{server_ip}"
 
 
 @register.filter(name="inetsim_vm_active")
-def inetsim_vm_active(network):
+def inetsim_vm_active(analysis):
     try:
-        return bool(network_uses_inetsim(network or {{}}, INETSIM_VM_IP))
+        analysis = analysis or {{}}
+        route = str((analysis.get("info") or {{}}).get("route") or "").strip().lower()
+        if route != "inetsim":
+            return False
+        return bool(network_uses_inetsim(analysis.get("network") or {{}}, INETSIM_VM_IP))
     except Exception:
         return False
 
 
 @register.filter(name="inetsim_vm_context")
-def inetsim_vm_context(network):
+def inetsim_vm_context(analysis):
     try:
-        return build_route_none_inetsim_context(network or {{}}, INETSIM_VM_IP)
+        analysis = analysis or {{}}
+        route = str((analysis.get("info") or {{}}).get("route") or "").strip().lower()
+        if route != "inetsim":
+            return {{
+                "enabled": False,
+                "route": route,
+                "server": INETSIM_VM_IP,
+                "summary": {{"dns": 0, "http": 0, "https": 0, "other": 0, "total": 0}},
+                "dns": [],
+                "http": [],
+                "https": [],
+                "findings": [],
+                "attribution_summary": {{"task_domains": []}},
+            }}
+        return build_route_none_inetsim_context(analysis.get("network") or {{}}, INETSIM_VM_IP)
     except Exception:
         return {{
             "enabled": False,
+            "route": "",
             "server": INETSIM_VM_IP,
             "summary": {{"dns": 0, "http": 0, "https": 0, "other": 0, "total": 0}},
             "dns": [],
@@ -129,7 +148,7 @@ def inetsim_vm_context(network):
 
 
 @register.filter(name="inetsim_vm_server_ip")
-def inetsim_vm_server_ip(_network):
+def inetsim_vm_server_ip(_analysis):
     return INETSIM_VM_IP
 ''',
     encoding="utf-8",
@@ -139,14 +158,14 @@ visual_target = CANDIDATE / "web/templates/analysis/network/_inetsim_vm_visual.h
 visual_target.parent.mkdir(parents=True, exist_ok=True)
 visual_target.write_text(
     '''{% load inetsim_vm_tags %}
-{% with inetsim=network|inetsim_vm_context %}
+{% with inetsim=analysis|inetsim_vm_context %}
 <div class="card bg-dark border-secondary mb-3">
   <div class="card-header">
     <i class="fas fa-flask me-2"></i>INetSim Visual
     <span class="text-muted ms-2">task-local captured evidence</span>
   </div>
   <div class="card-body">
-    <p class="mb-2"><strong>INetSim server:</strong> {{ network|inetsim_vm_server_ip }}</p>
+    <p class="mb-2"><strong>INetSim server:</strong> {{ analysis|inetsim_vm_server_ip }}</p>
     <div class="row mb-3">
       <div class="col">DNS: <strong>{{ inetsim.summary.dns|default:0 }}</strong></div>
       <div class="col">HTTP: <strong>{{ inetsim.summary.http|default:0 }}</strong></div>
@@ -219,7 +238,7 @@ ul_close = text.find("</ul>", tabs_pos)
 if ul_close < 0:
     fail("networkTabs closing </ul> not found")
 
-nav = f'''        {{% if network|inetsim_vm_active %}}
+nav = f'''        {{% if analysis|inetsim_vm_active %}}
         <!-- {MARKER} / {MODERN_MARKER} -->
         <li class="nav-item">
             <a class="nav-link" id="network_inetsim-tab" href="#network_inetsim_tab"
@@ -236,7 +255,7 @@ if content_pos < 0:
     fail("network tab-content anchor not found")
 content_open_end = text.find(">", content_pos) + 1
 pane = '''
-        {% if network|inetsim_vm_active %}
+        {% if analysis|inetsim_vm_active %}
         <div class="tab-pane fade" id="network_inetsim_tab">
             {% include "analysis/network/_inetsim_vm_visual.html" %}
         </div>
