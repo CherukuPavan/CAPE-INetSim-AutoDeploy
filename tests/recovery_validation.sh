@@ -51,4 +51,7 @@ if validate_recovery_assets >/dev/null 2>&1; then
   exit 1
 fi
 
-echo '[PASS] recovery assets and checksums are required for structural acceptance'
+grep -Fq 'A different AutoDeploy release is already committed' "$ROOT/lib/deploy.sh"
+grep -Fq 'Roll it back with that exact release before installing this route-separated release' "$ROOT/lib/deploy.sh"
+
+echo '[PASS] recovery assets are protected and cross-release upgrade is rollback-first'
