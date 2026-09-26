@@ -141,7 +141,7 @@ fi
 NEG_HAS_INETSIM=false
 
 grep -Rqs 'CAPE_INETSIM_VM_ROUTE_GATED_V2' "$CAPE_ROOT/web" || {
-  fail "Installed extension route=none marker is missing"
+  fail "Installed route-gated INetSim extension marker is missing"
   exit 27
 }
 
