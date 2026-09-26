@@ -46,11 +46,12 @@ if [ "\$rc" -eq 0 ]; then
   gui_ok=no
   for _ in \$(seq 1 90); do
     if systemctl is-active --quiet lightdm.service &&
-       test -f /etc/cape-inetsim-gui-v3 &&
+       test -f /etc/cape-inetsim-gui-v4 &&
        test -f /usr/lib/xorg/modules/drivers/qxl_drv.so &&
        test -S /tmp/.X11-unix/X0 &&
        pgrep -x Xorg >/dev/null &&
-       pgrep -u capeinetsim -f 'xfce4-session|xfce4-panel|xfdesktop' >/dev/null; then
+       grep -Fxq 'greeter-show-manual-login=true' /etc/lightdm/lightdm.conf.d/99-cape-inetsim-console-login.conf &&
+       grep -Fxq 'user-session=cape-inetsim-xfce' /etc/lightdm/lightdm.conf.d/99-cape-inetsim-console-login.conf; then
       gui_ok=yes
       break
     fi
@@ -132,7 +133,7 @@ QEMU_RC=$?
 set -e
 
 if virt-cat -a "$OVERLAY" /var/lib/cape-inetsim-runtime-smoke-ok >/dev/null 2>&1; then
-  echo "[PASS] appliance runtime smoke test configured both NICs, started INetSim, and proved passwordless XFCE/QXL autologin"
+  echo "[PASS] appliance runtime smoke test configured both NICs, started INetSim, and proved stable QXL/LightDM console login"
   exit 0
 fi
 
