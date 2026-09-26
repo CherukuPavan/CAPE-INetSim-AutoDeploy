@@ -13,10 +13,10 @@ APT_OPTS=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::
 # dependencies from surfacing only after a real LightDM login.
 if ! dpkg-query -W -f='${Status}' xubuntu-desktop-minimal 2>/dev/null | grep -Fq 'install ok installed' ||
    [[ ! -f /usr/share/xsessions/xubuntu.desktop ]] ||
-   [[ ! -f /usr/lib/xorg/modules/drivers/qxl_drv.so ]]; then
+   [[ ! -f /usr/lib/xorg/modules/drivers/modesetting_drv.so ]]; then
   timeout 300 apt-get "${APT_OPTS[@]}" update
   timeout 1500 apt-get "${APT_OPTS[@]}" install -y --no-install-recommends \
-    xubuntu-desktop-minimal xserver-xorg-video-qxl spice-vdagent
+    xubuntu-desktop-minimal xserver-xorg-core spice-vdagent
 fi
 
 # The appliance owns one visible GUI identity only. The cloud-image bootstrap
