@@ -24,6 +24,7 @@ BUILD_ROOT = ROOT / "build"
 CANDIDATE = BUILD_ROOT / "install-candidate"
 
 MARKER = "CAPE_INETSIM_VM_ROUTE_NONE_V1"
+ROUTE_MARKER = "CAPE_INETSIM_VM_ROUTE_AWARE_V1"
 MODERN_MARKER = "CAPE_INETSIM_VM_MODERN_NETWORK_V1"
 TAG_MARKER = "CAPE_INETSIM_VM_DYNAMIC_SERVER_V2"
 
@@ -239,7 +240,7 @@ if ul_close < 0:
     fail("networkTabs closing </ul> not found")
 
 nav = f'''        {{% if analysis|inetsim_vm_active %}}
-        <!-- {MARKER} / {MODERN_MARKER} -->
+        <!-- {MARKER} / {ROUTE_MARKER} / {MODERN_MARKER} -->
         <li class="nav-item">
             <a class="nav-link" id="network_inetsim-tab" href="#network_inetsim_tab"
                data-bs-toggle="tab" role="tab" aria-controls="network_inetsim_tab" aria-selected="false">
@@ -268,7 +269,7 @@ network_target.write_text(text, encoding="utf-8")
 
 # Static candidate gates.
 patched = network_target.read_text(encoding="utf-8")
-for marker in (MARKER, MODERN_MARKER):
+for marker in (MARKER, ROUTE_MARKER, MODERN_MARKER):
     if patched.count(marker) != 1:
         fail(f"network template marker validation failed: {marker}")
 if patched.count("network_inetsim-tab") != 1:
