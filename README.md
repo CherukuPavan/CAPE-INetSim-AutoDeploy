@@ -42,7 +42,7 @@ Do **not** treat the development branch as a production release until `appliance
 
 `--collect` is the supported single-command read-only evidence collector. It writes one credential-redacted `.tar.gz` plus SHA-256 without changing CAPE, libvirt, Windows, networking, firewall, snapshots, or services.
 
-`--acceptance` is a post-deployment read-only functional gate. It re-runs the structural verifier, then validates a controlled pair of completed `route=none` tasks using a unique hostname marker. The positive task must contain the marker in task-local INetSim evidence and its pcap; the negative task must not contain the marker. Normal Windows background traffic may still reach INetSim in either task and is not treated as sample-induced evidence. This avoids host/image-specific domain blacklists while keeping the negative control meaningful.
+`--acceptance` is a post-deployment read-only functional gate. It re-runs the structural verifier, then validates a controlled pair of completed route-separated tasks (`route=inetsim` positive, `route=internet` negative) using a unique hostname marker. The positive task must use route=inetsim and contain the marker in task-local INetSim evidence and its pcap. The negative task must use route=internet and must contain neither the marker nor any traffic to the INetSim endpoint. This avoids host/image-specific domain blacklists while keeping the negative control meaningful.
 
 ## Architecture
 
@@ -67,7 +67,7 @@ install/bootstrap
 
 ## Safety invariants
 
-- The Windows malware-analysis guest must never receive a real/default Internet route.
+- Route selection is task-scoped: route=internet preserves CAPE's normal Internet path, route=inetsim redirects only that task to the isolated Ubuntu INetSim appliance, and route=none/drop remains blocked.
 - The fake-Internet bridge is never attached to a physical NIC and never configured with libvirt NAT/forwarding.
 - A deployment-owned nftables guard blocks forwarding from the isolated bridge as defense in depth.
 - Windows validation requires zero IPv4 default routes, zero IPv6 default routes, no enabled IPv6 bindings, no unexpected active third adapter, INetSim-only DNS, working CAPE ResultServer reachability, and failed public IPv4/IPv6 reachability.
@@ -103,3 +103,14 @@ Before v1.0.0 can be called deployable, all of the following must be true:
 3. The same release passes a controlled end-to-end deployment on one supported CAPE host.
 4. The exact same release/command passes on a second independent CAPE host with different CAPE/libvirt/VM identifiers. The second host is treated as a blind/random supported installation: no host-specific scripts, identifiers, manual prerequisite fixes, or candidate changes are allowed between first-host and second-host validation. If the second host exposes a product defect, the candidate is invalidated, the fix must be generalized, and validation restarts from the first host.
 5. Positive and negative Network Analysis/INetSim visibility checks pass without giving the Windows analysis VM real Internet access.
+
+
+## Per-task route separation
+
+AutoDeploy must not permanently rewrite a Windows analysis guest into fake-Internet mode. Windows keeps its original CAPE network baseline. The dedicated Ubuntu INetSim appliance remains isolated on the AutoDeploy bridge, and CAPE's native per-task routing selects the path:
+
+- `internet`: normal CAPE Internet routing, with no INetSim attribution.
+- `inetsim`: fake Internet through the isolated Ubuntu INetSim appliance.
+- `none` / `drop`: no external network path.
+
+The INetSim Network Analysis visual is route-gated and is never enabled for an authoritative `route=internet` task.
