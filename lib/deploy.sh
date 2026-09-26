@@ -469,6 +469,7 @@ deploy_windows_target_cutover() {
   if [[ "${TARGET_PHASE:-}" == nic-attached ]]; then
     windows_start_for_cutover
     windows_select_live_backend
+    windows_ensure_normal_route_snapshot
     windows_configure_selected_backend
     windows_verify_selected_backend
     target_state_set_phase configured
