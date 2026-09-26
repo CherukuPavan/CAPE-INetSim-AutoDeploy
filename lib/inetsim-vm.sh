@@ -99,7 +99,7 @@ inetsim_refresh_baked_gui_appliance() {
   if ! virsh start "$INETSIM_DOMAIN_NAME" >/dev/null ||
      ! qga_wait "$INETSIM_DOMAIN_NAME" 240 ||
      ! qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/sh -c '
-       test -f /etc/cape-inetsim-gui-v3 &&
+       test -f /etc/cape-inetsim-gui-v4 &&
        test -f /usr/lib/xorg/modules/drivers/qxl_drv.so &&
        test -x /usr/bin/dbus-run-session &&
        test -x /usr/bin/xfce4-session &&
@@ -187,7 +187,7 @@ inetsim_enable_gui_guest() {
   }
 
   if ! qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/sh -c '
-       ( test -f /etc/cape-inetsim-gui-v3 || test -f /etc/cape-inetsim-gui-v2 || test -f /etc/cape-inetsim-gui-v1 ) &&
+       ( test -f /etc/cape-inetsim-gui-v4 || test -f /etc/cape-inetsim-gui-v3 || test -f /etc/cape-inetsim-gui-v2 || test -f /etc/cape-inetsim-gui-v1 ) &&
        test -f /usr/lib/xorg/modules/drivers/qxl_drv.so &&
        test -x /usr/bin/dbus-run-session &&
        test -x /usr/bin/xfce4-session &&
@@ -201,7 +201,7 @@ inetsim_enable_gui_guest() {
   fi
 
   if qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/sh -c '
-       ( test -f /etc/cape-inetsim-gui-v3 || test -f /etc/cape-inetsim-gui-v2 || test -f /etc/cape-inetsim-gui-v1 ) &&
+       ( test -f /etc/cape-inetsim-gui-v4 || test -f /etc/cape-inetsim-gui-v3 || test -f /etc/cape-inetsim-gui-v2 || test -f /etc/cape-inetsim-gui-v1 ) &&
        test -f /usr/lib/xorg/modules/drivers/qxl_drv.so &&
        test -x /usr/bin/dbus-run-session &&
        test -x /usr/bin/xfce4-session &&
