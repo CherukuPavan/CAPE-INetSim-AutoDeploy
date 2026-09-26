@@ -266,6 +266,10 @@ validate_deployment_structural() {
   validate_release_provenance
   verify_isolated_network_definition "$ISOLATED_NETWORK_NAME" "$ISOLATED_BRIDGE_NAME" "$ISOLATED_SUBNET" "$BRIDGE_IP"
   firewall_verify
+  routing_forwarding_verify || {
+    fail "Host IPv4 forwarding prerequisite for CAPE route=inetsim is not active/persistent"
+    return 1
+  }
   inetsim_verify_host
   validate_all_targets_structural
   grep -Rqs 'CAPE_INETSIM_VM_ROUTE_GATED_V2' "$CAPE_ROOT/web"
@@ -275,7 +279,8 @@ validate_deployment_structural() {
 
 validate_deployment_services() {
   services_validate_deployment_state
+  cape_probe_inetsim_rooter_all
   validate_all_resultservers
-  pass "CAPE service, Rooter, IPv4-forwarding and ResultServer health gates passed for all managed analysis machines"
+  pass "CAPE Rooter bridge visibility, IPv4 forwarding, service and ResultServer health gates passed for all managed analysis machines"
 }
 
