@@ -105,8 +105,8 @@ PY
 import sys
 p=sys.argv[1]
 s=open(p,encoding="utf-8").read()
-marker="CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1"
-old="        host = self.machine.ip\n        # Selects per-machine interface if available.\n"
+marker="CAPE_INETSIM_AUTODEPLOY_CAPTURE_V2"
+old="        host = self.machine.ip\n        # Selects per-machine interface if available.\n        interface = self.machine.interface or self.options.get(\"interface\")\n"
 if s.count(marker)==1:
     print("already-present")
 elif s.count(marker)>1:
