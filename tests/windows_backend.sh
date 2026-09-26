@@ -18,7 +18,7 @@ import sys
 s=open(sys.argv[1],encoding="utf-8").read()
 q=s.index('if qga_wait "$DOMAIN" 10; then')
 w=s.index('if windows_winrm_ready "$CAPE_MACHINE_IP"')
-a=s.index('if cape_agent_wait "$CAPE_MACHINE_IP" "$WINDOWS_CONTROL_BOOT_TIMEOUT"', w)
+a=s.index('if windows_wait_for_cape_agent_visible "$CAPE_MACHINE_IP" "$WINDOWS_CONTROL_BOOT_TIMEOUT"', w)
 z=s.index('No supported zero-touch Windows control channel is available', a)
 assert q < w < a < z
 assert "WINDOWS_BACKEND_USED=cape-agent-execpy" in s
