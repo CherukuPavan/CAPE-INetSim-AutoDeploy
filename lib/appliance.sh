@@ -162,17 +162,18 @@ appliance_fetch() {
   local manifest="${1:-$APPLIANCE_MANIFEST}"
   appliance_manifest_validate "$manifest" >/dev/null
 
-  local name url compression transport_name cache raw_part transport transport_part
+  local name url compression transport_name transport_sha cache raw_part transport transport_part
   name="$(appliance_manifest_field artifact_name "$manifest")"
   url="$(appliance_manifest_field artifact_url "$manifest")"
   compression="$(appliance_manifest_field transport.compression "$manifest")"
   transport_name="$(appliance_manifest_field transport.artifact_name "$manifest")"
+  transport_sha="$(appliance_manifest_field transport.sha256 "$manifest")"
 
   install -d -m 0755 "$APPLIANCE_CACHE_ROOT"
   cache="$APPLIANCE_CACHE_ROOT/$name"
   raw_part="$cache.part"
   transport="$APPLIANCE_CACHE_ROOT/$transport_name"
-  transport_part="$transport.part"
+  transport_part="$transport.$transport_sha.part"
 
   if [[ -f "$cache" ]] && appliance_verify_file "$cache" "$manifest" >/dev/null 2>&1; then
     pass "Reusing verified cached appliance artifact" >&2
@@ -189,9 +190,8 @@ appliance_fetch() {
     appliance_download_transport "$url" "$transport_part" || return $?
 
     if ! appliance_verify_transport_file "$transport_part" "$manifest" >/dev/null 2>&1; then
-      # A stale partial file can happen when a newer immutable release reuses
-      # the same transport filename. Its checksum proves it cannot belong to
-      # this manifest, so restart exactly once from byte zero.
+      # Even an exact-SHA partial can be corrupted locally. Its checksum proves
+      # it cannot be completed into this manifest, so restart exactly once.
       warn "Resumed appliance transport did not match this release checksum; retrying once from byte 0" >&2
       : >"$transport_part"
       appliance_download_transport "$url" "$transport_part" || return $?
