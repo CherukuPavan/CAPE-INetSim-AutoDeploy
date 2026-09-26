@@ -16,7 +16,6 @@ run_discovery() {
   targets_discover_all
   targets_prepare_after_network_plan
 
-  discover_hypervisor_safety_features
   discover_busy_state
   check_cape_layout
   discover_resources
@@ -45,20 +44,19 @@ print_plan() {
   kv "CAPE analysis target count:" "${CAPE_TARGETS_COUNT:-0}"
   echo "  Analysis targets:"
   targets_summary_lines | sed 's/^/    /'
-  kv "libvirt clean-traffic nwfilter:" "${MANAGEMENT_NWFILTER_AVAILABLE:-unknown}"
-  kv "nwfilter runtime mode:" "${NWFILTER_RUNTIME_MODE:-unknown}"
-
-  echo; echo "Windows control"
-  echo "  Backend discovery is recorded independently for every CAPE analysis VM."
-  echo "  Powered-off guests are probed again automatically during safe cutover."
+  echo; echo "Task-scoped routing"
+  echo "  CAPE remains authoritative for each task's selected route."
+  echo "  internet -> existing CAPE Internet path"
+  echo "  inetsim  -> dedicated Ubuntu INetSim appliance"
+  echo "  none     -> CAPE drop/no-network path"
 
   echo; echo "Network plan"
   kv "isolated subnet:" "${ISOLATED_SUBNET:-unavailable}"
   kv "bridge address:" "${BRIDGE_IP:-unavailable}"
   kv "INetSim address:" "${INETSIM_IP:-unavailable}"
-  kv "Windows fake-Internet range:" "unique .10+ address per analysis target"
-  kv "Windows DNS:" "${INETSIM_IP:-unavailable}"
-  kv "CAPE capture:" "per-machine fake IP on ${ISOLATED_BRIDGE_NAME:-planned isolated bridge}"
+  kv "CAPE INetSim route interface:" "${ISOLATED_BRIDGE_NAME:-planned isolated bridge}"
+  kv "CAPE INetSim server:" "${INETSIM_IP:-unavailable}"
+  kv "CAPE capture:" "normal interface except route=inetsim, which captures on the isolated bridge"
 
   echo; echo "Safety / compatibility"
   kv "CAPE busy signal:" "${CAPE_BUSY:-unknown}"
@@ -74,10 +72,9 @@ print_plan() {
   echo; echo "Future deployment will create/configure"
   echo "  - generalized Ubuntu INetSim appliance"
   echo "  - isolated libvirt network with no NAT/default gateway"
-  echo "  - secondary NIC on every enabled Windows-compatible CAPE analysis VM"
-  echo "  - unique Windows fake-Internet IP/DNS per VM while preserving CAPE management"
-  echo "  - CAPE-compatible running-state analysis snapshot for every target VM"
-  echo "  - per-machine CAPE capture on the isolated network"
+  echo "  - no permanent network changes inside Windows analysis VMs"
+  echo "  - existing CAPE running-state analysis snapshots remain unchanged"
+  echo "  - CAPE native route=inetsim registration and route-scoped capture"
   echo "  - Network Analysis visibility for simulated traffic"
   echo "  - CAPE-INetSim-VM-Extension integration"
 
