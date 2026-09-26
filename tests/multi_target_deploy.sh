@@ -37,9 +37,10 @@ windows_create_running_snapshot(){ echo "unexpected windows_create_running_snaps
 deploy_windows_cutover
 
 [[ "$DEPLOYMENT_PHASE" == windows-all-ready ]]
+expected=(snap-a snap-b snap-c)
 for i in 0 1 2; do
   [[ "$(targets_get "$i" phase)" == snapshots-ready ]]
-  [[ "$(targets_get "$i" final_snapshot)" == "snap-$(printf '%s' "$([[ $i == 0 ]] && echo a || ([[ $i == 1 ]] && echo b || echo c)))" ]]
+  [[ "$(targets_get "$i" final_snapshot)" == "${expected[$i]}" ]]
   [[ -z "$(targets_get "$i" safety_snapshot)" ]]
   [[ -z "$(targets_get "$i" working_snapshot)" ]]
   [[ -z "$(targets_get "$i" isolated_mac)" ]]
