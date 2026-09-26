@@ -89,6 +89,8 @@ grep -Fq 'network_inetsim-tab' "$C/web/templates/analysis/network/index.html"
 grep -Fq 'network_inetsim_tab' "$C/web/templates/analysis/network/index.html"
 grep -Fq 'inetsim_vm_active:analysis.info.route' "$C/web/templates/analysis/network/index.html"
 grep -Fq 'inetsim_vm_context:analysis.info.route' "$C/web/templates/analysis/network/_inetsim_vm_visual.html"
+grep -Fq 'CAPE_INETSIM_VM_ROUTE_STATUS_V3' "$C/web/templates/analysis/network/_inetsim_vm_visual.html"
+grep -Fq 'route=inetsim was selected for this task' "$C/web/templates/analysis/network/_inetsim_vm_visual.html"
 [[ -f "$C/web/analysis/templatetags/inetsim_vm_tags.py" ]]
 [[ -f "$C/web/templates/analysis/network/_inetsim_vm_visual.html" ]]
 [[ -f "$C/web/analysis/inetsim_vm_logic.py" ]]
@@ -148,5 +150,7 @@ grep -Fq './scripts/rollback.sh --check' "$ROOT/lib/extension.sh"
 grep -Fq "printf 'RESTORE\\n'" "$ROOT/lib/extension.sh"
 grep -Fq 'extension-legacy' "$ROOT/lib/extension.sh"
 grep -Fq 'CAPE_INETSIM_VM_ROUTE_GATED_V2' "$ROOT/lib/extension.sh"
+grep -Fq 'CAPE_INETSIM_VM_ROUTE_STATUS_V3' "$ROOT/lib/extension.sh"
+grep -Fq 'Refreshing transaction-owned INetSim route-status UI' "$ROOT/lib/extension.sh"
 
 echo '[PASS] vendored extension v1.0.2 supports modern CAPE, managed preflight, stale-runtime refresh, and protected RC44 upgrade'
