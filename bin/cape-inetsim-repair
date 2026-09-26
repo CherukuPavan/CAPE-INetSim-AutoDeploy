@@ -136,9 +136,7 @@ DEPLOYMENT_PHASE=repairing
 state_write_atomic
 cape_configure_inetsim
 
-if ! grep -Rqs 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$CAPE_ROOT/web"; then
-  extension_install
-fi
+extension_upgrade_route_aware
 
 validate_deployment_structural
 
