@@ -38,10 +38,11 @@ deploy_phase_is_resumable() {
 deploy_required_commands() {
   local -a missing=()
   local cmd
-  for cmd in python3 virsh qemu-img virt-install curl flock ip systemctl sysctl tar gzip sha256sum base64 timeout nft; do
+  for cmd in virsh qemu-img virt-install curl flock ip systemctl sysctl tar gzip sha256sum base64 timeout nft; do
     have "$cmd" || missing+=("$cmd")
   done
-  if ((${#missing[@]})); then
+  [[ -n "${AD_HOST_PYTHON:-}" && -x "${AD_HOST_PYTHON:-}" ]] || missing+=("Python>=3.10")
+  if (("${#missing[@]}")); then
     fail "Missing required host command(s): ${missing[*]}"
     return 1
   fi
@@ -69,7 +70,7 @@ deploy_assert_supported_environment() {
     fail "No CAPE Windows analysis targets were discovered"
     return 1
   }
-  python3 - "${CAPE_TARGETS_JSON:-[]}" <<'PY' || {
+  ad_python - "${CAPE_TARGETS_JSON:-[]}" <<'PY' || {
 import json,sys
 a=json.loads(sys.argv[1])
 assert a, "empty target set"
@@ -103,8 +104,9 @@ PY
     existing_phase="$( (state_load >/dev/null 2>&1 && printf '%s' "$DEPLOYMENT_PHASE") || true )"
   fi
   if [[ ! -f "$AD_STATE_FILE" || "$existing_phase" == rolled-back ]]; then
-    systemctl is-active --quiet cape.service || {
-      fail "cape.service must be active before a new deployment"
+    [[ -n "${CAPE_SCHEDULER_SERVICE:-}" ]] || { fail "CAPE scheduler service was not discovered"; return 1; }
+    systemctl is-active --quiet "$CAPE_SCHEDULER_SERVICE" || {
+      fail "CAPE scheduler service must be active before a new deployment: $CAPE_SCHEDULER_SERVICE"
       return 1
     }
     if grep -Eq 'CAPE_INETSIM_AUTODEPLOY_CAPTURE_V(1|2)' "$CAPE_ROOT/modules/auxiliary/sniffer.py" 2>/dev/null; then
