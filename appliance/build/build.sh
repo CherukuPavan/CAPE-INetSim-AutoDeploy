@@ -153,7 +153,7 @@ grep -Fxq 'net.ipv4.ip_forward=0' < <(virt-cat -a "$OUT.part" /etc/sysctl.d/99-c
 grep -Fxq 'net.ipv6.conf.all.forwarding=0' < <(virt-cat -a "$OUT.part" /etc/sysctl.d/99-cape-inetsim-isolation.conf)
 virt-cat -a "$OUT.part" /usr/local/sbin/cape-inetsim-guest-configure | grep -q -- '--management-mac'
 virt-cat -a "$OUT.part" /usr/local/sbin/cape-inetsim-gui-enable | grep -q 'CAPE_INETSIM_GUI_OK'
-virt-cat -a "$OUT.part" /etc/cape-inetsim-gui-v4 >/dev/null
+virt-cat -a "$OUT.part" /etc/cape-inetsim-gui-v5 >/dev/null
 virt-cat -a "$OUT.part" /etc/cloud/cloud-init.disabled >/dev/null
 
 mv "$OUT.part" "$OUT"
