@@ -21,7 +21,7 @@ Usage:
   sudo ./install --acceptance --positive-task ID --negative-task ID --marker UNIQUE_HOST
 
 This is read-only with respect to CAPE, libvirt, Windows and networking.
-It validates a controlled route=none task pair already completed on the host.
+It validates a controlled route=inetsim task pair already completed on the host.
 The positive report must contain the exact unique marker and INetSim context.
 The positive packet capture must then contain that marker in traffic to/from
 INetSim. The negative task must not contain the marker; ordinary Windows
@@ -119,7 +119,7 @@ pcap_has_marker() {
 }
 
 pcap_has_inetsim "$POS_PCAP" || {
-  fail "Positive task $POSITIVE_TASK has no packet-capture traffic for $INETSIM_IP"
+  fail "Positive route=inetsim task $POSITIVE_TASK has no packet-capture traffic for $INETSIM_IP"
   exit 24
 }
 
