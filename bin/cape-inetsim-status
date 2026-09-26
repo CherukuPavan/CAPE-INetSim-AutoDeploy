@@ -43,9 +43,12 @@ kv "INetSim domain:" "${INETSIM_DOMAIN_NAME:-unknown}"
 kv "INetSim VM state:" "$(domain_state "${INETSIM_DOMAIN_NAME:-}")"
 kv "INetSim IP:" "${INETSIM_IP:-unknown}"
 kv "Windows fake IP:" "${WINDOWS_FAKE_IP:-unknown}"
-kv "cape.service:" "$(systemctl is-active cape.service 2>/dev/null || true)"
-kv "cape-processor:" "$(systemctl is-active cape-processor.service 2>/dev/null || true)"
-kv "cape-web:" "$(systemctl is-active cape-web.service 2>/dev/null || true)"
+kv "scheduler service:" "${CAPE_SCHEDULER_SERVICE:-unknown} ($(systemctl is-active "${CAPE_SCHEDULER_SERVICE:-__missing__}" 2>/dev/null || true))"
+kv "processor service:" "${CAPE_PROCESSOR_SERVICE:-none} $( [[ -n "${CAPE_PROCESSOR_SERVICE:-}" ]] && systemctl is-active "$CAPE_PROCESSOR_SERVICE" 2>/dev/null || true )"
+kv "web service:" "${CAPE_WEB_SERVICE:-none} $( [[ -n "${CAPE_WEB_SERVICE:-}" ]] && systemctl is-active "$CAPE_WEB_SERVICE" 2>/dev/null || true )"
+kv "rooter service:" "${CAPE_ROOTER_SERVICE:-none} $( [[ -n "${CAPE_ROOTER_SERVICE:-}" ]] && systemctl is-active "$CAPE_ROOTER_SERVICE" 2>/dev/null || true )"
+kv "rooter socket:" "$(services_rooter_socket_path 2>/dev/null || echo unknown)"
+kv "CAPE Python:" "${CAPE_RUNTIME_PYTHON:-unknown}"
 
 if [[ -n "${DEPLOYMENT_ID:-}" && -f "$AD_LOG_ROOT/${DEPLOYMENT_ID}-functional-acceptance.json" ]]; then
   ACCEPTANCE_STATUS="$(python3 - "$AD_LOG_ROOT/${DEPLOYMENT_ID}-functional-acceptance.json" <<'PY'
