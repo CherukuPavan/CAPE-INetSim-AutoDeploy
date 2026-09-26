@@ -106,9 +106,7 @@ INETSIM_VM_IP = "{server_ip}"
 @register.filter(name="inetsim_vm_active")
 def inetsim_vm_active(network, route):
     try:
-        if str(route or "").strip().lower() != "inetsim":
-            return False
-        return bool(network_uses_inetsim(network or {{}}, INETSIM_VM_IP))
+        return str(route or "").strip().lower() == "inetsim"
     except Exception:
         return False
 
@@ -157,7 +155,7 @@ visual_target.write_text(
 <div class="card bg-dark border-secondary mb-3">
   <div class="card-header">
     <i class="fas fa-flask me-2"></i>INetSim Visual
-    <span class="text-muted ms-2">task-local captured evidence</span>
+    <span class="text-muted ms-2">route=inetsim · task-local captured evidence</span>
   </div>
   <div class="card-body">
     <p class="mb-2"><strong>INetSim server:</strong> {{ network|inetsim_vm_server_ip }}</p>
@@ -212,7 +210,10 @@ visual_target.write_text(
     {% endif %}
 
     {% if not inetsim.enabled %}
-    <div class="text-muted">No task-local traffic to the configured INetSim endpoint was observed.</div>
+    <div class="alert alert-secondary mb-0">
+      <strong>route=inetsim was selected for this task, but no task-local INetSim traffic was captured.</strong>
+      Route selection does not itself generate network packets; the analyzed sample must perform DNS/HTTP/other network activity.
+    </div>
     {% endif %}
   </div>
 </div>
