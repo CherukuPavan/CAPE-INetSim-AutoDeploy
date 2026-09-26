@@ -36,6 +36,7 @@ checks=[
     ("auxiliary","sniffer"),
     ("processing","network"),
     ("routing","routing"),
+    ("routing","inetsim"),
 ]
 problems=[]
 for name,section in checks:
