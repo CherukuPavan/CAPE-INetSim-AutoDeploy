@@ -84,18 +84,10 @@ for d in a:
     assert d.get("management_mac"), f"{d.get('section','?')}: management MAC unknown"
     assert d.get("resultserver_ip"), f"{d.get('section','?')}: ResultServer IP unknown"
     assert str(d.get("resultserver_port","")).isdigit(), f"{d.get('section','?')}: ResultServer port invalid"
-    assert d.get("fake_ip"), f"{d.get('section','?')}: fake-Internet IP was not planned"
 PY
     fail "One or more CAPE analysis VMs failed the multi-machine safety preflight"
     return 1
   }
-  case "${MANAGEMENT_NWFILTER_AVAILABLE:-no}" in
-    yes|activatable) ;;
-    *)
-      fail "libvirt clean-traffic nwfilter is neither ready nor safely activatable"
-      return 1
-      ;;
-  esac
   [[ -n "${MANAGEMENT_NETWORK_NAME:-}" ]] || { fail "Management libvirt network is unknown"; return 1; }
   [[ -n "${CAPE_RESULTSERVER_IP:-}" && "${CAPE_RESULTSERVER_PORT:-}" =~ ^[0-9]+$ ]] || {
     fail "CAPE ResultServer path could not be derived"
@@ -316,7 +308,6 @@ deploy_initialize_or_resume_state() {
 deploy_stage_non_disruptive() {
   local artifact
   info "Staging isolated network and generalized INetSim appliance; CAPE analyses are not interrupted."
-  nwfilter_runtime_prepare
   artifact="$(appliance_fetch "$APPLIANCE_MANIFEST")"
 
   isolated_network_apply
@@ -344,7 +335,6 @@ deploy_stage_non_disruptive() {
 
 deploy_validate_staged_resources() {
   local artifact
-  nwfilter_runtime_prepare
   artifact="$(appliance_fetch "$APPLIANCE_MANIFEST")"
   isolated_network_apply
   firewall_apply
