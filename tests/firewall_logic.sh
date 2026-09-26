@@ -17,14 +17,21 @@ CAPE_TARGETS_JSON='[
   {"section":"win10","domain":"win10","management_bridge":"virbr0","management_mac":"52:54:00:11:22:33","ip":"192.168.122.100","fake_ip":"192.168.200.10","resultserver_ip":"192.168.122.1","resultserver_port":"2042","phase":"nic-attached"},
   {"section":"win7","domain":"win7","management_bridge":"virbr0","management_mac":"52:54:00:11:22:44","ip":"192.168.122.101","fake_ip":"192.168.200.11","resultserver_ip":"192.168.122.1","resultserver_port":"2042","phase":"cape-configured"}
 ]'
-full="$(firewall_render_rules capeisim7 yes)"
+protected="$(firewall_render_rules capeisim7 yes)"
+grep -Fq 'CAPE_INETSIM_ROUTE_AWARE_FIREWALL_V2' <<<"$protected"
+grep -Fq 'iifname "capeisim7" ip saddr 192.168.200.10 ip daddr 192.168.122.1 tcp dport 2042 accept' <<<"$protected"
+grep -Fq 'iifname "capeisim7" ip saddr 192.168.200.11 ip daddr 192.168.122.1 tcp dport 2042 accept' <<<"$protected"
+grep -Fq 'iifname "virbr0" ip saddr 192.168.122.100 drop' <<<"$protected"
+grep -Fq 'iifname "virbr0" ether saddr 52:54:00:11:22:33 drop' <<<"$protected"
+grep -Fq 'table bridge cape_inetsim_autodeploy_l2' <<<"$protected"
+grep -Fq 'Temporary deployment cutover guard' <<<"$protected"
+
+full="$(firewall_render_rules capeisim7 no)"
 grep -Fq 'CAPE_INETSIM_ROUTE_AWARE_FIREWALL_V2' <<<"$full"
 grep -Fq 'iifname "capeisim7" ip saddr 192.168.200.10 ip daddr 192.168.122.1 tcp dport 2042 accept' <<<"$full"
-grep -Fq 'iifname "capeisim7" ip saddr 192.168.200.11 ip daddr 192.168.122.1 tcp dport 2042 accept' <<<"$full"
 ! grep -Fq 'iifname "virbr0" ip saddr 192.168.122.100 drop' <<<"$full"
-! grep -Fq 'iifname "virbr0" ether saddr 52:54:00:11:22:33 drop' <<<"$full"
 ! grep -Fq 'table bridge cape_inetsim_autodeploy_l2' <<<"$full"
-! grep -Fq 'iifname "capeisim7" accept' <<<"$full"
+! grep -Fq 'Temporary deployment cutover guard' <<<"$full"
 
 unit="$(firewall_render_unit)"
 grep -Fq 'ExecStartPre=-/usr/sbin/nft delete table inet cape_inetsim_autodeploy' <<<"$unit"
@@ -32,7 +39,7 @@ grep -Fq 'ExecStartPre=-/usr/sbin/nft delete table bridge cape_inetsim_autodeplo
 grep -Fq 'ExecStart=/usr/sbin/nft -f /etc/cape-inetsim-autodeploy/firewall.nft' <<<"$unit"
 grep -Fq 'ExecStop=-/usr/sbin/nft delete table bridge cape_inetsim_autodeploy_l2' <<<"$unit"
 
-echo '[PASS] host firewall keeps isolated network fail-closed without overriding CAPE task routes'
+echo '[PASS] host firewall uses temporary cutover egress blocking and route-aware committed runtime'
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -86,7 +93,8 @@ grep -Fq 'CAPE_INETSIM_ROUTE_AWARE_FIREWALL_V2' "$ROOT/lib/firewall.sh"
 grep -q 'firewall_isolated_resultserver_records' "$ROOT/lib/firewall.sh"
 grep -q 'firewall_file_has_resultserver_exceptions_all' "$ROOT/lib/firewall.sh"
 grep -q 'firewall_resultserver_exceptions_match_all' "$ROOT/lib/firewall.sh"
-! grep -q 'Restored firewall is missing one or more Windows management egress guards' "$ROOT/lib/firewall.sh"
+grep -Fq 'firewall_apply protected' "$ROOT/lib/firewall.sh"
+grep -Fq 'removed-before-handoff' "$ROOT/lib/firewall.sh"
 python3 - "$ROOT/bin/cape-inetsim-repair" <<'PY'
 import sys
 s=open(sys.argv[1],encoding="utf-8").read()
