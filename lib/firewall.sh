@@ -36,23 +36,25 @@ PY
 }
 
 firewall_render_rules() {
-  local isolated_bridge="$1"
+  local isolated_bridge="$1" include_management="${2:-no}"
+  local records="" resultserver_records=""
+
+  [[ "$include_management" == yes ]] && records="$(firewall_management_records)"
+  resultserver_records="$(firewall_isolated_resultserver_records)"
 
   cat <<EOF
 # CAPE-INetSim-AutoDeploy managed rules. Do not edit while deployment is active.
 # CAPE_INETSIM_ROUTE_AWARE_FIREWALL_V2
 #
-# The isolated bridge itself is always fail-closed toward the host/routed
-# networks. We deliberately do NOT install a permanent management-NIC egress
-# drop here: CAPE's per-task rooter owns internet/inetsim/none/drop selection.
+# The isolated bridge is permanently fail-closed toward routed networks.
+# Management-NIC egress drops are temporary cutover guards only; committed
+# runtime leaves CAPE's per-task rooter authoritative for internet/inetsim/none/drop.
 table inet $FIREWALL_TABLE {
   chain input_guard {
     type filter hook input priority -50; policy accept;
     iifname "$isolated_bridge" ct state established,related accept
 EOF
 
-  local resultserver_records
-  resultserver_records="$(firewall_isolated_resultserver_records)"
   if [[ -n "$resultserver_records" ]]; then
     echo "    # Permit only CAPE ResultServer ingress from planned fake-IP identities."
     local fake_ip result_ip result_port result_domain
@@ -71,11 +73,41 @@ EOF
     type filter hook forward priority -50; policy accept;
     iifname "$isolated_bridge" drop
     oifname "$isolated_bridge" drop
+EOF
+
+  if [[ -n "$records" ]]; then
+    echo "    # Temporary deployment cutover guard; removed before scheduler handoff."
+    local bridge mac ip domain
+    while IFS='|' read -r bridge mac ip domain; do
+      [[ -n "$bridge" && -n "$mac" && -n "$ip" ]] || continue
+      printf '    iifname "%s" ether saddr %s drop\n' "$bridge" "$mac"
+      printf '    iifname "%s" ip saddr %s drop\n' "$bridge" "$ip"
+    done <<<"$records"
+  fi
+
+  cat <<'EOF'
   }
 }
 EOF
-}
 
+  if [[ -n "$records" ]]; then
+    cat <<EOF
+
+table bridge $FIREWALL_BRIDGE_TABLE {
+  chain forward_guard {
+    type filter hook forward priority -50; policy accept;
+EOF
+    local bridge mac ip domain
+    while IFS='|' read -r bridge mac ip domain; do
+      [[ -n "$mac" ]] || continue
+      printf '    ether saddr %s drop\n' "$mac"
+    done <<<"$records"
+    cat <<'EOF'
+  }
+}
+EOF
+  fi
+}
 firewall_render_unit() {
   cat <<EOF
 # CAPE-INetSim-AutoDeploy managed unit.
@@ -226,17 +258,21 @@ firewall_unit_matches_project() {
 }
 
 firewall_apply() {
+  local mode="${1:-base}" want_management=no
   have nft || { fail "nftables command 'nft' is required for fake-Internet egress guard"; return 1; }
   [[ -n "${ISOLATED_BRIDGE_NAME:-}" ]] || { fail "Isolated bridge is unknown"; return 1; }
+  [[ "$mode" == base || "$mode" == protected ]] || { fail "Unknown firewall mode: $mode"; return 1; }
 
-  # Route-aware mode: hypervisor anti-spoof protection remains mandatory,
-  # but host management-interface egress is controlled per task by CAPE.
-  # A permanent management drop would break route=internet.
-  local want_management=no
-  firewall_validate_management_antispof_all || {
-    fail "One or more CAPE analysis management NIC anti-spoof guards are not active"
-    return 1
-  }
+  # During Windows cutover, temporarily block management-NIC egress before the
+  # restored guest is resumed. Before scheduler handoff we return to base mode,
+  # where CAPE's per-task rooter is authoritative.
+  if [[ "$mode" == protected && -n "$(firewall_management_records)" ]]; then
+    want_management=yes
+    firewall_validate_management_antispof_all || {
+      fail "One or more CAPE analysis management NIC anti-spoof guards are not active"
+      return 1
+    }
+  fi
 
   if [[ -e "$FIREWALL_RULES" ]] &&
      ! state_resource_owned firewall-file "$FIREWALL_RULES" &&
@@ -265,8 +301,15 @@ firewall_apply() {
      firewall_file_matches_base && firewall_unit_matches_project &&
      firewall_table_matches_base &&
      systemctl is-active --quiet cape-inetsim-autodeploy-firewall.service; then
-    pass "Route-aware isolated-network firewall guard already active"
-    return 0
+    if [[ "$want_management" == yes ]]; then
+      if firewall_file_has_management_guards_all && firewall_management_guards_match_all; then
+        pass "Temporary Windows cutover egress guard already active"
+        return 0
+      fi
+    elif ! firewall_bridge_table_exists && ! grep -Fq "Temporary deployment cutover guard" "$FIREWALL_RULES"; then
+      pass "Route-aware isolated-network firewall guard already active"
+      return 0
+    fi
   fi
 
   install -d -m 0755 "$FIREWALL_DIR"
@@ -297,15 +340,31 @@ firewall_apply() {
     return 1
   }
   systemctl is-active --quiet cape-inetsim-autodeploy-firewall.service
-  local old_bridge old_mac old_ip old_domain
-  while IFS='|' read -r old_bridge old_mac old_ip old_domain; do
-    [[ -n "$old_domain" && -n "$old_mac" ]] || continue
-    if state_resource_owned firewall-management-guard "$old_domain:$old_mac"; then
-      state_record_resource firewall-management-guard "$old_domain:$old_mac" removed-by-route-aware-upgrade yes "CAPE per-task routing now authoritative"
-    fi
-  done < <(firewall_management_records)
 
-  state_record_resource firewall-file "$FIREWALL_RULES" created yes "bridge=$ISOLATED_BRIDGE_NAME route-aware=yes"
+  local old_bridge old_mac old_ip old_domain
+  if [[ "$want_management" == yes ]]; then
+    firewall_file_has_management_guards_all && firewall_management_guards_match_all || {
+      fail "Temporary Windows cutover management egress guard did not become active"
+      return 1
+    }
+    while IFS='|' read -r old_bridge old_mac old_ip old_domain; do
+      [[ -n "$old_domain" && -n "$old_mac" ]] || continue
+      state_record_resource firewall-management-guard "$old_domain:$old_mac" active yes "bridge=$old_bridge ip=$old_ip temporary=yes"
+    done < <(firewall_management_records)
+  else
+    ! firewall_bridge_table_exists || {
+      fail "Route-aware runtime still has the obsolete management bridge drop table"
+      return 1
+    }
+    while IFS='|' read -r old_bridge old_mac old_ip old_domain; do
+      [[ -n "$old_domain" && -n "$old_mac" ]] || continue
+      if state_resource_owned firewall-management-guard "$old_domain:$old_mac"; then
+        state_record_resource firewall-management-guard "$old_domain:$old_mac" removed-before-handoff yes "CAPE per-task routing now authoritative"
+      fi
+    done < <(firewall_management_records)
+  fi
+
+  state_record_resource firewall-file "$FIREWALL_RULES" created yes "bridge=$ISOLATED_BRIDGE_NAME route-aware=yes mode=$mode"
   state_record_resource firewall-unit "$FIREWALL_UNIT" created yes ""
   state_record_resource firewall-table "$FIREWALL_TABLE" created yes "bridge=$ISOLATED_BRIDGE_NAME route-aware=yes"
   state_write_atomic
@@ -325,8 +384,8 @@ firewall_enable_windows_management_guard() {
     return 1
   }
 
-  firewall_apply
-  pass "Route-aware management path preserved; CAPE per-task routing remains authoritative"
+  firewall_apply protected
+  pass "Temporary management egress guard active for safe Windows cutover"
 }
 
 firewall_verify() {
