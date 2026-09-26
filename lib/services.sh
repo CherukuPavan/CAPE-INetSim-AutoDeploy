@@ -130,6 +130,24 @@ services_wait_expected_active() {
   return 1
 }
 
+services_prepare_route_control_plane() {
+  # Bring up only the privileged routing control plane while CAPE scheduling is
+  # held at a task-safe point. This is intentionally separate from the final
+  # service handoff so Rooter can be probed before queued analyses are released.
+  systemctl cat cape-rooter.service >/dev/null 2>&1 || {
+    fail "cape-rooter.service is required for route=inetsim"
+    return 1
+  }
+
+  routing_forwarding_verify || routing_forwarding_apply || return 1
+
+  systemctl enable cape-rooter.service >/dev/null
+  systemctl restart cape-rooter.service
+  services_wait_expected_active cape-rooter.service "$CAPE_SERVICE_READY_TIMEOUT" || return 1
+
+  pass "CAPE Rooter control plane is active for route=inetsim validation"
+}
+
 services_activate_deployment_state() {
   systemctl cat cape-rooter.service >/dev/null 2>&1 || {
     fail "cape-rooter.service is required for route=inetsim"
