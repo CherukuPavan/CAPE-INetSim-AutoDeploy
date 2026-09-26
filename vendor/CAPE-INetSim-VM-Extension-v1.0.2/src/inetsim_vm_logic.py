@@ -206,7 +206,7 @@ def summarize_inetsim_network(network, server_ip):
 
 
 # ============================================================
-# CAPE_INETSIM_VM_ROUTE_NONE_CONTEXT_V1
+# CAPE_INETSIM_VM_ROUTE_GATED_CONTEXT_V2
 # ============================================================
 
 def _normalized_host(value):
@@ -479,10 +479,9 @@ def _route_none_https_rows(network, server_ip):
     return rows
 
 
-def build_route_none_inetsim_context(network, server_ip):
+def build_inetsim_route_context(network, server_ip):
     """
-    Build the visual data model for Ubuntu-VM INetSim analyses
-    submitted with CAPE route=none.
+    Build the visual data model only for CAPE tasks whose authoritative\n    route is the dedicated INetSim route.
 
     This function uses only task-local CAPE network evidence.
     It never reads or fabricates global INetSim service-log data.
@@ -492,9 +491,9 @@ def build_route_none_inetsim_context(network, server_ip):
 
     base = {
         "enabled": False,
-        "route": "none",
+        "route": "inetsim",
         "server": server_ip,
-        "mode": "route-none-task-network",
+        "mode": "inetsim-task-network",
 
         "correlation": {
             "method": "CAPE task-local network evidence",

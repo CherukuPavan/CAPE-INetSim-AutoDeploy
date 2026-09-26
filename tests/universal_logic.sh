@@ -34,7 +34,7 @@ collect_used_cidrs(){ printf '%s\n' '192.168.200.0/24' '192.168.122.0/24'; }
 DISCOVERY_ERRORS=()
 plan_isolated_subnet
 [[ "$ISOLATED_SUBNET" != "192.168.200.0/24" ]]
-[[ -n "$BRIDGE_IP" && -n "$INETSIM_IP" && -n "$WINDOWS_FAKE_IP" ]]
+[[ -n "$BRIDGE_IP" && -n "$INETSIM_IP" && -z "$WINDOWS_FAKE_IP" ]]
 
 echo "[PASS] universal machine selection and subnet fallback"
 

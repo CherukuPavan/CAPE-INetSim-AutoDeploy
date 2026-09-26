@@ -38,13 +38,13 @@ cape_assert_owned_files_unchanged() {
 
 patch_sniffer_capture_override() {
   local file="$1"
-  if grep -q 'CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1' "$file"; then return 0; fi
+  if grep -q 'CAPE_INETSIM_AUTODEPLOY_CAPTURE_V2' "$file"; then return 0; fi
   python3 - "$file" <<'PY'
 import sys
 p=sys.argv[1]
 s=open(p).read()
-old='''        host = self.machine.ip\n        # Selects per-machine interface if available.\n'''
-new='''        # CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1\n        capture_host_key = f"capture_host_{self.machine.label}"\n        host = self.options.get(capture_host_key) or self.machine.ip\n        if host != self.machine.ip:\n            log.info("Using packet-capture host override %s=%s", capture_host_key, host)\n        # Selects per-machine interface if available.\n'''
+old='''        host = self.machine.ip\n        # Selects per-machine interface if available.\n        interface = self.machine.interface or self.options.get("interface")\n'''
+new='''        # CAPE_INETSIM_AUTODEPLOY_CAPTURE_V2\n        effective_route = str(self.task.route or router_cfg.routing.route or "").strip().lower()\n        if effective_route == "inetsim":\n            capture_interface_key = f"inetsim_capture_interface_{self.machine.label}"\n            capture_host_key = f"inetsim_capture_host_{self.machine.label}"\n            interface = self.options.get(capture_interface_key) or self.machine.interface or self.options.get("interface")\n            host = self.options.get(capture_host_key) or self.machine.ip\n            log.info("Using INetSim packet-capture path %s host=%s for route=inetsim", interface, host)\n        else:\n            host = self.machine.ip\n            interface = self.machine.interface or self.options.get("interface")\n'''
 if old not in s:
     raise SystemExit('known sniffer source block not found; refusing patch')
 if s.count(old)!=1:
@@ -77,18 +77,23 @@ cape_configure_inetsim() {
   CAPE_TARGETS_COUNT="$(targets_count)"
   for ((i=0;i<CAPE_TARGETS_COUNT;i++)); do
     targets_bind "$i"
-    [[ -n "${FINAL_SNAPSHOT:-}" ]] || { fail "Final running snapshot is not set for $CAPE_MACHINE_SECTION"; return 1; }
-    [[ -n "${WINDOWS_FAKE_IP:-}" ]] || { fail "Windows fake-Internet IP is not set for $CAPE_MACHINE_SECTION"; return 1; }
+    [[ -n "${MANAGEMENT_BRIDGE_NAME:-}" ]] || { fail "Management bridge is not set for $CAPE_MACHINE_SECTION"; return 1; }
 
-    python3 "$edit" "$CAPE_ROOT/conf/auxiliary.conf" sniffer "capture_host_${CAPE_MACHINE_LABEL}" "$WINDOWS_FAKE_IP"
-    python3 "$edit" "$CAPE_ROOT/conf/kvm.conf" "$CAPE_MACHINE_SECTION" snapshot "$FINAL_SNAPSHOT"
-    python3 "$edit" "$CAPE_ROOT/conf/kvm.conf" "$CAPE_MACHINE_SECTION" interface "$ISOLATED_BRIDGE_NAME"
+    python3 "$edit" "$CAPE_ROOT/conf/auxiliary.conf" sniffer "inetsim_capture_interface_${CAPE_MACHINE_LABEL}" "$ISOLATED_BRIDGE_NAME"
+    python3 "$edit" "$CAPE_ROOT/conf/auxiliary.conf" sniffer "inetsim_capture_host_${CAPE_MACHINE_LABEL}" "$CAPE_MACHINE_IP"
+    if [[ -n "${FINAL_SNAPSHOT:-}" ]]; then
+      python3 "$edit" "$CAPE_ROOT/conf/kvm.conf" "$CAPE_MACHINE_SECTION" snapshot "$FINAL_SNAPSHOT"
+    fi
+    python3 "$edit" "$CAPE_ROOT/conf/kvm.conf" "$CAPE_MACHINE_SECTION" interface "$MANAGEMENT_BRIDGE_NAME"
 
-    grep -Fq "capture_host_${CAPE_MACHINE_LABEL} = $WINDOWS_FAKE_IP" "$CAPE_ROOT/conf/auxiliary.conf"
+    grep -Fq "inetsim_capture_interface_${CAPE_MACHINE_LABEL} = $ISOLATED_BRIDGE_NAME" "$CAPE_ROOT/conf/auxiliary.conf"
+    grep -Fq "inetsim_capture_host_${CAPE_MACHINE_LABEL} = $CAPE_MACHINE_IP" "$CAPE_ROOT/conf/auxiliary.conf"
     local machine_block
     machine_block="$(grep -A160 -F "[$CAPE_MACHINE_SECTION]" "$CAPE_ROOT/conf/kvm.conf" || true)"
-    grep -m1 -Fq "snapshot = $FINAL_SNAPSHOT" <<<"$machine_block"
-    grep -m1 -Fq "interface = $ISOLATED_BRIDGE_NAME" <<<"$machine_block"
+    if [[ -n "${FINAL_SNAPSHOT:-}" ]]; then
+      grep -m1 -Fq "snapshot = $FINAL_SNAPSHOT" <<<"$machine_block"
+    fi
+    grep -m1 -Fq "interface = $MANAGEMENT_BRIDGE_NAME" <<<"$machine_block"
 
     TARGET_PHASE=cape-configured
     targets_capture_bound "$i"
@@ -96,18 +101,21 @@ cape_configure_inetsim() {
 
   python3 "$edit" "$CAPE_ROOT/conf/processing.conf" network dnswhitelist no
   python3 "$edit" "$CAPE_ROOT/conf/processing.conf" network ipwhitelist no
-  python3 "$edit" "$CAPE_ROOT/conf/routing.conf" routing route none
   python3 "$edit" "$CAPE_ROOT/conf/routing.conf" routing enable_pcap yes
+  python3 "$edit" "$CAPE_ROOT/conf/routing.conf" inetsim enabled yes
+  python3 "$edit" "$CAPE_ROOT/conf/routing.conf" inetsim server "$INETSIM_IP"
+  python3 "$edit" "$CAPE_ROOT/conf/routing.conf" inetsim dnsport 53
+  python3 "$edit" "$CAPE_ROOT/conf/routing.conf" inetsim interface "$ISOLATED_BRIDGE_NAME"
 
   local py
   py="$(cape_runtime_python)"
   "$py" -m py_compile "$CAPE_ROOT/modules/auxiliary/sniffer.py"
 
-  state_record_resource cape-file "$CAPE_ROOT/modules/auxiliary/sniffer.py" modified yes "capture-host-override"
-  state_record_resource cape-file "$CAPE_ROOT/conf/auxiliary.conf" modified yes "per-machine-capture-hosts=${CAPE_TARGETS_COUNT}"
-  state_record_resource cape-file "$CAPE_ROOT/conf/kvm.conf" modified yes "managed-machines=${CAPE_TARGETS_COUNT} snapshot+interface"
+  state_record_resource cape-file "$CAPE_ROOT/modules/auxiliary/sniffer.py" modified yes "route-aware-capture-override"
+  state_record_resource cape-file "$CAPE_ROOT/conf/auxiliary.conf" modified yes "per-machine-inetsim-capture=${CAPE_TARGETS_COUNT}"
+  state_record_resource cape-file "$CAPE_ROOT/conf/kvm.conf" modified yes "managed-machines=${CAPE_TARGETS_COUNT} preserved-snapshot+management-interface"
   state_record_resource cape-file "$CAPE_ROOT/conf/processing.conf" modified yes "dnswhitelist=no ipwhitelist=no"
-  state_record_resource cape-file "$CAPE_ROOT/conf/routing.conf" modified yes "route=none enable_pcap=yes"
+  state_record_resource cape-file "$CAPE_ROOT/conf/routing.conf" modified yes "inetsim=enabled per-task route separation enable_pcap=yes"
   cape_capture_post_hashes
   state_set_phase cape-configured
 

@@ -243,7 +243,28 @@ inetsim_configure_guest() {
     printf 'CONFIGURATOR_SHA256=%s\n' "$current_hash" >>"$guest_log"
   fi
 
-  if ! qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/bash -x "$selected_script"       --management-mac "$INETSIM_MANAGEMENT_MAC"       --isolated-mac "$INETSIM_ISOLATED_MAC"       --ip "$INETSIM_IP/24" >>"$guest_log" 2>&1; then
+  local -a configure_args=(
+    /bin/bash -x "$selected_script"
+    --management-mac "$INETSIM_MANAGEMENT_MAC"
+    --isolated-mac "$INETSIM_ISOLATED_MAC"
+    --ip "$INETSIM_IP/24"
+    --gateway "$BRIDGE_IP"
+  )
+  local client_ip
+  while IFS= read -r client_ip; do
+    [[ -n "$client_ip" ]] && configure_args+=(--client-ip "$client_ip")
+  done < <(python3 - "${CAPE_TARGETS_JSON:-[]}" <<'PY'
+import json,sys
+try: a=json.loads(sys.argv[1])
+except Exception: a=[]
+for d in a:
+    ip=str(d.get("ip") or "")
+    if ip:
+        print(ip)
+PY
+)
+
+  if ! qga_exec_wait "$INETSIM_DOMAIN_NAME" "${configure_args[@]}" >>"$guest_log" 2>&1; then
     inetsim_capture_guest_diagnostics
     fail "INetSim guest configuration failed; command trace and guest diagnostics were captured automatically"
     return 1

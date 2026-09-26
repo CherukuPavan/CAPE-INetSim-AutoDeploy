@@ -1,24 +1,31 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-usage(){ echo "usage: $0 --management-mac MAC --isolated-mac MAC --ip CIDR" >&2; exit 2; }
-MGMT_MAC=""; ISO_MAC=""; CIDR=""
+usage(){ echo "usage: $0 --management-mac MAC --isolated-mac MAC --ip CIDR --gateway IP [--client-ip IP ...]" >&2; exit 2; }
+MGMT_MAC=""; ISO_MAC=""; CIDR=""; GATEWAY=""
+CLIENT_IPS=()
 while (($#)); do
   case "$1" in
     --management-mac) MGMT_MAC="${2,,}"; shift 2 ;;
     --isolated-mac) ISO_MAC="${2,,}"; shift 2 ;;
     --ip) CIDR="$2"; shift 2 ;;
+    --gateway) GATEWAY="$2"; shift 2 ;;
+    --client-ip) CLIENT_IPS+=("$2"); shift 2 ;;
     *) usage ;;
   esac
 done
-[[ -n "$MGMT_MAC" && -n "$ISO_MAC" && -n "$CIDR" ]] || usage
+[[ -n "$MGMT_MAC" && -n "$ISO_MAC" && -n "$CIDR" && -n "$GATEWAY" ]] || usage
 [[ "$MGMT_MAC" != "$ISO_MAC" ]] || { echo "management and isolated MACs are identical" >&2; exit 29; }
 
 IP="${CIDR%/*}"
-python3 - "$CIDR" <<'PY'
+python3 - "$CIDR" "$GATEWAY" "${CLIENT_IPS[@]}" <<'PY'
 import ipaddress,sys
 n=ipaddress.ip_interface(sys.argv[1])
+g=ipaddress.ip_address(sys.argv[2])
 if not n.ip.is_private: raise SystemExit('isolated address must be private')
+if g not in n.network: raise SystemExit('isolated gateway must be on the isolated subnet')
+for raw in sys.argv[3:]:
+    ipaddress.ip_address(raw)
 PY
 
 iface_for_mac() {
@@ -58,6 +65,16 @@ network:
       accept-ra: false
       link-local: []
 EOF2
+
+if (("${#CLIENT_IPS[@]}" > 0)); then
+  {
+    echo "      routes:"
+    for client in "${CLIENT_IPS[@]}"; do
+      echo "        - to: ${client}/32"
+      echo "          via: ${GATEWAY}"
+    done
+  } >>/etc/netplan/90-cape-inetsim.yaml
+fi
 chmod 0600 /etc/netplan/90-cape-inetsim.yaml
 
 # Remove cloud-image generated network definitions so they cannot race/duplicate
@@ -73,6 +90,13 @@ if [[ "$DEFAULTS" -eq 1 ]]; then
   grep -Fq "dev $MGMT_IF" <<<"$DEFAULT_ROUTE" || { echo "default route is not on management interface $MGMT_IF" >&2; exit 34; }
   ! grep -Fq "dev $ISO_IF" <<<"$DEFAULT_ROUTE" || { echo "isolated interface $ISO_IF unexpectedly has a default route" >&2; exit 35; }
 fi
+
+for client in "${CLIENT_IPS[@]}"; do
+  ip -4 route get "$client" | grep -Fq "via $GATEWAY dev $ISO_IF" || {
+    echo "client return route is not isolated: $client" >&2
+    exit 37
+  }
+done
 
 CONF=/etc/inetsim/inetsim.conf
 [[ -f "$CONF.pre-autodeploy" ]] || cp -a "$CONF" "$CONF.pre-autodeploy"

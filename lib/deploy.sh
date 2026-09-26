@@ -84,26 +84,18 @@ for d in a:
     assert d.get("management_mac"), f"{d.get('section','?')}: management MAC unknown"
     assert d.get("resultserver_ip"), f"{d.get('section','?')}: ResultServer IP unknown"
     assert str(d.get("resultserver_port","")).isdigit(), f"{d.get('section','?')}: ResultServer port invalid"
-    assert d.get("fake_ip"), f"{d.get('section','?')}: fake-Internet IP was not planned"
 PY
     fail "One or more CAPE analysis VMs failed the multi-machine safety preflight"
     return 1
   }
-  case "${MANAGEMENT_NWFILTER_AVAILABLE:-no}" in
-    yes|activatable) ;;
-    *)
-      fail "libvirt clean-traffic nwfilter is neither ready nor safely activatable"
-      return 1
-      ;;
-  esac
   [[ -n "${MANAGEMENT_NETWORK_NAME:-}" ]] || { fail "Management libvirt network is unknown"; return 1; }
   [[ -n "${CAPE_RESULTSERVER_IP:-}" && "${CAPE_RESULTSERVER_PORT:-}" =~ ^[0-9]+$ ]] || {
     fail "CAPE ResultServer path could not be derived"
     return 1
   }
 
-  # A brand-new deployment needs the scheduler/ResultServer alive so the
-  # management path can be proven before Windows is changed. A completed
+  # A brand-new deployment needs the scheduler/ResultServer alive before the
+  # CAPE routing/extension handoff. A completed
   # rollback is also a fresh deployment boundary; only an actually resumable
   # transaction may legitimately have cape.service stopped at handoff.
   local existing_phase=""
@@ -115,11 +107,11 @@ PY
       fail "cape.service must be active before a new deployment"
       return 1
     }
-    if grep -q 'CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1' "$CAPE_ROOT/modules/auxiliary/sniffer.py" 2>/dev/null; then
+    if grep -Eq 'CAPE_INETSIM_AUTODEPLOY_CAPTURE_V(1|2)' "$CAPE_ROOT/modules/auxiliary/sniffer.py" 2>/dev/null; then
       fail "An untracked AutoDeploy sniffer patch already exists; refusing to claim or overwrite it"
       return 1
     fi
-    if grep -Rqs 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$CAPE_ROOT/web" 2>/dev/null; then
+    if grep -RqsE 'CAPE_INETSIM_VM_ROUTE_(NONE_V1|GATED_V2)' "$CAPE_ROOT/web" 2>/dev/null; then
       fail "An untracked CAPE-INetSim VM extension is already installed; refusing to claim or overwrite it"
       return 1
     fi
@@ -243,6 +235,14 @@ deploy_initialize_or_resume_state() {
   if [[ -f "$AD_STATE_FILE" ]]; then
     state_load
 
+    if [[ "${DEPLOYMENT_PHASE:-}" == committed &&
+          -n "${RELEASE_SOURCE_COMMIT:-}" &&
+          -n "$d_release_commit" &&
+          "$RELEASE_SOURCE_COMMIT" != "$d_release_commit" ]]; then
+      fail "A different AutoDeploy release is already committed (${RELEASE_TAG:-unknown}, source ${RELEASE_SOURCE_COMMIT}). Roll it back with that exact release before installing this route-separated release."
+      return 1
+    fi
+
     if [[ "${DEPLOYMENT_PHASE:-}" == rollback-incomplete ]]; then
       # Auto-recovery is permitted only when the persisted transaction still
       # refers to the exact CAPE installation and target identity discovered
@@ -316,7 +316,6 @@ deploy_initialize_or_resume_state() {
 deploy_stage_non_disruptive() {
   local artifact
   info "Staging isolated network and generalized INetSim appliance; CAPE analyses are not interrupted."
-  nwfilter_runtime_prepare
   artifact="$(appliance_fetch "$APPLIANCE_MANIFEST")"
 
   isolated_network_apply
@@ -344,7 +343,6 @@ deploy_stage_non_disruptive() {
 
 deploy_validate_staged_resources() {
   local artifact
-  nwfilter_runtime_prepare
   artifact="$(appliance_fetch "$APPLIANCE_MANIFEST")"
   isolated_network_apply
   firewall_apply
@@ -434,56 +432,45 @@ deploy_finish_windows_snapshots() {
 }
 
 deploy_windows_target_cutover() {
+  # Per-task route separation: AutoDeploy no longer rewrites Windows networking,
+  # attaches a fake-Internet NIC, or manufactures a replacement CAPE snapshot.
+  # The existing CAPE analysis baseline remains authoritative. CAPE's rooter
+  # selects Internet vs INetSim vs drop for each task on the host.
   case "${TARGET_PHASE:-discovered}" in
     discovered)
-      info "Preparing CAPE analysis VM $CAPE_MACHINE_SECTION ($DOMAIN)"
-      windows_stop_for_cutover
-      windows_create_safety_snapshot
-      windows_management_dhcp_align_if_needed
-      # A CAPE-configured running-memory snapshot is the strongest known-good
-      # guest-control baseline. Restore it PAUSED so no guest code executes
-      # before anti-spoofing, the isolated NIC and host egress guard exist.
-      if windows_configured_snapshot_is_running_baseline; then
-        windows_restore_configured_snapshot_paused
+      info "Preserving original CAPE analysis VM/network baseline for $CAPE_MACHINE_SECTION ($DOMAIN)"
+      FINAL_SNAPSHOT="${CAPE_MACHINE_SNAPSHOT:-}"
+      WORKING_SNAPSHOT=""
+      SAFETY_SNAPSHOT=""
+      WINDOWS_ISOLATED_MAC=""
+      WINDOWS_ISOLATED_NIC_MODEL=""
+      WINDOWS_BACKEND_USED=""
+      WINDOWS_ORIGINAL_DOMAIN_STATE="${DOMAIN_STATE:-unknown}"
+
+      if [[ -n "$FINAL_SNAPSHOT" ]]; then
+        virsh snapshot-info "$DOMAIN" "$FINAL_SNAPSHOT" >/dev/null 2>&1 || {
+          fail "Configured CAPE snapshot is missing for $CAPE_MACHINE_SECTION: $FINAL_SNAPSHOT"
+          return 1
+        }
       fi
-      windows_management_guard_apply
-      windows_attach_isolated_nic
-      target_state_set_phase nic-attached
-      # Re-render the shared host guard with every target whose management
-      # anti-spoof protection is now active. This preserves previously protected
-      # machines while adding the current one.
-      firewall_enable_windows_management_guard
+
+      target_state_set_phase snapshots-ready
       ;;
-    nic-attached|configured|snapshots-ready|cape-configured)
-      deploy_verify_safety_snapshot
-      windows_management_guard_verify
-      deploy_verify_windows_nic
-      firewall_apply
+    snapshots-ready|cape-configured)
+      if [[ -n "${FINAL_SNAPSHOT:-}" ]]; then
+        virsh snapshot-info "$DOMAIN" "$FINAL_SNAPSHOT" >/dev/null 2>&1 || {
+          fail "Preserved CAPE snapshot disappeared for $CAPE_MACHINE_SECTION: $FINAL_SNAPSHOT"
+          return 1
+        }
+      fi
       ;;
     *)
-      fail "Unknown per-target deployment phase for $CAPE_MACHINE_SECTION: ${TARGET_PHASE:-missing}"
+      fail "Unexpected legacy Windows-mutating deployment phase for $CAPE_MACHINE_SECTION: ${TARGET_PHASE:-missing}; rollback the older deployment before route-separated upgrade"
       return 1
       ;;
   esac
 
-  if [[ "${TARGET_PHASE:-}" == nic-attached ]]; then
-    windows_start_for_cutover
-    windows_select_live_backend
-    windows_configure_selected_backend
-    windows_verify_selected_backend
-    target_state_set_phase configured
-  elif [[ "${TARGET_PHASE:-}" == configured || "${TARGET_PHASE:-}" == snapshots-ready || "${TARGET_PHASE:-}" == cape-configured ]]; then
-    validate_windows_result_file
-  fi
-
-  if [[ "${TARGET_PHASE:-}" == configured ]]; then
-    deploy_finish_windows_snapshots
-  elif [[ "${TARGET_PHASE:-}" == snapshots-ready || "${TARGET_PHASE:-}" == cape-configured ]]; then
-    [[ "$(snapshot_state_memory "$WORKING_SNAPSHOT")" == "shutoff|no" ]]
-    snapshot_is_running_analysis_baseline "$FINAL_SNAPSHOT"
-  fi
-
-  pass "CAPE analysis VM prepared: $CAPE_MACHINE_SECTION -> $DOMAIN"
+  pass "CAPE analysis VM preserved unchanged: $CAPE_MACHINE_SECTION -> $DOMAIN"
 }
 
 deploy_windows_cutover() {

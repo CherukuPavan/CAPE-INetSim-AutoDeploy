@@ -84,7 +84,7 @@ extension_write_config() {
     printf 'CAPE_GUEST_CONTROL_IP=%q\n' "$CAPE_MACHINE_IP"
     printf 'CAPE_RESULTSERVER_IP=%q\n' "$CAPE_RESULTSERVER_IP"
     printf 'INETSIM_SERVER_IP=%q\n' "$INETSIM_IP"
-    printf 'ANALYSIS_GUEST_IP=%q\n' "$WINDOWS_FAKE_IP"
+    printf 'ANALYSIS_GUEST_IP=%q\n' "$CAPE_MACHINE_IP"
     printf 'CAPTURE_INTERFACE=%q\n' "$ISOLATED_BRIDGE_NAME"
     printf 'AUTODEPLOY_MANAGED=1\n'
   } >"$cfg"
@@ -105,7 +105,7 @@ extension_install() {
   extension_run_logged init-config ./install.sh --init-config
   extension_write_config
 
-  if grep -Rqs 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$CAPE_ROOT/web"; then
+  if grep -Rqs 'CAPE_INETSIM_VM_ROUTE_GATED_V2' "$CAPE_ROOT/web"; then
     # Adoption is permitted only when this transaction has an extension recovery
     # point. A pre-existing untracked installation is never silently claimed.
     if [[ -s "$EXTENSION_ROOT/.installed_backup" ]] || state_resource_owned extension "CAPE-INetSim-VM-Extension-v$EXTENSION_VERSION"; then
@@ -122,7 +122,7 @@ extension_install() {
   extension_run_logged verify ./scripts/verify.sh
   extension_run_logged dry-run ./install.sh --dry-run
   extension_run_logged install ./install.sh --install
-  grep -Rqs 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$CAPE_ROOT/web" || { fail "Extension route-none marker missing after install"; return 1; }
+  grep -Rqs 'CAPE_INETSIM_VM_ROUTE_GATED_V2' "$CAPE_ROOT/web" || { fail "Extension route-gated marker missing after install"; return 1; }
   [[ -s "$EXTENSION_ROOT/.installed_backup" ]] || { fail "Extension installed without a protected recovery-point reference"; return 1; }
   state_record_resource extension "CAPE-INetSim-VM-Extension-v$EXTENSION_VERSION" installed yes "$EXTENSION_ROOT"
   state_set_phase extension-installed

@@ -255,7 +255,8 @@ PY
 }
 
 targets_prepare_after_network_plan() {
-  targets_assign_fake_ips
+  # The isolated subnet belongs only to the host bridge and INetSim appliance.
+  # Windows guests keep their original CAPE management identities.
   CAPE_TARGETS_COUNT="$(targets_count)"
   if ((CAPE_TARGETS_COUNT > 0)); then
     targets_bind 0
@@ -278,7 +279,7 @@ for i,d in enumerate(a,1):
     err=d.get("errors") or []
     status="ready" if not err else "blocked"
     snap=d.get("final_snapshot") or d.get("original_snapshot") or "<none>"
-    print(f"{i}. {d.get('section','?')} -> {d.get('domain','?')} | mgmt={d.get('ip','?')} | fake={d.get('fake_ip','?')} | snapshot={snap} | {status}")
+    print(f"{i}. {d.get('section','?')} -> {d.get('domain','?')} | mgmt={d.get('ip','?')} | INetSim=per-task-host-route | snapshot={snap} | {status}")
 PY
 }
 

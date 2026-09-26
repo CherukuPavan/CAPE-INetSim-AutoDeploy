@@ -21,6 +21,20 @@ for d in a:
 PY
 }
 
+firewall_inetsim_client_records() {
+  python3 - "${CAPE_TARGETS_JSON:-[]}" <<'PY'
+import json,sys
+try: a=json.loads(sys.argv[1])
+except Exception: a=[]
+for d in a:
+    bridge=str(d.get("management_bridge") or "")
+    ip=str(d.get("ip") or "")
+    domain=str(d.get("domain") or "")
+    if bridge and ip:
+        print("|".join((bridge,ip,domain)))
+PY
+}
+
 firewall_isolated_resultserver_records() {
   python3 - "${CAPE_TARGETS_JSON:-[]}" <<'PY'
 import json,sys
@@ -36,68 +50,44 @@ PY
 }
 
 firewall_render_rules() {
-  local isolated_bridge="$1" include_management="${2:-no}"
-  local records="" resultserver_records=""
-  [[ "$include_management" == yes ]] && records="$(firewall_management_records)"
-  resultserver_records="$(firewall_isolated_resultserver_records)"
+  local isolated_bridge="$1"
+  local clients
+  clients="$(firewall_inetsim_client_records)"
 
   cat <<EOF
 # CAPE-INetSim-AutoDeploy managed rules. Do not edit while deployment is active.
+# Per-task route separation: only CAPE's host routing may reach the isolated
+# INetSim endpoint. Normal Internet tasks are not redirected to this bridge.
 table inet $FIREWALL_TABLE {
   chain input_guard {
     type filter hook input priority -50; policy accept;
     iifname "$isolated_bridge" ct state established,related accept
+    iifname "$isolated_bridge" drop
+  }
+
+  chain forward_guard {
+    type filter hook forward priority -50; policy accept;
 EOF
-  if [[ -n "$resultserver_records" ]]; then
-    echo "    # Permit only CAPE ResultServer ingress from planned fake-IP identities."
-    local fake_ip result_ip result_port result_domain
-    while IFS='|' read -r fake_ip result_ip result_port result_domain; do
-      [[ -n "$fake_ip" && -n "$result_ip" && "$result_port" =~ ^[0-9]+$ ]] || continue
-      printf '    iifname "%s" ip saddr %s ip daddr %s tcp dport %s accept\n' \
-        "$isolated_bridge" "$fake_ip" "$result_ip" "$result_port"
-    done <<<"$resultserver_records"
+
+  if [[ -n "$clients" ]]; then
+    local bridge ip domain
+    while IFS='|' read -r bridge ip domain; do
+      [[ -n "$bridge" && -n "$ip" ]] || continue
+      printf '    iifname "%s" ip saddr %s oifname "%s" ip daddr %s accept\n' \
+        "$bridge" "$ip" "$isolated_bridge" "$INETSIM_IP"
+      printf '    iifname "%s" ip saddr %s oifname "%s" ip daddr %s ct state established,related accept\n' \
+        "$isolated_bridge" "$INETSIM_IP" "$bridge" "$ip"
+    done <<<"$clients"
   fi
+
   cat <<EOF
     iifname "$isolated_bridge" drop
-  }
-
-  chain forward_guard {
-    type filter hook forward priority -50; policy accept;
-    iifname "$isolated_bridge" drop
     oifname "$isolated_bridge" drop
-EOF
-  if [[ -n "$records" ]]; then
-    echo "    # Block routed/lateral egress from every protected CAPE analysis management NIC."
-    local bridge mac ip domain
-    while IFS='|' read -r bridge mac ip domain; do
-      [[ -n "$bridge" && -n "$mac" && -n "$ip" ]] || continue
-      printf '    iifname "%s" ether saddr %s drop\n' "$bridge" "$mac"
-      printf '    iifname "%s" ip saddr %s drop\n' "$bridge" "$ip"
-    done <<<"$records"
-  fi
-  cat <<'EOF'
   }
 }
 EOF
-
-  if [[ -n "$records" ]]; then
-    cat <<EOF
-
-table bridge $FIREWALL_BRIDGE_TABLE {
-  chain forward_guard {
-    type filter hook forward priority -50; policy accept;
-EOF
-    local bridge mac ip domain
-    while IFS='|' read -r bridge mac ip domain; do
-      [[ -n "$mac" ]] || continue
-      printf '    ether saddr %s drop\n' "$mac"
-    done <<<"$records"
-    cat <<'EOF'
-  }
 }
-EOF
-  fi
-}
+
 firewall_render_unit() {
   cat <<EOF
 # CAPE-INetSim-AutoDeploy managed unit.
@@ -239,6 +229,16 @@ firewall_file_has_management_guards_all() {
     grep -Fq "ether saddr $mac drop" "$FIREWALL_RULES" || return 1
   done <<<"$records"
 }
+firewall_inetsim_route_exceptions_match_all() {
+  local clients text bridge ip domain
+  clients="$(firewall_inetsim_client_records)"
+  [[ -n "$clients" ]] || return 1
+  text="$(nft list table inet "$FIREWALL_TABLE" 2>/dev/null)" || return 1
+  while IFS='|' read -r bridge ip domain; do
+    grep -Fq "iifname \"$bridge\" ip saddr $ip oifname \"$ISOLATED_BRIDGE_NAME\" ip daddr $INETSIM_IP accept" <<<"$text" || return 1
+  done <<<"$clients"
+}
+
 firewall_unit_matches_project() {
   [[ -f "$FIREWALL_UNIT" ]] &&
     grep -Fq 'CAPE-INetSim-AutoDeploy managed unit' "$FIREWALL_UNIT" &&
@@ -249,15 +249,6 @@ firewall_unit_matches_project() {
 firewall_apply() {
   have nft || { fail "nftables command 'nft' is required for fake-Internet egress guard"; return 1; }
   [[ -n "${ISOLATED_BRIDGE_NAME:-}" ]] || { fail "Isolated bridge is unknown"; return 1; }
-
-  local want_management=no
-  if [[ -n "$(firewall_management_records)" ]]; then
-    want_management=yes
-    firewall_validate_management_antispof_all || {
-      fail "One or more CAPE analysis management NIC anti-spoof guards are not active"
-      return 1
-    }
-  fi
 
   if [[ -e "$FIREWALL_RULES" ]] &&
      ! state_resource_owned firewall-file "$FIREWALL_RULES" &&
@@ -286,17 +277,15 @@ firewall_apply() {
      firewall_file_matches_base && firewall_unit_matches_project &&
      firewall_table_matches_base &&
      systemctl is-active --quiet cape-inetsim-autodeploy-firewall.service; then
-    if [[ "$want_management" == no ]] || { firewall_file_has_management_guards_all && firewall_management_guards_match_all; }; then
-      pass "Host network safety firewall guard already active"
-      return 0
-    fi
+    pass "Host INetSim isolation firewall guard already active"
+    return 0
   fi
 
   install -d -m 0755 "$FIREWALL_DIR"
   local tmp_rules="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-firewall.nft"
   local tmp_unit="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-firewall.service"
   local tmp_runtime_batch="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-firewall-runtime.nft"
-  firewall_render_rules "$ISOLATED_BRIDGE_NAME" "$want_management" >"$tmp_rules"
+  firewall_render_rules "$ISOLATED_BRIDGE_NAME" >"$tmp_rules"
   firewall_render_unit >"$tmp_unit"
   firewall_render_runtime_batch "$tmp_rules" >"$tmp_runtime_batch"
   chmod 0600 "$tmp_rules" "$tmp_unit" "$tmp_runtime_batch"
@@ -315,21 +304,11 @@ firewall_apply() {
   firewall_file_matches_base || { fail "Installed firewall rules do not match deployment plan"; return 1; }
   firewall_unit_matches_project || { fail "Installed firewall service does not match project"; return 1; }
   firewall_table_matches_base || { fail "Active nftables egress guard does not match isolated bridge"; return 1; }
-  firewall_file_has_resultserver_exceptions_all && firewall_resultserver_exceptions_match_all || {
-    fail "Installed firewall is missing one or more isolated CAPE ResultServer exceptions"
+  firewall_inetsim_route_exceptions_match_all || {
+    fail "Installed firewall is missing one or more CAPE-to-INetSim route exceptions"
     return 1
   }
   systemctl is-active --quiet cape-inetsim-autodeploy-firewall.service
-  if [[ "$want_management" == yes ]]; then
-    firewall_file_has_management_guards_all && firewall_management_guards_match_all || {
-      fail "Restored firewall is missing one or more Windows management egress guards"
-      return 1
-    }
-    local bridge mac ip domain
-    while IFS='|' read -r bridge mac ip domain; do
-      state_record_resource firewall-management-guard "$domain:$mac" active yes "bridge=$bridge ip=$ip"
-    done < <(firewall_management_records)
-  fi
 
   state_record_resource firewall-file "$FIREWALL_RULES" created yes "bridge=$ISOLATED_BRIDGE_NAME"
   state_record_resource firewall-unit "$FIREWALL_UNIT" created yes ""
@@ -362,13 +341,10 @@ firewall_verify() {
   firewall_file_matches_base || return 1
   firewall_unit_matches_project || return 1
   firewall_table_matches_base || return 1
-  firewall_file_has_resultserver_exceptions_all || return 1
-  firewall_resultserver_exceptions_match_all || return 1
-  firewall_validate_management_antispof_all || return 1
-  firewall_file_has_management_guards_all || return 1
-  firewall_management_guards_match_all || return 1
+  firewall_inetsim_route_exceptions_match_all || return 1
   systemctl is-active --quiet cape-inetsim-autodeploy-firewall.service
 }
+
 firewall_rollback() {
   local can_remove=no
 

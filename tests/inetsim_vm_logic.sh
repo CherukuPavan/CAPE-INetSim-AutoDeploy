@@ -47,6 +47,8 @@ INETSIM_DOMAIN_NAME="cape-inetsim-appliance"
 INETSIM_MANAGEMENT_MAC="52:54:00:aa:00:01"
 INETSIM_ISOLATED_MAC="52:54:00:aa:00:02"
 INETSIM_IP="192.168.200.2"
+BRIDGE_IP="192.168.200.1"
+CAPE_TARGETS_JSON='[{"ip":"192.168.122.100"}]'
 
 virsh(){ return 0; }
 qga_wait(){ return 0; }
