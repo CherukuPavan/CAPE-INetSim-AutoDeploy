@@ -213,14 +213,9 @@ firewall_apply() {
   have nft || { fail "nftables command 'nft' is required for fake-Internet egress guard"; return 1; }
   [[ -n "${ISOLATED_BRIDGE_NAME:-}" ]] || { fail "Isolated bridge is unknown"; return 1; }
 
+  # Route-scoped mode must not install a permanent management-NIC egress
+  # block. CAPE's rooter owns per-task internet/inetsim/none forwarding.
   local want_management=no
-  if [[ -n "$(firewall_management_records)" ]]; then
-    want_management=yes
-    firewall_validate_management_antispof_all || {
-      fail "One or more CAPE analysis management NIC anti-spoof guards are not active"
-      return 1
-    }
-  fi
 
   if [[ -e "$FIREWALL_RULES" ]] &&
      ! state_resource_owned firewall-file "$FIREWALL_RULES" &&
@@ -249,10 +244,8 @@ firewall_apply() {
      firewall_file_matches_base && firewall_unit_matches_project &&
      firewall_table_matches_base &&
      systemctl is-active --quiet cape-inetsim-autodeploy-firewall.service; then
-    if [[ "$want_management" == no ]] || { firewall_file_has_management_guards_all && firewall_management_guards_match_all; }; then
-      pass "Host network safety firewall guard already active"
-      return 0
-    fi
+    pass "Host network safety firewall guard already active"
+    return 0
   fi
 
   install -d -m 0755 "$FIREWALL_DIR"
@@ -283,17 +276,6 @@ firewall_apply() {
     return 1
   }
   systemctl is-active --quiet cape-inetsim-autodeploy-firewall.service
-  if [[ "$want_management" == yes ]]; then
-    firewall_file_has_management_guards_all && firewall_management_guards_match_all || {
-      fail "Restored firewall is missing one or more Windows management egress guards"
-      return 1
-    }
-    local bridge mac ip domain
-    while IFS='|' read -r bridge mac ip domain; do
-      state_record_resource firewall-management-guard "$domain:$mac" active yes "bridge=$bridge ip=$ip"
-    done < <(firewall_management_records)
-  fi
-
   state_record_resource firewall-file "$FIREWALL_RULES" created yes "bridge=$ISOLATED_BRIDGE_NAME"
   state_record_resource firewall-unit "$FIREWALL_UNIT" created yes ""
   state_record_resource firewall-table "$FIREWALL_TABLE" created yes "bridge=$ISOLATED_BRIDGE_NAME"
