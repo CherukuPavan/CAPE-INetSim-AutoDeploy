@@ -18,12 +18,13 @@ import sys
 s=open(sys.argv[1],encoding="utf-8").read()
 q=s.index('if qga_wait "$DOMAIN" 10; then')
 w=s.index('if windows_winrm_ready "$CAPE_MACHINE_IP"')
-a=s.index('if cape_agent_wait "$CAPE_MACHINE_IP" "$WINDOWS_CONTROL_BOOT_TIMEOUT"', w)
+a=s.index('if windows_wait_for_cape_agent_visible "$CAPE_MACHINE_IP" "$WINDOWS_CONTROL_BOOT_TIMEOUT"', w)
 z=s.index('No supported zero-touch Windows control channel is available', a)
 assert q < w < a < z
 assert "WINDOWS_BACKEND_USED=cape-agent-execpy" in s
 assert "WINDOWS_BACKEND_USED=manual-powershell" not in s[s.index("windows_select_live_backend()"):s.index("windows_configure_selected_backend()")]
 assert 'WINDOWS_CONTROL_BOOT_TIMEOUT="${WINDOWS_CONTROL_BOOT_TIMEOUT:-300}"' in s
+assert 'windows_wait_for_cape_agent_visible "$CAPE_MACHINE_IP" "$WINDOWS_CONTROL_BOOT_TIMEOUT"' in s
 power=s[s.index("windows_poweroff_selected_backend()"):s.index("windows_manual_callback_command()")]
 assert 'cape-agent-execpy)' in power
 assert 'windows_poweroff_via_cape_agent "$CAPE_MACHINE_IP"' in power

@@ -110,44 +110,116 @@ appliance_verify_transport_file() {
   }
 }
 
+appliance_download_transport() {
+  local url="$1" part="$2"
+  local existing=0 rc=0
+  local -a args=(
+    --fail
+    --location
+    --proto '=https'
+    --tlsv1.2
+    --retry 20
+    --retry-delay 3
+    --retry-all-errors
+    --connect-timeout 20
+    --speed-time 60
+    --speed-limit 1024
+  )
+
+  [[ -e "$part" ]] || : >"$part"
+  existing="$(stat -c '%s' "$part" 2>/dev/null || echo 0)"
+
+  if ((existing > 0)); then
+    info "Resuming appliance download from byte $existing" >&2
+    args+=(--continue-at -)
+  else
+    info "Downloading appliance transport with retry/stall protection" >&2
+  fi
+
+  if curl "${args[@]}" --output "$part" "$url"; then
+    return 0
+  else
+    rc=$?
+  fi
+
+  # curl 33 means the remote endpoint rejected the requested resume offset.
+  # Keep generic network failures resumable, but a server that cannot resume
+  # needs one clean restart rather than trapping the installer forever.
+  if ((existing > 0 && rc == 33)); then
+    warn "Release server rejected ranged resume; restarting this transport download from byte 0" >&2
+    : >"$part"
+    curl --fail --location --proto '=https' --tlsv1.2 \
+      --retry 20 --retry-delay 3 --retry-all-errors \
+      --connect-timeout 20 --speed-time 60 --speed-limit 1024 \
+      --output "$part" "$url"
+    return $?
+  fi
+
+  fail "Appliance transport download stopped with curl exit $rc; partial file was preserved for the next retry" >&2
+  return "$rc"
+}
+
 appliance_fetch() {
   local manifest="${1:-$APPLIANCE_MANIFEST}"
   appliance_manifest_validate "$manifest" >/dev/null
 
-  local name url compression transport_name cache raw_part transport transport_part
+  local name url compression transport_name transport_sha cache raw_part transport transport_part
   name="$(appliance_manifest_field artifact_name "$manifest")"
   url="$(appliance_manifest_field artifact_url "$manifest")"
   compression="$(appliance_manifest_field transport.compression "$manifest")"
   transport_name="$(appliance_manifest_field transport.artifact_name "$manifest")"
+  transport_sha="$(appliance_manifest_field transport.sha256 "$manifest")"
 
   install -d -m 0755 "$APPLIANCE_CACHE_ROOT"
   cache="$APPLIANCE_CACHE_ROOT/$name"
   raw_part="$cache.part"
   transport="$APPLIANCE_CACHE_ROOT/$transport_name"
-  transport_part="$transport.part"
+  transport_part="$transport.$transport_sha.part"
 
   if [[ -f "$cache" ]] && appliance_verify_file "$cache" "$manifest" >/dev/null 2>&1; then
+    pass "Reusing verified cached appliance artifact" >&2
     printf '%s\n' "$cache"
     return 0
   fi
 
-  rm -f "$raw_part" "$transport_part"
-  curl --fail --location --proto '=https' --tlsv1.2 --retry 3 --output "$transport_part" "$url"
-  appliance_verify_transport_file "$transport_part" "$manifest" >&2
-  chmod 0644 "$transport_part"
-  mv -f "$transport_part" "$transport"
+  # A previously completed transport can also be reused if it belongs to this
+  # exact manifest. Otherwise retain/resume only the .part download.
+  if [[ -f "$transport" ]] && appliance_verify_transport_file "$transport" "$manifest" >/dev/null 2>&1; then
+    pass "Reusing verified cached appliance transport" >&2
+  else
+    rm -f "$transport"
+    appliance_download_transport "$url" "$transport_part" || return $?
 
+    if ! appliance_verify_transport_file "$transport_part" "$manifest" >/dev/null 2>&1; then
+      # Even an exact-SHA partial can be corrupted locally. Its checksum proves
+      # it cannot be completed into this manifest, so restart exactly once.
+      warn "Resumed appliance transport did not match this release checksum; retrying once from byte 0" >&2
+      : >"$transport_part"
+      appliance_download_transport "$url" "$transport_part" || return $?
+      appliance_verify_transport_file "$transport_part" "$manifest" >&2 || {
+        fail "Appliance transport checksum still mismatches after a clean retry" >&2
+        return 1
+      }
+    else
+      pass "Appliance transport SHA-256 verified" >&2
+    fi
+
+    chmod 0644 "$transport_part"
+    mv -f "$transport_part" "$transport"
+  fi
+
+  rm -f "$raw_part"
   case "$compression" in
     none)
       cp --reflink=auto "$transport" "$raw_part"
       ;;
     gzip)
-      have gzip || { fail "gzip is required to unpack the appliance release"; return 1; }
-      gzip -t "$transport" || { fail "Appliance gzip transport integrity check failed"; return 1; }
+      have gzip || { fail "gzip is required to unpack the appliance release" >&2; return 1; }
+      gzip -t "$transport" || { fail "Appliance gzip transport integrity check failed" >&2; return 1; }
       gzip -dc "$transport" >"$raw_part"
       ;;
     *)
-      fail "Unsupported appliance transport compression: $compression"
+      fail "Unsupported appliance transport compression: $compression" >&2
       return 1
       ;;
   esac
@@ -155,7 +227,7 @@ appliance_fetch() {
   appliance_verify_file "$raw_part" "$manifest" >&2
   chmod 0644 "$raw_part"
   mv -f "$raw_part" "$cache"
-  rm -f "$transport"
+  pass "Appliance artifact checksum/integrity verified and cached" >&2
   printf '%s\n' "$cache"
 }
 

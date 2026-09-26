@@ -22,4 +22,13 @@ grep -Fq -- '--client "$CAPE_MACHINE_IP"' "$ROOT/lib/windows-control.sh"
 grep -Fq 'self.client_address[0]' "$ROOT/tools/windows_callback.py"
 grep -Fq 'peer != allowed_client' "$ROOT/tools/windows_callback.py"
 grep -Fq 'paused) virsh resume "$DOMAIN"' "$ROOT/lib/windows-control.sh"
+grep -Fq 'windows_wait_for_cape_agent_visible' "$ROOT/lib/windows-control.sh"
+grep -Fq 'Still waiting for CAPE Agent' "$ROOT/lib/windows-control.sh"
+
+# Long control probes must show progress rather than looking frozen.
+CAPE_AGENT_PORT=8000
+cape_agent_wait(){ return 1; }
+wait_log="$(windows_wait_for_cape_agent_visible 192.0.2.50 16 2>&1 || true)"
+grep -Fq 'Waiting up to 16s for CAPE Agent on 192.0.2.50:8000' <<<"$wait_log"
+grep -Fq 'Still waiting for CAPE Agent on 192.0.2.50:8000 (15s/16s)' <<<"$wait_log"
 echo '[PASS] Windows backend controller and one-command callback fallback generation'

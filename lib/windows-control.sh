@@ -26,19 +26,40 @@ windows_start_for_cutover() {
   windows_wait_for_domain_state running 60
 }
 
+windows_wait_for_cape_agent_visible() {
+  local ip="$1" timeout="${2:-$WINDOWS_CONTROL_BOOT_TIMEOUT}" elapsed=0 next_notice=15
+  local step=3
+
+  info "Waiting up to ${timeout}s for CAPE Agent on $ip:${CAPE_AGENT_PORT:-8000}"
+  while ((elapsed < timeout)); do
+    if cape_agent_wait "$ip" "$step"; then
+      return 0
+    fi
+    elapsed=$((elapsed+step))
+    if ((elapsed >= next_notice)); then
+      info "Still waiting for CAPE Agent on $ip:${CAPE_AGENT_PORT:-8000} (${elapsed}s/${timeout}s)"
+      next_notice=$((next_notice+15))
+    fi
+  done
+  return 1
+}
+
 windows_select_live_backend() {
   WINDOWS_BACKEND_USED=""
+  info "Probing zero-touch Windows control channels for $CAPE_MACHINE_SECTION/$DOMAIN"
   if qga_wait "$DOMAIN" 10; then
     WINDOWS_BACKEND_USED=qemu-guest-agent
     pass "Windows control backend: QEMU Guest Agent"
     return 0
   fi
+  info "QEMU Guest Agent unavailable; checking approved WinRM"
   if windows_winrm_ready "$CAPE_MACHINE_IP" >/dev/null 2>&1; then
     WINDOWS_BACKEND_USED=winrm
     pass "Windows control backend: approved WinRM"
     return 0
   fi
-  if cape_agent_wait "$CAPE_MACHINE_IP" "$WINDOWS_CONTROL_BOOT_TIMEOUT" >/dev/null 2>&1; then
+  info "Approved WinRM unavailable; checking CAPE Agent"
+  if windows_wait_for_cape_agent_visible "$CAPE_MACHINE_IP" "$WINDOWS_CONTROL_BOOT_TIMEOUT"; then
     WINDOWS_BACKEND_USED=cape-agent-execpy
     pass "Windows control backend: constrained CAPE Agent execpy"
     return 0
