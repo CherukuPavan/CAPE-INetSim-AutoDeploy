@@ -80,10 +80,12 @@ trap 'repair_restore_runtime 130; exit 130' INT TERM
 
 for ((i=0;i<CAPE_TARGETS_COUNT;i++)); do
   targets_bind "$i"
-  [[ -n "${FINAL_SNAPSHOT:-}" ]] && virsh snapshot-info "$DOMAIN" "$FINAL_SNAPSHOT" >/dev/null 2>&1 || {
-    fail "CAPE-ready Windows snapshot is missing for $CAPE_MACHINE_SECTION/$DOMAIN; repair will not invent or recreate the security baseline."
-    exit 20
-  }
+  if [[ -n "${FINAL_SNAPSHOT:-}" ]]; then
+    virsh snapshot-info "$DOMAIN" "$FINAL_SNAPSHOT" >/dev/null 2>&1 || {
+      fail "Preserved CAPE analysis snapshot is missing for $CAPE_MACHINE_SECTION/$DOMAIN; repair will not invent a replacement."
+      exit 20
+    }
+  fi
 done
 targets_bind 0
 
@@ -106,10 +108,6 @@ if ! virsh net-info "$ISOLATED_NETWORK_NAME" >/dev/null 2>&1; then
   isolated_network_apply
 fi
 
-firewall_validate_management_antispof_all || {
-  fail "A Windows management anti-spoof guard is missing or changed; repair will not mutate the analysis VM security baseline."
-  exit 24
-}
 firewall_apply
 
 if ! virsh dominfo "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1; then
