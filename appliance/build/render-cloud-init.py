@@ -4,6 +4,7 @@ import argparse, base64, pathlib
 p=argparse.ArgumentParser(description="Render NoCloud user-data for the generalized INetSim appliance build")
 p.add_argument("--guest-configure", required=True)
 p.add_argument("--prepare", required=True)
+p.add_argument("--gui-enable", required=True)
 p.add_argument("--output", required=True)
 a=p.parse_args()
 
@@ -44,6 +45,11 @@ write_files:
     permissions: '0755'
     encoding: b64
     content: {b64(a.prepare)}
+  - path: /usr/local/src/cape-inetsim-gui-enable
+    owner: root:root
+    permissions: '0755'
+    encoding: b64
+    content: {b64(a.gui_enable)}
   - path: /root/cape-inetsim-build-wrapper
     owner: root:root
     permissions: '0755'
