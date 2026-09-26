@@ -34,7 +34,7 @@ validate_release_provenance() {
 validate_recovery_assets() {
   local rel backup failures=0
   if state_has_owned_kind cape-file; then
-    for rel in modules/auxiliary/sniffer.py conf/auxiliary.conf conf/kvm.conf conf/processing.conf conf/routing.conf; do
+    for rel in modules/auxiliary/sniffer.py lib/cuckoo/common/abstracts.py lib/cuckoo/core/machinery_manager.py lib/cuckoo/core/analysis_manager.py modules/machinery/kvm.py conf/auxiliary.conf conf/kvm.conf conf/processing.conf conf/routing.conf; do
       backup="$AD_BACKUP_ROOT/${DEPLOYMENT_ID}/$rel"
       if [[ ! -f "$backup" || ! -f "$backup.sha256" ]]; then
         fail "Rollback backup is missing for CAPE file: $rel"
@@ -155,9 +155,11 @@ if not mgmt_guard: raise SystemExit("snapshot does not preserve the Windows mana
 }
 
 validate_cape_configuration() {
-  python3 - "$CAPE_ROOT" "$CAPE_MACHINE_SECTION" "$CAPE_MACHINE_LABEL" "$FINAL_SNAPSHOT" "$ISOLATED_BRIDGE_NAME" "$WINDOWS_FAKE_IP" <<'PY'
+  python3 - "$CAPE_ROOT" "$CAPE_MACHINE_SECTION" "$CAPE_MACHINE_LABEL" \
+    "$CAPE_MACHINE_SNAPSHOT" "$FINAL_SNAPSHOT" "$MANAGEMENT_BRIDGE_NAME" \
+    "$ISOLATED_BRIDGE_NAME" "$WINDOWS_FAKE_IP" "$INETSIM_IP" <<'PY'
 import configparser,sys
-root,section,label,snapshot,iface,fake=sys.argv[1:]
+root,section,label,normal_snapshot,inetsim_snapshot,mgmt_iface,inetsim_iface,fake,inetsim_ip=sys.argv[1:]
 def load(name):
     c=configparser.ConfigParser(interpolation=None,strict=False)
     c.optionxform=str.lower
@@ -168,15 +170,37 @@ a=load("auxiliary")
 p=load("processing")
 r=load("routing")
 if not k.has_section(section): raise SystemExit("CAPE machine section missing")
-if k.get(section,"snapshot",fallback="") != snapshot: raise SystemExit("CAPE snapshot mismatch")
-if k.get(section,"interface",fallback="") != iface: raise SystemExit("CAPE interface mismatch")
-if a.get("sniffer",f"capture_host_{label}",fallback="") != fake: raise SystemExit("capture host mismatch")
-if p.get("network","dnswhitelist",fallback="").lower() != "no": raise SystemExit("dnswhitelist not disabled")
-if p.get("network","ipwhitelist",fallback="").lower() != "no": raise SystemExit("ipwhitelist not disabled")
-if r.get("routing","route",fallback="").lower() != "none": raise SystemExit("CAPE default route is not none")
-if r.get("routing","enable_pcap",fallback="").lower() not in ("yes","true","1","on"): raise SystemExit("CAPE packet capture is disabled for route none")
+if k.get(section,"snapshot",fallback="") != normal_snapshot:
+    raise SystemExit("normal CAPE snapshot mismatch")
+if k.get(section,"inetsim_snapshot",fallback="") != inetsim_snapshot:
+    raise SystemExit("route=inetsim snapshot mismatch")
+if k.get(section,"interface",fallback="") != mgmt_iface:
+    raise SystemExit("normal CAPE management interface mismatch")
+if a.get("sniffer",f"inetsim_capture_host_{label}",fallback="") != fake:
+    raise SystemExit("route=inetsim capture host mismatch")
+if a.get("sniffer",f"inetsim_capture_interface_{label}",fallback="") != inetsim_iface:
+    raise SystemExit("route=inetsim capture interface mismatch")
+if p.get("network","dnswhitelist",fallback="").lower() != "no":
+    raise SystemExit("dnswhitelist not disabled")
+if p.get("network","ipwhitelist",fallback="").lower() != "no":
+    raise SystemExit("ipwhitelist not disabled")
+if r.get("routing","route",fallback="").lower() != "none":
+    raise SystemExit("CAPE fail-closed default route is not none")
+if r.get("routing","enable_pcap",fallback="").lower() not in ("yes","true","1","on"):
+    raise SystemExit("CAPE packet capture is disabled")
+if r.get("inetsim","enabled",fallback="").lower() not in ("yes","true","1","on"):
+    raise SystemExit("CAPE native INetSim route is not enabled")
+if r.get("inetsim","server",fallback="") != inetsim_ip:
+    raise SystemExit("CAPE INetSim server mismatch")
+if r.get("inetsim","interface",fallback="") != inetsim_iface:
+    raise SystemExit("CAPE INetSim interface mismatch")
 PY
-  grep -q 'CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1' "$CAPE_ROOT/modules/auxiliary/sniffer.py"
+
+  grep -Fq 'CAPE_INETSIM_ROUTE_AWARE_CAPTURE_V2' "$CAPE_ROOT/modules/auxiliary/sniffer.py"
+  grep -Fq 'CAPE_INETSIM_ROUTE_SNAPSHOT_OVERRIDE_V1' "$CAPE_ROOT/lib/cuckoo/common/abstracts.py"
+  grep -Fq 'CAPE_INETSIM_MACHINERY_ROUTE_START_V1' "$CAPE_ROOT/lib/cuckoo/core/machinery_manager.py"
+  grep -Fq 'CAPE_INETSIM_ANALYSIS_ROUTE_START_V1' "$CAPE_ROOT/lib/cuckoo/core/analysis_manager.py"
+  grep -Fq 'CAPE_INETSIM_KVM_ROUTE_SNAPSHOT_V1' "$CAPE_ROOT/modules/machinery/kvm.py"
 }
 
 validate_resultserver_host() {
@@ -271,7 +295,7 @@ validate_deployment_structural() {
   firewall_verify
   inetsim_verify_host
   validate_all_targets_structural
-  grep -Rqs 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$CAPE_ROOT/web"
+  grep -Rqs 'CAPE_INETSIM_VM_ROUTE_AWARE_V1' "$CAPE_ROOT/web"
   validate_recovery_assets
   pass "Structural deployment, release-provenance and recovery gates passed for all CAPE analysis machines"
 }
