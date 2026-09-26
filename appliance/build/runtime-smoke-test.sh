@@ -46,7 +46,7 @@ if [ "\$rc" -eq 0 ]; then
   gui_ok=no
   for _ in \$(seq 1 90); do
     if systemctl is-active --quiet lightdm.service &&
-       test -f /etc/cape-inetsim-gui-v2 &&
+       test -f /etc/cape-inetsim-gui-v3 &&
        test -f /usr/lib/xorg/modules/drivers/qxl_drv.so &&
        test -S /tmp/.X11-unix/X0 &&
        pgrep -x Xorg >/dev/null &&
@@ -62,8 +62,24 @@ if [ "\$rc" -eq 0 ]; then
   touch /var/lib/cape-inetsim-runtime-smoke-ok
 else
   printf '%s\n' "\$rc" >/var/lib/cape-inetsim-runtime-smoke-failed
-  systemctl status lightdm.service --no-pager -l > /var/log/cape-inetsim-gui-smoke.log 2>&1 || true
-  ps -ef >> /var/log/cape-inetsim-gui-smoke.log 2>&1 || true
+  {
+    echo "=== lightdm status ==="
+    systemctl status lightdm.service --no-pager -l || true
+    echo "=== lightdm journal ==="
+    journalctl -u lightdm.service -b --no-pager -n 250 || true
+    echo "=== processes ==="
+    ps -ef || true
+    echo "=== xsession errors ==="
+    cat /home/capeinetsim/.xsession-errors 2>/dev/null || true
+    echo "=== dedicated session log ==="
+    cat /home/capeinetsim/.cape-inetsim-xfce-session.log 2>/dev/null || true
+    echo "=== lightdm logs ==="
+    for f in /var/log/lightdm/*.log; do
+      [ -f "$f" ] || continue
+      echo "--- $f ---"
+      tail -n 250 "$f" || true
+    done
+  } > /var/log/cape-inetsim-gui-smoke.log 2>&1
 fi
 sync
 poweroff -f
