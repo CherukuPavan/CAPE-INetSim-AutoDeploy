@@ -434,58 +434,33 @@ deploy_finish_windows_snapshots() {
 }
 
 deploy_windows_target_cutover() {
-  case "${TARGET_PHASE:-discovered}" in
-    discovered)
-      info "Preparing CAPE analysis VM $CAPE_MACHINE_SECTION ($DOMAIN)"
-      windows_stop_for_cutover
-      windows_create_safety_snapshot
-      windows_management_dhcp_align_if_needed
-      # A CAPE-configured running-memory snapshot is the strongest known-good
-      # guest-control baseline. Restore it PAUSED so no guest code executes
-      # before anti-spoofing, the isolated NIC and host egress guard exist.
-      if windows_configured_snapshot_is_running_baseline; then
-        windows_restore_configured_snapshot_paused
-      fi
-      windows_management_guard_apply
-      windows_attach_isolated_nic
-      target_state_set_phase nic-attached
-      # Re-render the shared host guard with every target whose management
-      # anti-spoof protection is now active. This preserves previously protected
-      # machines while adding the current one.
-      firewall_enable_windows_management_guard
-      ;;
-    nic-attached|configured|snapshots-ready|cape-configured)
-      deploy_verify_safety_snapshot
-      windows_management_guard_verify
-      deploy_verify_windows_nic
-      firewall_apply
-      ;;
-    *)
-      fail "Unknown per-target deployment phase for $CAPE_MACHINE_SECTION: ${TARGET_PHASE:-missing}"
-      return 1
-      ;;
-  esac
+  # Route-scoped design: CAPE remains the sole owner of per-task networking.
+  # The Windows analysis baseline is not rewritten with a permanent fake IP,
+  # DNS server, default-route removal, or isolated NIC. This preserves normal
+  # CAPE internet/VPN/none semantics and lets route=inetsim activate fake
+  # Internet only for the selected task through CAPE's native rooter.
+  info "Preparing route-neutral CAPE analysis VM $CAPE_MACHINE_SECTION ($DOMAIN)"
 
-  if [[ "${TARGET_PHASE:-}" == nic-attached ]]; then
-    windows_start_for_cutover
-    windows_select_live_backend
-    windows_configure_selected_backend
-    windows_verify_selected_backend
-    target_state_set_phase configured
-  elif [[ "${TARGET_PHASE:-}" == configured || "${TARGET_PHASE:-}" == snapshots-ready || "${TARGET_PHASE:-}" == cape-configured ]]; then
-    validate_windows_result_file
-  fi
+  [[ "${CAPE_ANALYSIS_SNAPSHOT_STATUS:-}" == proven ]] || {
+    fail "Route-scoped INetSim requires an existing proven CAPE running-memory snapshot for $CAPE_MACHINE_SECTION"
+    return 1
+  }
+  windows_configured_snapshot_is_running_baseline || {
+    fail "Configured CAPE snapshot is not a running-memory baseline: ${CAPE_MACHINE_SNAPSHOT:-<none>}"
+    return 1
+  }
 
-  if [[ "${TARGET_PHASE:-}" == configured ]]; then
-    deploy_finish_windows_snapshots
-  elif [[ "${TARGET_PHASE:-}" == snapshots-ready || "${TARGET_PHASE:-}" == cape-configured ]]; then
-    [[ "$(snapshot_state_memory "$WORKING_SNAPSHOT")" == "shutoff|no" ]]
-    snapshot_is_running_analysis_baseline "$FINAL_SNAPSHOT"
-  fi
+  FINAL_SNAPSHOT="$CAPE_MACHINE_SNAPSHOT"
+  WORKING_SNAPSHOT=""
+  SAFETY_SNAPSHOT=""
+  WINDOWS_ISOLATED_MAC=""
+  WINDOWS_BACKEND_USED="cape-native-route"
+  TARGET_PHASE=snapshots-ready
+  targets_capture_bound "${TARGET_INDEX:-0}"
+  state_write_atomic
 
-  pass "CAPE analysis VM prepared: $CAPE_MACHINE_SECTION -> $DOMAIN"
+  pass "Preserved route-neutral CAPE analysis snapshot: $CAPE_MACHINE_SECTION -> $FINAL_SNAPSHOT"
 }
-
 deploy_windows_cutover() {
   deploy_ensure_maintenance
   local i
