@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+trap 'echo "[FAIL] cape_config_logic.sh line $LINENO: $BASH_COMMAND" >&2' ERR
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AUTODEPLOY_ROOT="$ROOT"
 source "$ROOT/lib/common.sh"
