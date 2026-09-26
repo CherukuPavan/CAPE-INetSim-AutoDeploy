@@ -38,7 +38,7 @@ cape_assert_owned_files_unchanged() {
 
 patch_sniffer_capture_override() {
   local file="$1"
-  python3 - "$file" <<'PY'
+  ad_python - "$file" <<'PY'
 import sys
 p=sys.argv[1]
 s=open(p,encoding="utf-8").read()
@@ -108,10 +108,10 @@ cape_configure_inetsim() {
     [[ -n "${MANAGEMENT_BRIDGE_NAME:-}" ]] || { fail "Management bridge is not set for $CAPE_MACHINE_SECTION"; return 1; }
     [[ -n "${NORMAL_SNAPSHOT:-}" ]] || { fail "Normal-route CAPE snapshot is not set for $CAPE_MACHINE_SECTION"; return 1; }
 
-    python3 "$edit" "$CAPE_ROOT/conf/auxiliary.conf" sniffer "inetsim_capture_interface_${CAPE_MACHINE_LABEL}" "$ISOLATED_BRIDGE_NAME"
-    python3 "$edit" "$CAPE_ROOT/conf/auxiliary.conf" sniffer "inetsim_capture_host_${CAPE_MACHINE_LABEL}" "$CAPE_MACHINE_IP"
-    python3 "$edit" "$CAPE_ROOT/conf/kvm.conf" "$CAPE_MACHINE_SECTION" snapshot "$NORMAL_SNAPSHOT"
-    python3 "$edit" "$CAPE_ROOT/conf/kvm.conf" "$CAPE_MACHINE_SECTION" interface "$MANAGEMENT_BRIDGE_NAME"
+    ad_python "$edit" "$CAPE_ROOT/conf/auxiliary.conf" sniffer "inetsim_capture_interface_${CAPE_MACHINE_LABEL}" "$ISOLATED_BRIDGE_NAME"
+    ad_python "$edit" "$CAPE_ROOT/conf/auxiliary.conf" sniffer "inetsim_capture_host_${CAPE_MACHINE_LABEL}" "$CAPE_MACHINE_IP"
+    ad_python "$edit" "$CAPE_ROOT/conf/kvm.conf" "$CAPE_MACHINE_SECTION" snapshot "$NORMAL_SNAPSHOT"
+    ad_python "$edit" "$CAPE_ROOT/conf/kvm.conf" "$CAPE_MACHINE_SECTION" interface "$MANAGEMENT_BRIDGE_NAME"
 
     grep -Fq "inetsim_capture_interface_${CAPE_MACHINE_LABEL} = $ISOLATED_BRIDGE_NAME" "$CAPE_ROOT/conf/auxiliary.conf"
     grep -Fq "inetsim_capture_host_${CAPE_MACHINE_LABEL} = $CAPE_MACHINE_IP" "$CAPE_ROOT/conf/auxiliary.conf"
@@ -124,13 +124,13 @@ cape_configure_inetsim() {
     targets_capture_bound "$i"
   done
 
-  python3 "$edit" "$CAPE_ROOT/conf/processing.conf" network dnswhitelist no
-  python3 "$edit" "$CAPE_ROOT/conf/processing.conf" network ipwhitelist no
-  python3 "$edit" "$CAPE_ROOT/conf/routing.conf" routing enable_pcap yes
-  python3 "$edit" "$CAPE_ROOT/conf/routing.conf" inetsim enabled yes
-  python3 "$edit" "$CAPE_ROOT/conf/routing.conf" inetsim server "$INETSIM_IP"
-  python3 "$edit" "$CAPE_ROOT/conf/routing.conf" inetsim dnsport 53
-  python3 "$edit" "$CAPE_ROOT/conf/routing.conf" inetsim interface "$ISOLATED_BRIDGE_NAME"
+  ad_python "$edit" "$CAPE_ROOT/conf/processing.conf" network dnswhitelist no
+  ad_python "$edit" "$CAPE_ROOT/conf/processing.conf" network ipwhitelist no
+  ad_python "$edit" "$CAPE_ROOT/conf/routing.conf" routing enable_pcap yes
+  ad_python "$edit" "$CAPE_ROOT/conf/routing.conf" inetsim enabled yes
+  ad_python "$edit" "$CAPE_ROOT/conf/routing.conf" inetsim server "$INETSIM_IP"
+  ad_python "$edit" "$CAPE_ROOT/conf/routing.conf" inetsim dnsport 53
+  ad_python "$edit" "$CAPE_ROOT/conf/routing.conf" inetsim interface "$ISOLATED_BRIDGE_NAME"
 
   local py
   py="$(cape_runtime_python)"
@@ -150,15 +150,15 @@ cape_probe_inetsim_rooter_target() {
   local py
   py="$(cape_runtime_python)"
 
-  [[ -f "$CAPE_ROOT/utils/rooter.py" ]] || {
+  [[ -f "$CAPE_ROOTER_EXECUTABLE" ]] || {
     fail "CAPE Rooter implementation is missing: $CAPE_ROOT/utils/rooter.py"
     return 1
   }
-  grep -Fq 'def inetsim_enable(' "$CAPE_ROOT/utils/rooter.py" || {
+  grep -Fq 'def inetsim_enable(' "$CAPE_ROOTER_EXECUTABLE" || {
     fail "CAPE Rooter does not implement inetsim_enable"
     return 1
   }
-  grep -Eq "['\"]inetsim_enable['\"][[:space:]]*:[[:space:]]*inetsim_enable" "$CAPE_ROOT/utils/rooter.py" || {
+  grep -Eq "['\"]inetsim_enable['\"][[:space:]]*:[[:space:]]*inetsim_enable" "$CAPE_ROOTER_EXECUTABLE" || {
     fail "CAPE Rooter does not register the inetsim_enable handler"
     return 1
   }
