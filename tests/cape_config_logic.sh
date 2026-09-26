@@ -17,7 +17,7 @@ class X:
 PY
 patch_sniffer_capture_override "$TMP/sniffer.py"
 grep -q 'CAPE_INETSIM_ROUTE_AWARE_CAPTURE_V2' "$TMP/sniffer.py"
-grep -q 'capture_host_key = f"capture_host_{self.machine.label}"' "$TMP/sniffer.py"
+grep -q 'capture_host_key = f"inetsim_capture_host_{self.machine.label}"' "$TMP/sniffer.py"
 patch_sniffer_capture_override "$TMP/sniffer.py"
 [[ "$(grep -c CAPE_INETSIM_ROUTE_AWARE_CAPTURE_V2 "$TMP/sniffer.py")" -eq 1 ]]
 echo '[PASS] exact-match CAPE sniffer patch logic'
