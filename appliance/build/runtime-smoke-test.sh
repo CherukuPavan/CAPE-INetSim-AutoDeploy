@@ -33,32 +33,66 @@ echo "[PASS] baked guest configurator matches release source"
 cat >"$WRAPPER" <<EOF
 #!/bin/bash
 set +e
+
 /usr/local/sbin/cape-inetsim-guest-configure \
   --management-mac $MGMT_MAC \
   --isolated-mac $ISO_MAC \
   --ip $ISO_CIDR \
   --gateway $ISO_GATEWAY > /var/log/cape-inetsim-runtime-smoke.log 2>&1
 rc=\$?
+
 if [ "\$rc" -eq 0 ]; then
-  systemctl restart lightdm.service >/dev/null 2>&1 || rc=90
+  {
+    test -f /etc/cape-inetsim-gui-v6
+    test -f /usr/share/xsessions/xubuntu.desktop
+    test -f /usr/lib/xorg/modules/drivers/qxl_drv.so
+    id capeinetsim
+
+    # Mirror target-host cleanup, then temporarily autologin the production GUI
+    # account so CI proves the real desktop rather than only the greeter.
+    rm -f /home/capeinetsim/.Xauthority /home/capeinetsim/.ICEauthority
+    rm -rf /home/capeinetsim/.cache/sessions /home/capeinetsim/.dbus
+    chown -R capeinetsim:capeinetsim /home/capeinetsim
+    chmod 1777 /tmp
+
+    groupadd -f autologin
+    usermod -aG autologin capeinetsim
+    install -d -m 0755 /etc/lightdm/lightdm.conf.d
+    cat >/etc/lightdm/lightdm.conf.d/98-cape-inetsim-selftest.conf <<'SELFTEST'
+[Seat:*]
+autologin-user=capeinetsim
+autologin-user-timeout=0
+autologin-session=xubuntu
+user-session=xubuntu
+SELFTEST
+
+    systemctl set-default graphical.target
+    systemctl restart lightdm.service
+  } >>/var/log/cape-inetsim-runtime-smoke.log 2>&1 || rc=90
 fi
+
 if [ "\$rc" -eq 0 ]; then
   gui_ok=no
-  for _ in \$(seq 1 90); do
+  for _ in \$(seq 1 120); do
     if systemctl is-active --quiet lightdm.service &&
-       test -f /etc/cape-inetsim-gui-v5 &&
-       test -f /usr/lib/xorg/modules/drivers/qxl_drv.so &&
        test -S /tmp/.X11-unix/X0 &&
        pgrep -x Xorg >/dev/null &&
-       grep -Fxq 'greeter-show-manual-login=true' /etc/lightdm/lightdm.conf.d/99-cape-inetsim-console-login.conf &&
-       grep -Fxq 'user-session=xfce' /etc/lightdm/lightdm.conf.d/99-cape-inetsim-console-login.conf; then
-      gui_ok=yes
-      break
+       pgrep -u capeinetsim -f 'xfce4-session' >/dev/null &&
+       pgrep -u capeinetsim -f 'xfce4-panel' >/dev/null &&
+       pgrep -u capeinetsim -f 'xfdesktop' >/dev/null; then
+      sleep 5
+      if pgrep -u capeinetsim -f 'xfce4-session' >/dev/null &&
+         pgrep -u capeinetsim -f 'xfce4-panel' >/dev/null &&
+         pgrep -u capeinetsim -f 'xfdesktop' >/dev/null; then
+        gui_ok=yes
+        break
+      fi
     fi
     sleep 1
   done
   [ "\$gui_ok" = yes ] || rc=91
 fi
+
 if [ "\$rc" -eq 0 ]; then
   touch /var/lib/cape-inetsim-runtime-smoke-ok
 else
@@ -67,21 +101,24 @@ else
     echo "=== lightdm status ==="
     systemctl status lightdm.service --no-pager -l || true
     echo "=== lightdm journal ==="
-    journalctl -u lightdm.service -b --no-pager -n 250 || true
+    journalctl -u lightdm.service -b --no-pager -n 300 || true
     echo "=== processes ==="
     ps -ef || true
     echo "=== xsession errors ==="
     cat /home/capeinetsim/.xsession-errors 2>/dev/null || true
-    echo "=== dedicated session log ==="
-    cat /home/capeinetsim/.cape-inetsim-xfce-session.log 2>/dev/null || true
+    echo "=== user journal ==="
+    journalctl _UID=\$(id -u capeinetsim) -b --no-pager -n 300 || true
+    echo "=== home state ==="
+    find /home/capeinetsim -maxdepth 2 -printf '%M %u:%g %p\n' 2>/dev/null | head -300 || true
     echo "=== lightdm logs ==="
     for f in /var/log/lightdm/*.log; do
       [ -f "\$f" ] || continue
       echo "--- \$f ---"
-      tail -n 250 "\$f" || true
+      tail -n 300 "\$f" || true
     done
   } > /var/log/cape-inetsim-gui-smoke.log 2>&1
 fi
+
 sync
 poweroff -f
 exit 0
@@ -133,7 +170,7 @@ QEMU_RC=$?
 set -e
 
 if virt-cat -a "$OVERLAY" /var/lib/cape-inetsim-runtime-smoke-ok >/dev/null 2>&1; then
-  echo "[PASS] appliance runtime smoke test configured both NICs, started INetSim, and proved stable QXL/LightDM console login"
+  echo "[PASS] appliance runtime smoke test configured both NICs, started INetSim, and proved a real stable Xubuntu/XFCE desktop session"
   exit 0
 fi
 
