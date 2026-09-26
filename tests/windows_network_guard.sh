@@ -19,11 +19,8 @@ assert 'windows_management_guard_exact current' in s
 assert '"$state" == running || "$state" == paused' in s
 PY
 
-grep -q 'windows_management_guard_apply' "$ROOT/lib/deploy.sh"
-grep -q 'firewall_enable_windows_management_guard' "$ROOT/lib/deploy.sh"
+! grep -q 'windows_management_guard_apply' "$ROOT/lib/deploy.sh"
+! grep -q 'firewall_enable_windows_management_guard' "$ROOT/lib/deploy.sh"
 grep -q 'windows_management_guard_restore_if_owned' "$ROOT/lib/windows-vm.sh"
 
-echo '[PASS] Windows management NIC has anti-spoof guard lifecycle'
-
-grep -Fq 'snapshot does not preserve the Windows management anti-spoof guard' "$ROOT/lib/validate.sh"
-grep -Fq '"$WINDOWS_MGMT_FILTER_NAME"' "$ROOT/lib/validate.sh"
+echo '[PASS] legacy management guard remains rollback-capable but is not applied by route-separated deployment'
