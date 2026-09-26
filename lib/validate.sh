@@ -164,11 +164,13 @@ def load(name):
     c.optionxform=str.lower
     c.read(f"{root}/conf/{name}.conf")
     return c
+a=load("auxiliary")
 k=load("kvm")
 p=load("processing")
 r=load("routing")
 if not k.has_section(section): raise SystemExit("CAPE machine section missing")
 if k.get(section,"snapshot",fallback="") != snapshot: raise SystemExit("CAPE snapshot mismatch")
+if a.get("sniffer","inetsim_capture_interface",fallback="") != inetsim_iface: raise SystemExit("route-scoped INetSim capture interface mismatch")
 if p.get("network","dnswhitelist",fallback="").lower() != "no": raise SystemExit("dnswhitelist not disabled")
 if p.get("network","ipwhitelist",fallback="").lower() != "no": raise SystemExit("ipwhitelist not disabled")
 if r.get("inetsim","enabled",fallback="").lower() not in ("yes","true","1","on"): raise SystemExit("CAPE inetsim route is not enabled")
@@ -177,6 +179,7 @@ if r.get("inetsim","interface",fallback="") != inetsim_iface: raise SystemExit("
 if r.get("inetsim","dnsport",fallback="") != "53": raise SystemExit("CAPE inetsim DNS port mismatch")
 if r.get("routing","enable_pcap",fallback="").lower() not in ("yes","true","1","on"): raise SystemExit("CAPE packet capture is disabled")
 PY
+  grep -q 'CAPE_INETSIM_AUTODEPLOY_CAPTURE_V2' "$CAPE_ROOT/modules/auxiliary/sniffer.py"
 }
 validate_resultserver_host() {
   [[ "${CAPE_SERVICE_WAS_ACTIVE:-yes}" == yes ]] || return 0
