@@ -24,6 +24,7 @@ assert q < w < a < z
 assert "WINDOWS_BACKEND_USED=cape-agent-execpy" in s
 assert "WINDOWS_BACKEND_USED=manual-powershell" not in s[s.index("windows_select_live_backend()"):s.index("windows_configure_selected_backend()")]
 assert 'WINDOWS_CONTROL_BOOT_TIMEOUT="${WINDOWS_CONTROL_BOOT_TIMEOUT:-300}"' in s
+assert 'windows_wait_for_cape_agent_visible "$CAPE_MACHINE_IP" "$WINDOWS_CONTROL_BOOT_TIMEOUT"' in s
 power=s[s.index("windows_poweroff_selected_backend()"):s.index("windows_manual_callback_command()")]
 assert 'cape-agent-execpy)' in power
 assert 'windows_poweroff_via_cape_agent "$CAPE_MACHINE_IP"' in power
