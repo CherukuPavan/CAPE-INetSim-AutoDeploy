@@ -3,6 +3,7 @@
 EXTENSION_VERSION="1.0.2"
 EXTENSION_BUNDLED_ROOT="${EXTENSION_BUNDLED_ROOT:-$AUTODEPLOY_ROOT/vendor/CAPE-INetSim-VM-Extension-v${EXTENSION_VERSION}}"
 EXTENSION_ROOT="${EXTENSION_ROOT:-$AD_STATE_ROOT/extension-v${EXTENSION_VERSION}}"
+EXTENSION_ROUTE_STATUS_MARKER="CAPE_INETSIM_VM_ROUTE_STATUS_V3"
 
 extension_fetch_extract() {
   local materialize_log="$AD_LOG_ROOT/${DEPLOYMENT_ID}-extension-materialize.log"
@@ -138,6 +139,30 @@ extension_install() {
   extension_fetch_extract
   extension_run_logged init-config ./install.sh --init-config
   extension_write_config
+
+  # A checksum-pinned release may evolve the route-gated UI without changing
+  # the extension directory version. If the currently installed transaction-
+  # owned UI predates this release's route-status marker, restore the protected
+  # pre-extension CAPE files first, then install the current candidate cleanly.
+  if grep -Rqs 'CAPE_INETSIM_VM_ROUTE_GATED_V2' "$CAPE_ROOT/web" &&
+     ! grep -Rqs "$EXTENSION_ROUTE_STATUS_MARKER" "$CAPE_ROOT/web"; then
+    state_resource_owned extension "CAPE-INetSim-VM-Extension-v$EXTENSION_VERSION" || {
+      fail "Installed INetSim UI is stale but not transaction-owned; refusing overwrite"
+      return 1
+    }
+    [[ -s "$EXTENSION_ROOT/.installed_backup" || -s "$EXTENSION_ROOT/.last_backup" ]] || {
+      fail "Installed INetSim UI is stale but its protected recovery point is missing"
+      return 1
+    }
+
+    info "Refreshing transaction-owned INetSim route-status UI from the current immutable release"
+    extension_run_logged refresh-check ./scripts/rollback.sh --check
+    (cd "$EXTENSION_ROOT" && printf 'RESTORE\n' | ./scripts/rollback.sh --restore)
+    grep -Rqs 'CAPE_INETSIM_VM_ROUTE_GATED_V2' "$CAPE_ROOT/web" && {
+      fail "Protected INetSim UI refresh could not restore the pre-extension CAPE template"
+      return 1
+    }
+  fi
 
   if grep -Rqs 'CAPE_INETSIM_VM_ROUTE_GATED_V2' "$CAPE_ROOT/web"; then
     # Adoption is permitted only when this transaction has an extension recovery
