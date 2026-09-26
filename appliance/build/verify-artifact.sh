@@ -97,6 +97,65 @@ grep -Fxq 'qxl_drv.so' <<<"$xorg_drivers" || {
   exit 6
 }
 
+virt-cat -a "$IMAGE" /etc/cape-inetsim-gui-v2 >/dev/null
+
+lightdm_policy="$(virt-cat -a "$IMAGE" /etc/lightdm/lightdm.conf.d/99-cape-inetsim-autologin.conf)"
+for required in   'autologin-user=capeinetsim'   'autologin-user-timeout=0'   'autologin-session=xfce'   'user-session=xfce'   'pam-autologin-service=lightdm-autologin'   'allow-user-switching=false'   'allow-guest=false'   'greeter-hide-users=true'   'greeter-show-manual-login=false'; do
+  grep -Fxq "$required" <<<"$lightdm_policy" || {
+    echo "[FAIL] candidate is missing LightDM policy: $required" >&2
+    exit 7
+  }
+done
+
+dmrc="$(virt-cat -a "$IMAGE" /home/capeinetsim/.dmrc)"
+grep -Fxq 'Session=xfce' <<<"$dmrc"
+
+accounts_user="$(virt-cat -a "$IMAGE" /var/lib/AccountsService/users/capeinetsim)"
+grep -Fxq 'Session=xfce' <<<"$accounts_user"
+grep -Fxq 'SystemAccount=false' <<<"$accounts_user"
+
+group_file="$(virt-cat -a "$IMAGE" /etc/group)"
+grep -Eq '^autologin:.*(^|,)capeinetsim(,|$)' <<<"$group_file" || {
+  echo "[FAIL] capeinetsim is not authorized for LightDM autologin" >&2
+  exit 7
+}
+grep -Eq '^nopasswdlogin:.*(^|,)capeinetsim(,|$)' <<<"$group_file" || {
+  echo "[FAIL] capeinetsim is not in nopasswdlogin" >&2
+  exit 7
+}
+
+pam_autologin="$(virt-cat -a "$IMAGE" /etc/pam.d/lightdm-autologin)"
+grep -Fq 'pam_permit.so' <<<"$pam_autologin" || {
+  echo "[FAIL] stock LightDM autologin PAM service does not permit passwordless auth" >&2
+  exit 7
+}
+
+passwd_db="$(virt-cat -a "$IMAGE" /etc/passwd)"
+shadow_db="$(virt-cat -a "$IMAGE" /etc/shadow)"
+python3 - "$passwd_db" "$shadow_db" <<'PY'
+import sys
+pw = {}
+for line in sys.argv[1].splitlines():
+    parts=line.split(":")
+    if len(parts)>=7:
+        try: uid=int(parts[2])
+        except ValueError: continue
+        pw[parts[0]]=uid
+sh = {}
+for line in sys.argv[2].splitlines():
+    parts=line.split(":")
+    if len(parts)>=2:
+        sh[parts[0]]=parts[1]
+bad=[]
+for user,uid in pw.items():
+    if uid==0 or uid>=1000:
+        token=sh.get(user,"")
+        if not token or token[0] not in ("!","*"):
+            bad.append(user)
+if bad:
+    raise SystemExit("interactive accounts with usable password hashes: "+",".join(sorted(bad)))
+PY
+
 cloud_instances="$(virt-ls -R -a "$IMAGE" /var/lib/cloud/instances 2>/dev/null || true)"
 [[ -z "${cloud_instances//[[:space:]]/}" ]] || {
   echo "[FAIL] candidate still contains cloud-init instance state" >&2
