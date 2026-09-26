@@ -156,8 +156,8 @@ d=json.load(open(sys.argv[1]))
 p=d.get("positive") or {}
 s=p.get("summary") or {}
 if not p.get("capture_path"): raise SystemExit("positive task has no non-empty PCAP")
-if int(s.get("dns_count",0) or 0) < 1: raise SystemExit("positive task has no INetSim DNS events")
-if int(s.get("http_count",0) or 0) < 1: raise SystemExit("positive task has no INetSim HTTP events")
+if int(s.get("dns",0) or 0) < 1: raise SystemExit("positive task has no INetSim DNS events")
+if int(s.get("http",0) or 0) < 1: raise SystemExit("positive task has no INetSim HTTP events")
 PY
 
 state_record_resource e2e-selftest "$POSITIVE_TASK" passed yes "route=inetsim marker=$MARKER report=$RESULT"
