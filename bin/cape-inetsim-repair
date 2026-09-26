@@ -136,7 +136,7 @@ DEPLOYMENT_PHASE=repairing
 state_write_atomic
 cape_configure_inetsim
 
-if ! grep -Rqs 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$CAPE_ROOT/web"; then
+if ! grep -Rqs 'CAPE_INETSIM_VM_ROUTE_GATED_V2' "$CAPE_ROOT/web"; then
   extension_install
 fi
 
