@@ -119,11 +119,122 @@ import re,sys
 p,ip=sys.argv[1:]
 s=open(p).read()
 def set_one(text,key,value):
-    pat=re.compile(rf'(?m)^\s*#?\s*{re.escape(key)}\s+\S+\s*$')
+    pat=re.compile(rf'(?m)^\s*#?\s*{re.escape(key)}\s+\S+\s*
+PY
+
+sysctl -w net.ipv4.ip_unprivileged_port_start=53 >/dev/null
+sysctl -w net.ipv4.ip_forward=0 >/dev/null
+sysctl -w net.ipv6.conf.all.forwarding=0 >/dev/null
+[[ "$(sysctl -n net.ipv4.ip_unprivileged_port_start)" == 53 ]]
+[[ "$(sysctl -n net.ipv4.ip_forward)" == 0 ]]
+[[ "$(sysctl -n net.ipv6.conf.all.forwarding)" == 0 ]]
+systemctl enable inetsim.service >/dev/null
+systemctl restart inetsim.service
+
+ready=no
+ISO_ADDRS=""
+UDP_LISTEN=""
+TCP_LISTEN=""
+for _ in $(seq 1 30); do
+  ISO_ADDRS="$(ip -4 addr show dev "$ISO_IF" 2>/dev/null || true)"
+  UDP_LISTEN="$(ss -lnup 2>/dev/null || true)"
+  TCP_LISTEN="$(ss -lntp 2>/dev/null || true)"
+  if grep -Fq "$CIDR" <<<"$ISO_ADDRS" &&
+     grep -Fq "$IP:53" <<<"$UDP_LISTEN" &&
+     grep -Eq "$IP:21[[:space:]]" <<<"$TCP_LISTEN" &&
+     grep -Eq "$IP:25[[:space:]]" <<<"$TCP_LISTEN" &&
+     grep -Eq "$IP:80[[:space:]]" <<<"$TCP_LISTEN" &&
+     grep -Eq "$IP:443[[:space:]]" <<<"$TCP_LISTEN"; then
+    ready=yes
+    break
+  fi
+  sleep 1
+done
+
+if [[ "$ready" != yes ]]; then
+  echo "INetSim services did not become ready within 30 seconds" >&2
+  echo "--- ip -4 addr ---" >&2
+  ip -4 addr >&2 || true
+  echo "--- ip -4 route ---" >&2
+  ip -4 route >&2 || true
+  echo "--- listeners ---" >&2
+  ss -lnupt >&2 || true
+  echo "--- inetsim status ---" >&2
+  systemctl status inetsim.service --no-pager -l >&2 || true
+  echo "--- inetsim journal ---" >&2
+  journalctl -u inetsim.service -n 100 --no-pager >&2 || true
+  exit 36
+fi
+
+echo "INETSIM_GUEST_CONFIG_OK management=$MGMT_IF isolated=$ISO_IF ip=$CIDR"
+)
     if not pat.search(text): raise SystemExit(f'missing {key} in {p}')
     return pat.sub(f'{key} {value}',text,count=1)
 s=set_one(s,'service_bind_address',ip)
 s=set_one(s,'dns_default_ip',ip)
+
+# Production contract: these protocols are always available on the isolated
+# appliance. Normalize duplicates and uncomment exactly one declaration.
+for service in ("dns","http","https","smtp","ftp"):
+    pat=re.compile(rf'(?m)^\s*#?\s*start_service\s+{re.escape(service)}\s*
+PY
+
+sysctl -w net.ipv4.ip_unprivileged_port_start=53 >/dev/null
+sysctl -w net.ipv4.ip_forward=0 >/dev/null
+sysctl -w net.ipv6.conf.all.forwarding=0 >/dev/null
+[[ "$(sysctl -n net.ipv4.ip_unprivileged_port_start)" == 53 ]]
+[[ "$(sysctl -n net.ipv4.ip_forward)" == 0 ]]
+[[ "$(sysctl -n net.ipv6.conf.all.forwarding)" == 0 ]]
+systemctl enable inetsim.service >/dev/null
+systemctl restart inetsim.service
+
+ready=no
+ISO_ADDRS=""
+UDP_LISTEN=""
+TCP_LISTEN=""
+for _ in $(seq 1 30); do
+  ISO_ADDRS="$(ip -4 addr show dev "$ISO_IF" 2>/dev/null || true)"
+  UDP_LISTEN="$(ss -lnup 2>/dev/null || true)"
+  TCP_LISTEN="$(ss -lntp 2>/dev/null || true)"
+  if grep -Fq "$CIDR" <<<"$ISO_ADDRS" &&
+     grep -Fq "$IP:53" <<<"$UDP_LISTEN" &&
+     grep -Eq "$IP:80[[:space:]]" <<<"$TCP_LISTEN" &&
+     grep -Eq "$IP:443[[:space:]]" <<<"$TCP_LISTEN"; then
+    ready=yes
+    break
+  fi
+  sleep 1
+done
+
+if [[ "$ready" != yes ]]; then
+  echo "INetSim services did not become ready within 30 seconds" >&2
+  echo "--- ip -4 addr ---" >&2
+  ip -4 addr >&2 || true
+  echo "--- ip -4 route ---" >&2
+  ip -4 route >&2 || true
+  echo "--- listeners ---" >&2
+  ss -lnupt >&2 || true
+  echo "--- inetsim status ---" >&2
+  systemctl status inetsim.service --no-pager -l >&2 || true
+  echo "--- inetsim journal ---" >&2
+  journalctl -u inetsim.service -n 100 --no-pager >&2 || true
+  exit 36
+fi
+
+echo "INETSIM_GUEST_CONFIG_OK management=$MGMT_IF isolated=$ISO_IF ip=$CIDR"
+)
+    hits=list(pat.finditer(s))
+    if not hits:
+        s += f"\nstart_service {service}\n"
+        continue
+    first=True
+    def repl(m):
+        nonlocal first
+        if first:
+            first=False
+            return f"start_service {service}"
+        return f"# duplicate disabled by CAPE-INetSim-AutoDeploy: start_service {service}"
+    s=pat.sub(repl,s)
 open(p,'w').write(s)
 PY
 
