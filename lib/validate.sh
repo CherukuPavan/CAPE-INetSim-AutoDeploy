@@ -156,7 +156,7 @@ if not mgmt_guard: raise SystemExit("snapshot does not preserve the Windows mana
 
 validate_cape_configuration() {
   python3 - "$CAPE_ROOT" "$CAPE_MACHINE_SECTION" "$CAPE_MACHINE_LABEL" \
-    "$CAPE_MACHINE_SNAPSHOT" "$FINAL_SNAPSHOT" "$MANAGEMENT_BRIDGE_NAME" \
+    "$NORMAL_SNAPSHOT" "$FINAL_SNAPSHOT" "$MANAGEMENT_BRIDGE_NAME" \
     "$ISOLATED_BRIDGE_NAME" "$WINDOWS_FAKE_IP" "$INETSIM_IP" <<'PY'
 import configparser,sys
 root,section,label,normal_snapshot,inetsim_snapshot,mgmt_iface,inetsim_iface,fake,inetsim_ip=sys.argv[1:]
