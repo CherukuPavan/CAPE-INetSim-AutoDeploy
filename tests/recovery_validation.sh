@@ -17,7 +17,7 @@ CAPE_TARGETS_JSON='[{"section":"win","label":"win","domain":"testvm","safety_sna
 CAPE_TARGETS_COUNT=1
 targets_bind 0
 
-for rel in modules/auxiliary/sniffer.py conf/auxiliary.conf conf/kvm.conf conf/processing.conf conf/routing.conf; do
+for rel in modules/auxiliary/sniffer.py lib/cuckoo/common/abstracts.py lib/cuckoo/core/machinery_manager.py lib/cuckoo/core/analysis_manager.py modules/machinery/kvm.py conf/auxiliary.conf conf/kvm.conf conf/processing.conf conf/routing.conf; do
   p="$AD_BACKUP_ROOT/$DEPLOYMENT_ID/$rel"
   mkdir -p "$(dirname "$p")"
   printf 'protected %s\n' "$rel" >"$p"
