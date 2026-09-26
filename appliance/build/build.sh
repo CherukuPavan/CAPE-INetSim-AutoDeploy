@@ -82,7 +82,7 @@ fi
 
 echo "[INFO] booting temporary isolated build VM to install appliance packages"
 set +e
-timeout --signal=TERM --kill-after=30s 1500 \
+timeout --signal=TERM --kill-after=30s 2400 \
   qemu-system-x86_64 \
     "${QEMU_MACHINE[@]}" \
     -name cape-inetsim-appliance-build \
