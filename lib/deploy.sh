@@ -331,6 +331,7 @@ deploy_stage_non_disruptive() {
   fi
 
   inetsim_configure_guest
+  inetsim_enable_gui_guest
   if ! deploy_phase_at_least appliance-configured; then
     state_set_phase appliance-configured
   fi
