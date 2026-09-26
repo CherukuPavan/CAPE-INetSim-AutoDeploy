@@ -38,7 +38,7 @@ cape_assert_owned_files_unchanged() {
 
 patch_sniffer_capture_override() {
   local file="$1"
-  if grep -q 'CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1' "$file"; then return 0; fi
+  if grep -q 'CAPE_INETSIM_AUTODEPLOY_CAPTURE_V2' "$file"; then return 0; fi
   python3 - "$file" <<'PY'
 import sys
 p=sys.argv[1]
