@@ -18,17 +18,13 @@ CAPE_TARGETS_JSON='[
   {"section":"win7","domain":"win7","management_bridge":"virbr0","management_mac":"52:54:00:11:22:44","ip":"192.168.122.101","fake_ip":"192.168.200.11","resultserver_ip":"192.168.122.1","resultserver_port":"2042","phase":"cape-configured"}
 ]'
 full="$(firewall_render_rules capeisim7 yes)"
-grep -Fq 'iifname "virbr0" ether saddr 52:54:00:11:22:33 drop' <<<"$full"
-grep -Fq 'iifname "virbr0" ip saddr 192.168.122.100 drop' <<<"$full"
-grep -Fq 'iifname "virbr0" ether saddr 52:54:00:11:22:44 drop' <<<"$full"
-grep -Fq 'iifname "virbr0" ip saddr 192.168.122.101 drop' <<<"$full"
-grep -Fq 'table bridge cape_inetsim_autodeploy_l2' <<<"$full"
-grep -Fq 'ether saddr 52:54:00:11:22:33 drop' <<<"$full"
-grep -Fq 'ether saddr 52:54:00:11:22:44 drop' <<<"$full"
+grep -Fq 'CAPE_INETSIM_ROUTE_AWARE_FIREWALL_V2' <<<"$full"
 grep -Fq 'iifname "capeisim7" ip saddr 192.168.200.10 ip daddr 192.168.122.1 tcp dport 2042 accept' <<<"$full"
 grep -Fq 'iifname "capeisim7" ip saddr 192.168.200.11 ip daddr 192.168.122.1 tcp dport 2042 accept' <<<"$full"
+! grep -Fq 'iifname "virbr0" ip saddr 192.168.122.100 drop' <<<"$full"
+! grep -Fq 'iifname "virbr0" ether saddr 52:54:00:11:22:33 drop' <<<"$full"
+! grep -Fq 'table bridge cape_inetsim_autodeploy_l2' <<<"$full"
 ! grep -Fq 'iifname "capeisim7" accept' <<<"$full"
-! grep -Eq '\baccept\b.*(52:54:00:11:22:33|52:54:00:11:22:44|192\.168\.122\.10[01])' <<<"$full"
 
 unit="$(firewall_render_unit)"
 grep -Fq 'ExecStartPre=-/usr/sbin/nft delete table inet cape_inetsim_autodeploy' <<<"$unit"
@@ -36,15 +32,14 @@ grep -Fq 'ExecStartPre=-/usr/sbin/nft delete table bridge cape_inetsim_autodeplo
 grep -Fq 'ExecStart=/usr/sbin/nft -f /etc/cape-inetsim-autodeploy/firewall.nft' <<<"$unit"
 grep -Fq 'ExecStop=-/usr/sbin/nft delete table bridge cape_inetsim_autodeploy_l2' <<<"$unit"
 
-echo '[PASS] host firewall blocks isolated and Windows-management escape paths'
+echo '[PASS] host firewall keeps isolated network fail-closed without overriding CAPE task routes'
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 printf '%s\n' "$full" >"$TMP/full.nft"
 
-# RC18 regression: once the base inet table is active, the management-guard
-# upgrade must validate a replacement transaction instead of trying to create
-# the same table on top of itself.
+# Route-aware upgrade regression: an RC44 bridge-table management guard must
+# be removed atomically while the isolated inet guard is replaced.
 firewall_table_exists(){ return 0; }
 firewall_bridge_table_exists(){ return 1; }
 runtime_batch="$(firewall_render_runtime_batch "$TMP/full.nft")"
@@ -85,14 +80,13 @@ grep -Fxq 'systemctl:enable --now cape-inetsim-autodeploy-firewall.service' "$LO
 
 grep -Fq 'nft -c -f "$tmp_runtime_batch"' "$ROOT/lib/firewall.sh"
 grep -Fq 'firewall_activate_rules "$tmp_runtime_batch"' "$ROOT/lib/firewall.sh"
-echo '[PASS] active firewall rules are atomically replaced during management-guard upgrade'
+echo '[PASS] active firewall rules are atomically replaced during route-aware upgrade'
 
-grep -q 'firewall_management_records' "$ROOT/lib/firewall.sh"
+grep -Fq 'CAPE_INETSIM_ROUTE_AWARE_FIREWALL_V2' "$ROOT/lib/firewall.sh"
 grep -q 'firewall_isolated_resultserver_records' "$ROOT/lib/firewall.sh"
 grep -q 'firewall_file_has_resultserver_exceptions_all' "$ROOT/lib/firewall.sh"
 grep -q 'firewall_resultserver_exceptions_match_all' "$ROOT/lib/firewall.sh"
-grep -q 'firewall_management_guards_match_all' "$ROOT/lib/firewall.sh"
-grep -q 'Restored firewall is missing one or more Windows management egress guards' "$ROOT/lib/firewall.sh"
+! grep -q 'Restored firewall is missing one or more Windows management egress guards' "$ROOT/lib/firewall.sh"
 python3 - "$ROOT/bin/cape-inetsim-repair" <<'PY'
 import sys
 s=open(sys.argv[1],encoding="utf-8").read()
