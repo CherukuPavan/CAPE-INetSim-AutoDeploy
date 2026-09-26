@@ -169,6 +169,16 @@ inetsim_enable_gui_guest() {
     fail "INetSim graphical desktop marker is missing after setup"
     return 1
   }
+  qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/systemctl is-active --quiet lightdm.service >/dev/null 2>&1 || {
+    fail "INetSim graphical display manager is not active after setup"
+    return 1
+  }
+  local display_uri
+  display_uri="$(virsh domdisplay "$INETSIM_DOMAIN_NAME" 2>/dev/null || true)"
+  [[ "$display_uri" == spice://* ]] || {
+    fail "INetSim appliance has no active SPICE graphical display"
+    return 1
+  }
   pass "INetSim Ubuntu graphical interface is available through virt-manager"
 }
 
