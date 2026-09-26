@@ -277,7 +277,7 @@ a=json.loads(sys.argv[1])
 for i,d in enumerate(a,1):
     err=d.get("errors") or []
     status="ready" if not err else "blocked"
-    snap=d.get("original_snapshot") or "<none>"
+    snap=d.get("final_snapshot") or d.get("original_snapshot") or "<none>"
     print(f"{i}. {d.get('section','?')} -> {d.get('domain','?')} | mgmt={d.get('ip','?')} | fake={d.get('fake_ip','?')} | snapshot={snap} | {status}")
 PY
 }
