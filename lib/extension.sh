@@ -30,20 +30,35 @@ extension_fetch_extract() {
     return 1
   }
 
-  # Preserve any extension-created recovery point across a crashed installer.
-  # Re-copying over .last_backup/.installed_backup would destroy rollback data.
+  # A protected recovery point must survive retries, but the executable
+  # runtime itself must still match the CURRENT checksum-pinned release.
+  # RC47 exposed why version-only reuse is unsafe: extension v1.0.2 from an
+  # older release retained stale installer logic even though the outer release
+  # had been fixed.
+  local protected=no runtime_current=no
   if [[ -x "$EXTENSION_ROOT/install.sh" ]] && {
        [[ -s "$EXTENSION_ROOT/.installed_backup" ]] ||
        [[ -s "$EXTENSION_ROOT/.last_backup" ]];
      }; then
-    printf 'reuse=protected-recovery-point\n' >>"$materialize_log"
+    protected=yes
+  fi
+
+  if [[ -d "$EXTENSION_ROOT" && -s "$EXTENSION_ROOT/RUNTIME-SHA256SUMS" ]] &&
+     cmp -s "$EXTENSION_ROOT/RUNTIME-SHA256SUMS" "$EXTENSION_BUNDLED_ROOT/RUNTIME-SHA256SUMS" &&
+     (cd "$EXTENSION_ROOT" && sha256sum -c RUNTIME-SHA256SUMS >/dev/null 2>&1); then
+    runtime_current=yes
+  fi
+
+  if [[ "$protected" == yes && "$runtime_current" == yes ]]; then
+    printf 'reuse=protected-recovery-point-current-runtime\n' >>"$materialize_log"
     return 0
   fi
 
-  # A prior failed/unowned extension directory is disposable even when VERSION
-  # matches. Re-materialize it from the checksum-pinned bundle so a failed run
-  # can never poison the next deployment.
-  printf 'reuse=no; refreshing-unowned-runtime\n' >>"$materialize_log"
+  if [[ "$protected" == yes ]]; then
+    printf 'reuse=no; refreshing-stale-protected-runtime\n' >>"$materialize_log"
+  else
+    printf 'reuse=no; refreshing-unowned-runtime\n' >>"$materialize_log"
+  fi
 
   rm -rf "$EXTENSION_ROOT.new"
   install -d -m 0700 "$EXTENSION_ROOT.new"
@@ -63,8 +78,26 @@ extension_fetch_extract() {
     return 1
   fi
 
-  rm -rf "$EXTENSION_ROOT"
-  mv "$EXTENSION_ROOT.new" "$EXTENSION_ROOT"
+  # Preserve only mutable recovery/configuration state from an older protected
+  # runtime. Executable code and its checksum manifest always come from the
+  # current immutable release bundle.
+  if [[ "$protected" == yes ]]; then
+    [[ ! -d "$EXTENSION_ROOT/backups" ]] || cp -a "$EXTENSION_ROOT/backups" "$EXTENSION_ROOT.new/"
+    [[ ! -s "$EXTENSION_ROOT/.installed_backup" ]] || cp -a "$EXTENSION_ROOT/.installed_backup" "$EXTENSION_ROOT.new/.installed_backup"
+    [[ ! -s "$EXTENSION_ROOT/.last_backup" ]] || cp -a "$EXTENSION_ROOT/.last_backup" "$EXTENSION_ROOT.new/.last_backup"
+    [[ ! -s "$EXTENSION_ROOT/src/inetsim-vm.conf" ]] || cp -a "$EXTENSION_ROOT/src/inetsim-vm.conf" "$EXTENSION_ROOT.new/src/inetsim-vm.conf"
+  fi
+
+  rm -rf "$EXTENSION_ROOT.old"
+  if [[ -d "$EXTENSION_ROOT" ]]; then
+    mv "$EXTENSION_ROOT" "$EXTENSION_ROOT.old"
+  fi
+  if ! mv "$EXTENSION_ROOT.new" "$EXTENSION_ROOT"; then
+    [[ ! -d "$EXTENSION_ROOT.old" ]] || mv "$EXTENSION_ROOT.old" "$EXTENSION_ROOT"
+    fail "Could not activate refreshed INetSim extension runtime"
+    return 1
+  fi
+  rm -rf "$EXTENSION_ROOT.old"
   printf 'materialized=yes\n' >>"$materialize_log"
 }
 
