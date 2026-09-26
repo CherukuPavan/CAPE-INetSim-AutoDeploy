@@ -274,8 +274,8 @@ validate_deployment_structural() {
 }
 
 validate_deployment_services() {
-  services_validate_restored_state
+  services_validate_deployment_state
   validate_all_resultservers
-  pass "CAPE service and ResultServer health gates passed for all managed analysis machines"
+  pass "CAPE service, Rooter, IPv4-forwarding and ResultServer health gates passed for all managed analysis machines"
 }
 
