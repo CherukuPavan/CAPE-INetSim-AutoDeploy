@@ -9,6 +9,8 @@ source "$ROOT/lib/common.sh"
 source "$ROOT/lib/targets.sh"
 source "$ROOT/lib/state.sh"
 source "$ROOT/lib/transaction.sh"
+source "$ROOT/lib/cape.sh"
+source "$ROOT/lib/cape-runtime.sh"
 source "$ROOT/lib/qga.sh"
 source "$ROOT/lib/windows-network-guard.sh"
 source "$ROOT/lib/windows-vm.sh"
@@ -29,7 +31,7 @@ state_load || { fail "No deployment state exists"; exit 1; }
 
 echo "Rollback plan for deployment $DEPLOYMENT_ID"
 kv "phase:" "${DEPLOYMENT_PHASE:-unknown}"
-python3 - "${CAPE_TARGETS_JSON:-[]}" <<'PY'
+ad_python - "${CAPE_TARGETS_JSON:-[]}" <<'PY'
 import json,sys
 try: a=json.loads(sys.argv[1])
 except Exception: a=[]
