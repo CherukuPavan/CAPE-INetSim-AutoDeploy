@@ -137,8 +137,8 @@ set -e
 [[ "$(windows_management_dhcp_host_ip "$(windows_management_dhcp_host_xml)")" == 192.168.122.195 ]]
 
 grep -Fq 'windows-management-dhcp.sh' "$ROOT/install"
-grep -Fq 'windows_management_dhcp_align_if_needed' "$ROOT/lib/deploy.sh"
+! grep -Fq 'windows_management_dhcp_align_if_needed' "$ROOT/lib/deploy.sh"
 grep -Fq 'management-dhcp-host' "$ROOT/lib/rollback.sh"
 grep -Fq 'windows_management_dhcp_restore_if_owned' "$ROOT/lib/windows-vm.sh"
 
-echo '[PASS] management DHCP alignment is MAC-scoped, conflict-safe and rollback-safe'
+echo '[PASS] legacy DHCP alignment is rollback-safe but route-separated deployment leaves management DHCP untouched'
