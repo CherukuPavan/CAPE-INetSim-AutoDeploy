@@ -134,3 +134,33 @@ windows_restore_configured_snapshot_paused
 grep -Fq 'snapshot-revert testvm snapshot1 --force --paused' <<<"$SNAP_REVERT_ARGS"
 
 echo '[PASS] configured CAPE running snapshot is restored paused for safe control bootstrap'
+
+# Route-aware regression: the normal route and fake-INetSim route must have
+# distinct snapshot identities. Existing operator snapshots are reused as the
+# normal route baseline; hosts without one create a deployment-owned running
+# normal snapshot before fake networking is applied.
+python3 - "$ROOT/lib/windows-vm.sh" "$ROOT/lib/deploy.sh" <<'PY'
+import sys
+vm=open(sys.argv[1],encoding="utf-8").read()
+deploy=open(sys.argv[2],encoding="utf-8").read()
+
+normal=vm[vm.index("windows_ensure_normal_route_snapshot()"):vm.index("windows_create_working_snapshot()")]
+assert 'NORMAL_SNAPSHOT="$CAPE_MACHINE_SNAPSHOT"' in normal
+assert 'NORMAL_SNAPSHOT="cape-normal-ready-$(windows_snapshot_token)"' in normal
+assert 'purpose=normal-route' in normal
+assert 'snapshot_is_running_analysis_baseline "$NORMAL_SNAPSHOT"' in normal
+
+rollback=vm[vm.index("windows_delete_owned_snapshots_leaf_first()"):vm.index("windows_rollback_to_safety()")]
+assert '"${NORMAL_SNAPSHOT:-}"' in rollback
+
+cut_start=deploy.index('if [[ "${TARGET_PHASE:-}" == nic-attached ]]')
+cut_end=deploy.index('elif [[ "${TARGET_PHASE:-}" == configured',cut_start)
+cutover=deploy[cut_start:cut_end]
+start=cutover.index("windows_start_for_cutover")
+backend=cutover.index("windows_select_live_backend")
+normal_pos=cutover.index("windows_ensure_normal_route_snapshot")
+fake=cutover.index("windows_configure_selected_backend")
+assert start < backend < normal_pos < fake
+PY
+
+echo '[PASS] route-normal snapshot is established before fake-network configuration'
