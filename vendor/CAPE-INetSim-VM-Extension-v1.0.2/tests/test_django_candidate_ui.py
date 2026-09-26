@@ -93,7 +93,7 @@ other_network = {
     "udp": [],
     "http": [],
 }
-if not inetsim_vm_logic.build_route_none_inetsim_context(other_network, other_server).get("enabled"):
+if not inetsim_vm_logic.build_inetsim_route_context(other_network, other_server).get("enabled"):
     raise SystemExit("FAIL: helper is not subnet-independent")
 
 print("PASS: modern CAPE template filters registered")
