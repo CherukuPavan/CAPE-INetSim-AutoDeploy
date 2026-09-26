@@ -16,7 +16,21 @@ SOURCE_URL="https://github.com/$REPO/releases/download/$TAG/$SOURCE_NAME"
 command -v curl >/dev/null 2>&1 || { echo "[FAIL] curl is required" >&2; exit 2; }
 command -v tar >/dev/null 2>&1 || { echo "[FAIL] tar is required" >&2; exit 2; }
 command -v sha256sum >/dev/null 2>&1 || { echo "[FAIL] sha256sum is required" >&2; exit 2; }
-command -v python3 >/dev/null 2>&1 || { echo "[FAIL] python3 is required" >&2; exit 2; }
+HOST_PYTHON=""
+for py in python3 python; do
+  candidate="$(command -v "$py" 2>/dev/null || true)"
+  [[ -n "$candidate" && -x "$candidate" ]] || continue
+  if "$candidate" - <<'PY' >/dev/null 2>&1
+import sys
+raise SystemExit(0 if sys.version_info >= (3,10) else 1)
+PY
+  then
+    HOST_PYTHON="$candidate"
+    break
+  fi
+done
+[[ -n "$HOST_PYTHON" ]] || { echo "[FAIL] Python >= 3.10 is required" >&2; exit 2; }
+export AD_HOST_PYTHON="$HOST_PYTHON"
 
 TMP="$(mktemp -d /tmp/cape-inetsim-autodeploy-release.XXXXXX)"
 cleanup(){ rm -rf "$TMP"; }
@@ -31,7 +45,7 @@ EXPECTED_ROOT="${SOURCE_NAME%.tar.gz}"
   echo "[FAIL] Release source bundle root name is invalid" >&2
   exit 2
 }
-python3 - "$TMP/$SOURCE_NAME" "$EXPECTED_ROOT" <<'PY'
+"$HOST_PYTHON" - "$TMP/$SOURCE_NAME" "$EXPECTED_ROOT" <<'PY'
 import pathlib,sys,tarfile
 archive,root=sys.argv[1:]
 with tarfile.open(archive,"r:gz") as tf:
