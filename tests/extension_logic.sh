@@ -85,6 +85,9 @@ grep -Fq 'CAPE_INETSIM_VM_MODERN_NETWORK_V1' "$C/web/templates/analysis/network/
 grep -Fq '{% load inetsim_vm_tags %}' "$C/web/templates/analysis/network/index.html"
 grep -Fq 'network_inetsim-tab' "$C/web/templates/analysis/network/index.html"
 grep -Fq 'network_inetsim_tab' "$C/web/templates/analysis/network/index.html"
+grep -Fq 'analysis|inetsim_vm_active' "$C/web/templates/analysis/network/index.html"
+! grep -Fq 'network|inetsim_vm_active' "$C/web/templates/analysis/network/index.html"
+grep -Fq 'route != "inetsim"' "$C/web/analysis/templatetags/inetsim_vm_tags.py"
 [[ -f "$C/web/analysis/templatetags/inetsim_vm_tags.py" ]]
 [[ -f "$C/web/templates/analysis/network/_inetsim_vm_visual.html" ]]
 [[ -f "$C/web/analysis/inetsim_vm_logic.py" ]]
