@@ -22,9 +22,9 @@ choose_libvirt_storage_pool() {
     state="$(virsh pool-info "$p" 2>/dev/null | awk -F: '/^State:/ {gsub(/^[ \t]+/,"",$2);print $2}')"
     [[ "$state" == running ]] || continue
     xml="$(virsh pool-dumpxml "$p" 2>/dev/null || true)"
-    typ="$(python3 -c 'import sys,xml.etree.ElementTree as E; r=E.fromstring(sys.stdin.read()); print(r.get("type",""))' <<<"$xml" 2>/dev/null || true)"
+    typ="$(ad_python -c 'import sys,xml.etree.ElementTree as E; r=E.fromstring(sys.stdin.read()); print(r.get("type",""))' <<<"$xml" 2>/dev/null || true)"
     [[ "$typ" == dir ]] || continue
-    path="$(python3 -c 'import sys,xml.etree.ElementTree as E; r=E.fromstring(sys.stdin.read()); x=r.find("./target/path"); print(x.text if x is not None else "")' <<<"$xml" 2>/dev/null || true)"
+    path="$(ad_python -c 'import sys,xml.etree.ElementTree as E; r=E.fromstring(sys.stdin.read()); x=r.find("./target/path"); print(x.text if x is not None else "")' <<<"$xml" 2>/dev/null || true)"
     [[ -n "$path" && -d "$path" ]] || continue
     avail="$(df -Pk "$path" | awk 'NR==2{print $4}')"
     [[ "$avail" =~ ^[0-9]+$ && "$avail" -ge 20971520 ]] || continue
@@ -37,7 +37,7 @@ choose_libvirt_storage_pool() {
 }
 
 inject_qga_channel() {
-  python3 -c '
+  ad_python -c '
 import sys,xml.etree.ElementTree as ET
 r=ET.fromstring(sys.stdin.read())
 devices=r.find("devices")
@@ -158,7 +158,7 @@ inetsim_ensure_graphics_console() {
     return 1
   }
 
-  if python3 -c '
+  if ad_python -c '
 import sys,xml.etree.ElementTree as ET
 r=ET.fromstring(sys.stdin.read())
 g=r.find("./devices/graphics")
@@ -169,7 +169,7 @@ raise SystemExit(0 if ok else 1)
     return 0
   fi
 
-  python3 -c '
+  ad_python -c '
 import sys,xml.etree.ElementTree as ET
 out=sys.argv[1]
 r=ET.fromstring(sys.stdin.read())
@@ -420,7 +420,7 @@ EOF
 }
 
 inetsim_domain_macs() {
-  virsh dumpxml "$INETSIM_DOMAIN_NAME" | python3 -c '
+  virsh dumpxml "$INETSIM_DOMAIN_NAME" | ad_python -c '
 import sys,xml.etree.ElementTree as ET
 r=ET.fromstring(sys.stdin.read())
 for i in r.findall("./devices/interface"):
@@ -434,7 +434,7 @@ for i in r.findall("./devices/interface"):
 inetsim_domain_matches_plan() {
   local xml
   xml="$(virsh dumpxml "$INETSIM_DOMAIN_NAME" 2>/dev/null)" || return 1
-  python3 -c '
+  ad_python -c '
 import os,sys,xml.etree.ElementTree as ET
 disk,mgmt,isolated=sys.argv[1:]
 r=ET.fromstring(sys.stdin.read())
@@ -469,7 +469,7 @@ inetsim_copy_appliance_disk() {
       local p path
       while IFS= read -r p; do
         [[ -n "$p" ]] || continue
-        path="$(virsh pool-dumpxml "$p" 2>/dev/null | python3 -c 'import sys,xml.etree.ElementTree as E
+        path="$(virsh pool-dumpxml "$p" 2>/dev/null | ad_python -c 'import sys,xml.etree.ElementTree as E
 try: r=E.fromstring(sys.stdin.read())
 except Exception: raise SystemExit
 x=r.find("./target/path")
@@ -619,7 +619,7 @@ inetsim_configure_guest() {
   local client_ip
   while IFS= read -r client_ip; do
     [[ -n "$client_ip" ]] && configure_args+=(--client-ip "$client_ip")
-  done < <(python3 - "${CAPE_TARGETS_JSON:-[]}" <<'PY'
+  done < <(ad_python - "${CAPE_TARGETS_JSON:-[]}" <<'PY'
 import json,sys
 try: a=json.loads(sys.argv[1])
 except Exception: a=[]
@@ -673,13 +673,27 @@ printf "default6=%s\\n" "$(ip -6 route show default | wc -l)"
   grep -Eq '^default4=(0|1)$' <<<"$runtime" || { inetsim_capture_guest_diagnostics; fail "INetSim appliance has more than one IPv4 default route"; return 1; }
   grep -Fxq 'default6=0' <<<"$runtime" || { inetsim_capture_guest_diagnostics; fail "INetSim appliance unexpectedly has an IPv6 default route"; return 1; }
 
-  local ready=no i dns_rc http_rc https_rc
+  local ready=no i dns_rc http_rc https_rc smtp_rc ftp_rc
   for ((i=0;i<30;i++)); do
-    if python3 "$AUTODEPLOY_ROOT/tools/dns_probe.py" "$INETSIM_IP" "$INETSIM_IP" >/dev/null 2>&1; then dns_rc=0; else dns_rc=$?; fi
+    if ad_python "$AUTODEPLOY_ROOT/tools/dns_probe.py" "$INETSIM_IP" "$INETSIM_IP" >/dev/null 2>&1; then dns_rc=0; else dns_rc=$?; fi
     if curl -fsS --max-time 3 "http://$INETSIM_IP/" >/dev/null 2>&1; then http_rc=0; else http_rc=$?; fi
     if curl -kfsS --max-time 3 "https://$INETSIM_IP/" >/dev/null 2>&1; then https_rc=0; else https_rc=$?; fi
-    printf 'probe_attempt=%s dns_rc=%s http_rc=%s https_rc=%s\n' "$((i+1))" "$dns_rc" "$http_rc" "$https_rc" >>"$verify_log"
-    if [[ "$dns_rc" -eq 0 && "$http_rc" -eq 0 && "$https_rc" -eq 0 ]]; then
+    if ad_python - "$INETSIM_IP" 25 220 >/dev/null 2>&1 <<'PY'
+import socket,sys
+with socket.create_connection((sys.argv[1],int(sys.argv[2])),3) as s:
+    s.settimeout(3)
+    raise SystemExit(0 if s.recv(512).startswith(sys.argv[3].encode()) else 1)
+PY
+    then smtp_rc=0; else smtp_rc=$?; fi
+    if ad_python - "$INETSIM_IP" 21 220 >/dev/null 2>&1 <<'PY'
+import socket,sys
+with socket.create_connection((sys.argv[1],int(sys.argv[2])),3) as s:
+    s.settimeout(3)
+    raise SystemExit(0 if s.recv(512).startswith(sys.argv[3].encode()) else 1)
+PY
+    then ftp_rc=0; else ftp_rc=$?; fi
+    printf 'probe_attempt=%s dns_rc=%s http_rc=%s https_rc=%s smtp_rc=%s ftp_rc=%s\n' "$((i+1))" "$dns_rc" "$http_rc" "$https_rc" "$smtp_rc" "$ftp_rc" >>"$verify_log"
+    if [[ "$dns_rc" -eq 0 && "$http_rc" -eq 0 && "$https_rc" -eq 0 && "$smtp_rc" -eq 0 && "$ftp_rc" -eq 0 ]]; then
       ready=yes
       break
     fi
@@ -687,10 +701,10 @@ printf "default6=%s\\n" "$(ip -6 route show default | wc -l)"
   done
   if [[ "$ready" != yes ]]; then
     inetsim_capture_guest_diagnostics
-    fail "INetSim DNS/HTTP/HTTPS did not become reachable from the CAPE host"
+    fail "INetSim DNS/HTTP/HTTPS/SMTP/FTP did not become reachable from the CAPE host"
     return 1
   fi
-  pass "INetSim DNS/HTTP/HTTPS respond and runtime forwarding isolation is enforced on $INETSIM_IP"
+  pass "INetSim DNS/HTTP/HTTPS/SMTP/FTP respond and runtime forwarding isolation is enforced on $INETSIM_IP"
 }
 
 inetsim_vm_rollback() {
