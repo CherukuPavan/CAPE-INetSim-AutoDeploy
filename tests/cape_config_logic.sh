@@ -106,6 +106,12 @@ EOF
 cat >"$CAPE_ROOT/conf/routing.conf" <<'EOF'
 [routing]
 route = none
+
+[inetsim]
+enabled = no
+server = 192.0.2.2
+dnsport = 53
+interface = virbr1
 EOF
 touch "$CAPE_ROOT/web/analysis/views.py"
 cp "$TMP/sniffer.py" "$CAPE_ROOT/modules/auxiliary/sniffer.py"
@@ -154,6 +160,12 @@ grep -Fq 'refusing repair overwrite' "$ROOT/bin/cape-inetsim-repair"
 cat >"$CAPE_ROOT/conf/routing.conf" <<'EOF'
 [routing]
 route = none
+
+[inetsim]
+enabled = no
+server = 192.0.2.2
+dnsport = 53
+interface = virbr1
 EOF
 cp "$TMP/sniffer.py" "$CAPE_ROOT/modules/auxiliary/sniffer.py"
 sed -i '/TASK_DISTRIBUTED_COMPLETED/d' "$CAPE_ROOT/lib/cuckoo/core/data/task.py"
