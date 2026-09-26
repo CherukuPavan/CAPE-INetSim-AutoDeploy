@@ -38,7 +38,7 @@ deploy_phase_is_resumable() {
 deploy_required_commands() {
   local -a missing=()
   local cmd
-  for cmd in python3 virsh qemu-img virt-install curl flock ip systemctl tar gzip sha256sum base64 timeout nft; do
+  for cmd in python3 virsh qemu-img virt-install curl flock ip systemctl sysctl tar gzip sha256sum base64 timeout nft; do
     have "$cmd" || missing+=("$cmd")
   done
   if ((${#missing[@]})); then
