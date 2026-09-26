@@ -94,8 +94,8 @@ PY
     return 1
   }
 
-  # A brand-new deployment needs the scheduler/ResultServer alive so the
-  # management path can be proven before Windows is changed. A completed
+  # A brand-new deployment needs the scheduler/ResultServer alive before the
+  # CAPE routing/extension handoff. A completed
   # rollback is also a fresh deployment boundary; only an actually resumable
   # transaction may legitimately have cape.service stopped at handoff.
   local existing_phase=""
@@ -107,11 +107,11 @@ PY
       fail "cape.service must be active before a new deployment"
       return 1
     }
-    if grep -q 'CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1' "$CAPE_ROOT/modules/auxiliary/sniffer.py" 2>/dev/null; then
+    if grep -Eq 'CAPE_INETSIM_AUTODEPLOY_CAPTURE_V(1|2)' "$CAPE_ROOT/modules/auxiliary/sniffer.py" 2>/dev/null; then
       fail "An untracked AutoDeploy sniffer patch already exists; refusing to claim or overwrite it"
       return 1
     fi
-    if grep -Rqs 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$CAPE_ROOT/web" 2>/dev/null; then
+    if grep -RqsE 'CAPE_INETSIM_VM_ROUTE_(NONE_V1|GATED_V2)' "$CAPE_ROOT/web" 2>/dev/null; then
       fail "An untracked CAPE-INetSim VM extension is already installed; refusing to claim or overwrite it"
       return 1
     fi
