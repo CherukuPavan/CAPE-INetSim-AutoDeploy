@@ -45,6 +45,7 @@ mapping={
  "label":"CAPE_MACHINE_LABEL",
  "ip":"CAPE_MACHINE_IP",
  "original_snapshot":"CAPE_MACHINE_SNAPSHOT",
+ "normal_snapshot":"NORMAL_SNAPSHOT",
  "interface":"CAPE_MACHINE_INTERFACE",
  "platform":"CAPE_MACHINE_PLATFORM",
  "domain":"DOMAIN",
@@ -88,11 +89,11 @@ PY
 targets_capture_bound() {
   local index="${1:-${TARGET_INDEX:-}}"
   [[ "$index" =~ ^[0-9]+$ ]] || return 0
-  CAPE_TARGETS_JSON="$(python3 - "${CAPE_TARGETS_JSON:-[]}" "$index"     "${WINDOWS_ISOLATED_NIC_MODEL:-}" "${WINDOWS_ISOLATED_MAC:-}"     "${WINDOWS_BACKEND_USED:-}" "${WINDOWS_ORIGINAL_DOMAIN_STATE:-}"     "${SAFETY_SNAPSHOT:-}" "${WORKING_SNAPSHOT:-}" "${FINAL_SNAPSHOT:-}"     "${TARGET_PHASE:-discovered}" <<'PY'
+  CAPE_TARGETS_JSON="$(python3 - "${CAPE_TARGETS_JSON:-[]}" "$index"     "${WINDOWS_ISOLATED_NIC_MODEL:-}" "${WINDOWS_ISOLATED_MAC:-}"     "${WINDOWS_BACKEND_USED:-}" "${WINDOWS_ORIGINAL_DOMAIN_STATE:-}"     "${SAFETY_SNAPSHOT:-}" "${WORKING_SNAPSHOT:-}" "${FINAL_SNAPSHOT:-}" "${NORMAL_SNAPSHOT:-}"     "${TARGET_PHASE:-discovered}" <<'PY'
 import json,sys
 a=json.loads(sys.argv[1]); i=int(sys.argv[2])
 keys=("isolated_nic_model","isolated_mac","backend_used","original_domain_state",
-      "safety_snapshot","working_snapshot","final_snapshot","phase")
+      "safety_snapshot","working_snapshot","final_snapshot","normal_snapshot","phase")
 for k,v in zip(keys,sys.argv[3:]):
     a[i][k]=v
 print(json.dumps(a,separators=(",",":")))
@@ -138,6 +139,7 @@ except Exception: d["errors"]=[]
 d.update({
  "fake_ip":"","isolated_nic_model":"","isolated_mac":"","backend_used":"",
  "original_domain_state":"","safety_snapshot":"","working_snapshot":"","final_snapshot":"",
+ "normal_snapshot":str(d.get("original_snapshot") or ""),
  "phase":"discovered"
 })
 a.append(d)
@@ -277,7 +279,7 @@ a=json.loads(sys.argv[1])
 for i,d in enumerate(a,1):
     err=d.get("errors") or []
     status="ready" if not err else "blocked"
-    normal=d.get("original_snapshot") or "<none>"
+    normal=d.get("normal_snapshot") or d.get("original_snapshot") or "<none>"
     fake=d.get("final_snapshot") or "<none>"
     print(f"{i}. {d.get('section','?')} -> {d.get('domain','?')} | mgmt={d.get('ip','?')} | fake_ip={d.get('fake_ip','?')} | normal_snapshot={normal} | inetsim_snapshot={fake} | {status}")
 PY
