@@ -23,7 +23,7 @@ HELPER = ROOT / "src" / "inetsim_vm_logic.py"
 BUILD_ROOT = ROOT / "build"
 CANDIDATE = BUILD_ROOT / "install-candidate"
 
-MARKER = "CAPE_INETSIM_VM_ROUTE_NONE_V1"
+MARKER = "CAPE_INETSIM_VM_ROUTE_GATED_V2"
 MODERN_MARKER = "CAPE_INETSIM_VM_MODERN_NETWORK_V1"
 TAG_MARKER = "CAPE_INETSIM_VM_DYNAMIC_SERVER_V2"
 
@@ -89,13 +89,13 @@ from django import template
 
 try:
     from analysis.inetsim_vm_logic import (
-        build_route_none_inetsim_context,
+        build_inetsim_route_context,
         network_uses_inetsim,
     )
 except ImportError:
     # Isolated runtime-gate import path.
     from inetsim_vm_logic import (
-        build_route_none_inetsim_context,
+        build_inetsim_route_context,
         network_uses_inetsim,
     )
 
@@ -104,17 +104,31 @@ INETSIM_VM_IP = "{server_ip}"
 
 
 @register.filter(name="inetsim_vm_active")
-def inetsim_vm_active(network):
+def inetsim_vm_active(network, route):
     try:
+        if str(route or "").strip().lower() != "inetsim":
+            return False
         return bool(network_uses_inetsim(network or {{}}, INETSIM_VM_IP))
     except Exception:
         return False
 
 
 @register.filter(name="inetsim_vm_context")
-def inetsim_vm_context(network):
+def inetsim_vm_context(network, route):
     try:
-        return build_route_none_inetsim_context(network or {{}}, INETSIM_VM_IP)
+        if str(route or "").strip().lower() != "inetsim":
+            return {{
+                "enabled": False,
+                "route": str(route or "").strip().lower(),
+                "server": INETSIM_VM_IP,
+                "summary": {{"dns": 0, "http": 0, "https": 0, "other": 0, "total": 0}},
+                "dns": [],
+                "http": [],
+                "https": [],
+                "findings": [],
+                "attribution_summary": {{"task_domains": []}},
+            }}
+        return build_inetsim_route_context(network or {{}}, INETSIM_VM_IP)
     except Exception:
         return {{
             "enabled": False,
@@ -139,7 +153,7 @@ visual_target = CANDIDATE / "web/templates/analysis/network/_inetsim_vm_visual.h
 visual_target.parent.mkdir(parents=True, exist_ok=True)
 visual_target.write_text(
     '''{% load inetsim_vm_tags %}
-{% with inetsim=network|inetsim_vm_context %}
+{% with inetsim=network|inetsim_vm_context:analysis.info.route %}
 <div class="card bg-dark border-secondary mb-3">
   <div class="card-header">
     <i class="fas fa-flask me-2"></i>INetSim Visual
@@ -219,7 +233,7 @@ ul_close = text.find("</ul>", tabs_pos)
 if ul_close < 0:
     fail("networkTabs closing </ul> not found")
 
-nav = f'''        {{% if network|inetsim_vm_active %}}
+nav = f'''        {{% if network|inetsim_vm_active:analysis.info.route %}}
         <!-- {MARKER} / {MODERN_MARKER} -->
         <li class="nav-item">
             <a class="nav-link" id="network_inetsim-tab" href="#network_inetsim_tab"
@@ -236,7 +250,7 @@ if content_pos < 0:
     fail("network tab-content anchor not found")
 content_open_end = text.find(">", content_pos) + 1
 pane = '''
-        {% if network|inetsim_vm_active %}
+        {% if network|inetsim_vm_active:analysis.info.route %}
         <div class="tab-pane fade" id="network_inetsim_tab">
             {% include "analysis/network/_inetsim_vm_visual.html" %}
         </div>
