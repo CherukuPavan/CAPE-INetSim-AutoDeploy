@@ -16,10 +16,11 @@ class X:
         interface = self.machine.interface or self.options.get("interface")
 PY
 patch_sniffer_capture_override "$TMP/sniffer.py"
-grep -q 'CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1' "$TMP/sniffer.py"
-grep -q 'capture_host_key = f"capture_host_{self.machine.label}"' "$TMP/sniffer.py"
+grep -q 'CAPE_INETSIM_AUTODEPLOY_CAPTURE_V2' "$TMP/sniffer.py"
+grep -Fq 'str(self.task.route or "").lower() == "inetsim"' "$TMP/sniffer.py"
+grep -Fq 'inetsim_capture_interface' "$TMP/sniffer.py"
 patch_sniffer_capture_override "$TMP/sniffer.py"
-[[ "$(grep -c CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1 "$TMP/sniffer.py")" -eq 1 ]]
+[[ "$(grep -c CAPE_INETSIM_AUTODEPLOY_CAPTURE_V2 "$TMP/sniffer.py")" -eq 1 ]]
 echo '[PASS] legacy sniffer patch helper remains deterministic for rollback compatibility'
 
 # Compatibility must reject non-unique/partial source anchors rather than
@@ -80,7 +81,7 @@ check_cape_layout
 [[ "$COMPAT_STATUS" == plan-compatible ]]
 
 # A vague host assignment without the exact neighboring source line is unsafe.
-sed '/Selects per-machine interface/d' "$TMP/sniffer.py" | sed '/CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1/d' >"$CAPE_ROOT/modules/auxiliary/sniffer.py"
+sed '/Selects per-machine interface/d' "$TMP/sniffer.py" | sed '/CAPE_INETSIM_AUTODEPLOY_CAPTURE_V2/d' >"$CAPE_ROOT/modules/auxiliary/sniffer.py"
 COMPAT_NOTES=()
 check_cape_layout
 [[ "$COMPAT_STATUS" == plan-only-unknown-cape-layout ]]
@@ -92,6 +93,7 @@ check_cape_layout
 [[ "$COMPAT_STATUS" == plan-only-unknown-cape-layout ]]
 
 grep -Fq 'routing enable_pcap yes' "$ROOT/lib/cape-configure.sh"
+grep -Fq 'inetsim_capture_interface "$ISOLATED_BRIDGE_NAME"' "$ROOT/lib/cape-configure.sh"
 grep -Fq 'inetsim enabled yes' "$ROOT/lib/cape-configure.sh"
 grep -Fq 'inetsim server "$INETSIM_IP"' "$ROOT/lib/cape-configure.sh"
 grep -Fq 'CAPE inetsim route is not enabled' "$ROOT/lib/validate.sh"
