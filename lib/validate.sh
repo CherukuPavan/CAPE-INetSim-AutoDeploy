@@ -144,7 +144,7 @@ if not mgmt_guard: raise SystemExit("snapshot does not preserve the Windows mana
 }
 
 validate_cape_configuration() {
-  python3 - "$CAPE_ROOT" "$CAPE_MACHINE_SECTION" "$CAPE_MACHINE_LABEL" "${FINAL_SNAPSHOT:-}" "$MANAGEMENT_BRIDGE_NAME" "$ISOLATED_BRIDGE_NAME" "$CAPE_MACHINE_IP" "$INETSIM_IP" <<'PY'
+  python3 - "$CAPE_ROOT" "$CAPE_MACHINE_SECTION" "$CAPE_MACHINE_LABEL" "${NORMAL_SNAPSHOT:-}" "$MANAGEMENT_BRIDGE_NAME" "$ISOLATED_BRIDGE_NAME" "$CAPE_MACHINE_IP" "$INETSIM_IP" <<'PY'
 import configparser,sys
 root,section,label,snapshot,mgmt_iface,inetsim_iface,machine_ip,inetsim_ip=sys.argv[1:]
 def load(name):
@@ -158,7 +158,7 @@ p=load("processing")
 r=load("routing")
 if not k.has_section(section): raise SystemExit("CAPE machine section missing")
 if snapshot and k.get(section,"snapshot",fallback="") != snapshot:
-    raise SystemExit("CAPE snapshot mismatch")
+    raise SystemExit("CAPE normal-route snapshot mismatch")
 if k.get(section,"interface",fallback="") != mgmt_iface:
     raise SystemExit("CAPE machine interface is not the management bridge")
 if a.get("sniffer",f"inetsim_capture_interface_{label}",fallback="") != inetsim_iface:
@@ -235,9 +235,9 @@ validate_all_targets_structural() {
       failures=$((failures+1))
       continue
     }
-    if [[ -n "${FINAL_SNAPSHOT:-}" ]]; then
-      virsh snapshot-info "$DOMAIN" "$FINAL_SNAPSHOT" >/dev/null 2>&1 || {
-        fail "Preserved CAPE snapshot is missing for $CAPE_MACHINE_SECTION"
+    if [[ -n "${NORMAL_SNAPSHOT:-}" ]]; then
+      virsh snapshot-info "$DOMAIN" "$NORMAL_SNAPSHOT" >/dev/null 2>&1 || {
+        fail "Normal-route CAPE snapshot is missing for $CAPE_MACHINE_SECTION"
         failures=$((failures+1))
       }
     fi
