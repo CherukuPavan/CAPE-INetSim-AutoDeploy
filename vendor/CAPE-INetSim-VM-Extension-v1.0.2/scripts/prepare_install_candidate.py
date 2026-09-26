@@ -152,6 +152,7 @@ visual_target.parent.mkdir(parents=True, exist_ok=True)
 visual_target.write_text(
     '''{% load inetsim_vm_tags %}
 {% with inetsim=network|inetsim_vm_context:analysis.info.route %}
+<!-- CAPE_INETSIM_VM_ROUTE_STATUS_V3 -->
 <div class="card bg-dark border-secondary mb-3">
   <div class="card-header">
     <i class="fas fa-flask me-2"></i>INetSim Visual
