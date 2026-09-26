@@ -136,8 +136,8 @@ fi
 NEG_HAS_INETSIM=false
 pcap_has_inetsim "$NEG_PCAP" && NEG_HAS_INETSIM=true
 
-grep -Rqs 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$CAPE_ROOT/web" || {
-  fail "Installed extension route=none marker is missing"
+grep -Rqs 'CAPE_INETSIM_VM_ROUTE_AWARE_V1' "$CAPE_ROOT/web" || {
+  fail "Installed route-aware INetSim extension marker is missing"
   exit 27
 }
 
