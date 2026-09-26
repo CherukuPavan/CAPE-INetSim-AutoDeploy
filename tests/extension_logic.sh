@@ -47,7 +47,7 @@ source "$EXTENSION_ROOT/src/inetsim-vm.conf"
 [[ "$CAPE_GUEST_CONTROL_IP" == '192.0.2.100' ]]
 [[ "$CAPE_RESULTSERVER_IP" == '192.0.2.1' ]]
 [[ "$INETSIM_SERVER_IP" == '198.51.100.2' ]]
-[[ "$ANALYSIS_GUEST_IP" == '198.51.100.10' ]]
+[[ "$ANALYSIS_GUEST_IP" == '192.0.2.100' ]]
 [[ "$CAPTURE_INTERFACE" == 'capeisim7' ]]
 
 # RC28 regression: modern CAPE has a network template but no legacy INetSim
@@ -80,11 +80,13 @@ EOF
 python3 "$RUNTIME/scripts/prepare_install_candidate.py"
 C="$RUNTIME/build/install-candidate"
 [[ "$(cat "$C/INSTALL-LAYOUT")" == modern-network-template-v1 ]]
-grep -Fq 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$C/web/templates/analysis/network/index.html"
+grep -Fq 'CAPE_INETSIM_VM_ROUTE_GATED_V2' "$C/web/templates/analysis/network/index.html"
 grep -Fq 'CAPE_INETSIM_VM_MODERN_NETWORK_V1' "$C/web/templates/analysis/network/index.html"
 grep -Fq '{% load inetsim_vm_tags %}' "$C/web/templates/analysis/network/index.html"
 grep -Fq 'network_inetsim-tab' "$C/web/templates/analysis/network/index.html"
 grep -Fq 'network_inetsim_tab' "$C/web/templates/analysis/network/index.html"
+grep -Fq 'inetsim_vm_active:analysis.info.route' "$C/web/templates/analysis/network/index.html"
+grep -Fq 'inetsim_vm_context:analysis.info.route' "$C/web/templates/analysis/network/index.html"
 [[ -f "$C/web/analysis/templatetags/inetsim_vm_tags.py" ]]
 [[ -f "$C/web/templates/analysis/network/_inetsim_vm_visual.html" ]]
 [[ -f "$C/web/analysis/inetsim_vm_logic.py" ]]
