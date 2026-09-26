@@ -17,6 +17,7 @@ CONSOLE="$WORK/console.log"
 MGMT_MAC=52:54:00:aa:00:01
 ISO_MAC=52:54:00:aa:00:02
 ISO_CIDR=192.168.200.2/24
+ISO_GATEWAY=192.168.200.1
 
 qemu-img create -q -f qcow2 -F qcow2 -b "$(realpath "$IMAGE")" "$OVERLAY"
 
@@ -35,7 +36,8 @@ set +e
 /usr/local/sbin/cape-inetsim-guest-configure \
   --management-mac $MGMT_MAC \
   --isolated-mac $ISO_MAC \
-  --ip $ISO_CIDR > /var/log/cape-inetsim-runtime-smoke.log 2>&1
+  --ip $ISO_CIDR \
+  --gateway $ISO_GATEWAY > /var/log/cape-inetsim-runtime-smoke.log 2>&1
 rc=\$?
 if [ "\$rc" -eq 0 ]; then
   touch /var/lib/cape-inetsim-runtime-smoke-ok
