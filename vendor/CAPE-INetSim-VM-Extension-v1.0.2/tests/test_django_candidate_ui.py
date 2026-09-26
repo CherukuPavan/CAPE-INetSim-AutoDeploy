@@ -65,14 +65,16 @@ network = {
     }],
 }
 
-if not inetsim_vm_tags.inetsim_vm_active(network):
-    raise SystemExit("FAIL: task-local INetSim traffic was not detected")
+analysis = {"info": {"route": "inetsim"}, "network": network}
 
-ctx = inetsim_vm_tags.inetsim_vm_context(network)
+if not inetsim_vm_tags.inetsim_vm_active(analysis):
+    raise SystemExit("FAIL: explicit route=inetsim task-local traffic was not detected")
+
+ctx = inetsim_vm_tags.inetsim_vm_context(analysis)
 if not ctx.get("enabled"):
-    raise SystemExit("FAIL: task-local INetSim context is not enabled")
+    raise SystemExit("FAIL: route=inetsim task-local context is not enabled")
 
-rendered = visual.render(Context({"network": network}))
+rendered = visual.render(Context({"analysis": analysis, "network": network}))
 for expected in (server, "modern-runtime.test", "modern-cape", "INetSim Visual"):
     if expected not in rendered:
         raise SystemExit(f"FAIL: rendered visual missing {expected!r}")
@@ -83,8 +85,12 @@ unrelated = {
     "udp": [],
     "http": [],
 }
-if inetsim_vm_tags.inetsim_vm_active(unrelated):
-    raise SystemExit("FAIL: unrelated task traffic incorrectly enabled INetSim visual")
+if inetsim_vm_tags.inetsim_vm_active({"info": {"route": "inetsim"}, "network": unrelated}):
+    raise SystemExit("FAIL: unrelated route=inetsim traffic incorrectly enabled INetSim visual")
+
+for wrong_route in ("internet", "none", "drop"):
+    if inetsim_vm_tags.inetsim_vm_active({"info": {"route": wrong_route}, "network": network}):
+        raise SystemExit(f"FAIL: route={wrong_route} incorrectly enabled INetSim visual")
 
 other_server = "203.0.113.2"
 other_network = {
@@ -97,8 +103,9 @@ if not inetsim_vm_logic.build_route_none_inetsim_context(other_network, other_se
     raise SystemExit("FAIL: helper is not subnet-independent")
 
 print("PASS: modern CAPE template filters registered")
-print("PASS: task-local INetSim evidence enables visual")
-print("PASS: unrelated task traffic keeps visual hidden")
+print("PASS: explicit route=inetsim task-local evidence enables visual")
+print("PASS: internet/none/drop tasks keep INetSim visual hidden")
+print("PASS: unrelated route=inetsim traffic keeps visual hidden")
 print("PASS: modern visual renders DNS/HTTP evidence")
 print("PASS: helper remains subnet-independent")
 print("STATUS: UNIVERSAL CAPE DJANGO CANDIDATE VALIDATION PASSED")
