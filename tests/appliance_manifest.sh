@@ -36,6 +36,52 @@ appliance_verify_transport_file "$TMP/a.qcow2.gz" "$TMP/manifest.json" >/dev/nul
 gzip -t "$TMP/a.qcow2.gz"
 [[ "$(gzip -dc "$TMP/a.qcow2.gz" | sha256sum | awk '{print $1}')" == "$raw_sha" ]]
 
+# Regression: exact-release partial transport downloads resume in place and
+# appliance_fetch reuses the completed, checksum-verified transport.
+APPLIANCE_CACHE_ROOT="$TMP/cache"
+mkdir -p "$APPLIANCE_CACHE_ROOT"
+partial="$APPLIANCE_CACHE_ROOT/a.qcow2.gz.$transport_sha.part"
+head -c 7 "$TMP/a.qcow2.gz" >"$partial"
+CURL_LOG="$TMP/curl.log"
+: >"$CURL_LOG"
+
+curl() {
+  local out="" resume="" offset=0
+  while (($#)); do
+    case "$1" in
+      --output) out="$2"; shift 2 ;;
+      --continue-at) resume="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+  printf 'resume=%s out=%s\n' "$resume" "$out" >>"$CURL_LOG"
+  [[ -n "$out" ]] || return 2
+  if [[ "$resume" == "-" ]]; then
+    offset="$(stat -c '%s' "$out")"
+    dd if="$TMP/a.qcow2.gz" bs=1 skip="$offset" status=none >>"$out"
+  else
+    cp "$TMP/a.qcow2.gz" "$out"
+  fi
+}
+
+fetched="$(appliance_fetch "$TMP/manifest.json")"
+[[ "$fetched" == "$APPLIANCE_CACHE_ROOT/a.qcow2" ]]
+cmp -s "$fetched" "$TMP/a.qcow2"
+grep -Fq 'resume=-' "$CURL_LOG"
+[[ -f "$APPLIANCE_CACHE_ROOT/a.qcow2.gz" ]]
+[[ ! -e "$partial" ]]
+
+# Regression: generic network failure preserves resumable bytes instead of
+# deleting them. A later installer invocation can continue from that offset.
+failure_part="$TMP/network-failure.part"
+printf 'partial-bytes' >"$failure_part"
+curl() { printf 'more' >>"$failure_part"; return 56; }
+if appliance_download_transport "https://example.invalid/a.qcow2.gz" "$failure_part" >/dev/null 2>&1; then
+  echo 'appliance downloader accepted simulated network failure' >&2
+  exit 1
+fi
+grep -Fq 'partial-bytesmore' "$failure_part"
+
 cp "$TMP/a.qcow2.gz" "$TMP/bad.gz"
 printf x >>"$TMP/bad.gz"
 if appliance_verify_transport_file "$TMP/bad.gz" "$TMP/manifest.json" >/dev/null 2>&1; then
