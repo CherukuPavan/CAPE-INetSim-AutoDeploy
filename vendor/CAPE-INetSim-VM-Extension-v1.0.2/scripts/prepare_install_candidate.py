@@ -89,13 +89,13 @@ from django import template
 
 try:
     from analysis.inetsim_vm_logic import (
-        build_route_none_inetsim_context,
+        build_inetsim_route_context,
         network_uses_inetsim,
     )
 except ImportError:
     # Isolated runtime-gate import path.
     from inetsim_vm_logic import (
-        build_route_none_inetsim_context,
+        build_inetsim_route_context,
         network_uses_inetsim,
     )
 
@@ -219,7 +219,7 @@ ul_close = text.find("</ul>", tabs_pos)
 if ul_close < 0:
     fail("networkTabs closing </ul> not found")
 
-nav = f'''        {{% if network|inetsim_vm_active %}}
+nav = f'''        {{% if analysis.info.route == "inetsim" and network|inetsim_vm_active %}}
         <!-- {MARKER} / {MODERN_MARKER} -->
         <li class="nav-item">
             <a class="nav-link" id="network_inetsim-tab" href="#network_inetsim_tab"
@@ -236,7 +236,7 @@ if content_pos < 0:
     fail("network tab-content anchor not found")
 content_open_end = text.find(">", content_pos) + 1
 pane = '''
-        {% if network|inetsim_vm_active %}
+        {% if analysis.info.route == "inetsim" and network|inetsim_vm_active %}
         <div class="tab-pane fade" id="network_inetsim_tab">
             {% include "analysis/network/_inetsim_vm_visual.html" %}
         </div>
