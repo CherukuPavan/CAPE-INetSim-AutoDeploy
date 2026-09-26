@@ -36,6 +36,13 @@ grep -Fq '/bin/bash -x "$selected_script"' "$ROOT/lib/inetsim-vm.sh"
 grep -Fq 'RELEASE_TAG="$d_release_tag"' "$ROOT/lib/deploy.sh"
 grep -Fq 'RELEASE_SOURCE_COMMIT="$d_release_commit"' "$ROOT/lib/deploy.sh"
 
+# Ubuntu 24.04 desktop sessions must use Virtio video; QXL can crash Xorg when
+# the desktop probes display modes. Keep SPICE for localhost console transport.
+grep -Fq 'v.get("type")=="virtio"' "$ROOT/lib/inetsim-vm.sh"
+grep -Fq '"type":"virtio","heads":"1","primary":"yes"' "$ROOT/lib/inetsim-vm.sh"
+grep -Fq -- '--video virtio' "$ROOT/lib/inetsim-vm.sh"
+! grep -Fq -- '--video qxl' "$ROOT/lib/inetsim-vm.sh"
+
 
 # Regression: a host may expose QGA guest-exec while denying guest-file-*.
 # The deployer must then use only a byte-identical baked configurator.
