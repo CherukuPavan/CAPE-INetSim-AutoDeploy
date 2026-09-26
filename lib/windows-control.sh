@@ -19,6 +19,7 @@ windows_start_for_cutover() {
   state="$(virsh domstate "$DOMAIN" | xargs)"
   case "$state" in
     running) ;;
+    paused) virsh resume "$DOMAIN" >/dev/null ;;
     "shut off") virsh start "$DOMAIN" >/dev/null ;;
     *) fail "Unsupported Windows domain state for cutover: $state"; return 1 ;;
   esac
