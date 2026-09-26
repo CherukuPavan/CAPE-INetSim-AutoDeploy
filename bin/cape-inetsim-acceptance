@@ -21,11 +21,11 @@ Usage:
   sudo ./install --acceptance --positive-task ID --negative-task ID --marker UNIQUE_HOST
 
 This is read-only with respect to CAPE, libvirt, Windows and networking.
-It validates a controlled route=none task pair already completed on the host.
-The positive report must contain the exact unique marker and INetSim context.
-The positive packet capture must then contain that marker in traffic to/from
-INetSim. The negative task must not contain the marker; ordinary Windows
-background traffic to INetSim is allowed and is not a negative-control failure.
+It validates a controlled route=inetsim / route=internet task pair already completed on the host.
+The positive route=inetsim report must contain the exact unique marker and
+INetSim context. Its packet capture must contain that marker in traffic to/from
+INetSim. The negative route=internet task must contain neither the marker nor
+any traffic to/from the INetSim endpoint.
 EOF
 }
 
@@ -129,14 +129,18 @@ pcap_has_marker "$POS_PCAP" || {
 }
 
 if pcap_has_marker "$NEG_PCAP"; then
-  fail "Negative-control task $NEGATIVE_TASK unexpectedly contains acceptance marker $MARKER"
+  fail "Internet-route task $NEGATIVE_TASK unexpectedly contains acceptance marker $MARKER"
   exit 26
 fi
 
-NEG_HAS_INETSIM=false
-pcap_has_inetsim "$NEG_PCAP" && NEG_HAS_INETSIM=true
+if pcap_has_inetsim "$NEG_PCAP"; then
+  fail "Internet-route task $NEGATIVE_TASK unexpectedly contains INetSim traffic"
+  exit 28
+fi
 
-grep -Rqs 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$CAPE_ROOT/web" || {
+NEG_HAS_INETSIM=false
+
+grep -Rqs 'CAPE_INETSIM_VM_ROUTE_GATED_V2' "$CAPE_ROOT/web" || {
   fail "Installed extension route=none marker is missing"
   exit 27
 }
@@ -153,7 +157,7 @@ d["pcap_validation"]={
     "negative_capture":neg,
     "negative_contains_marker":False,
     "negative_contains_inetsim_ip":neg_has_inetsim.lower()=="true",
-    "background_inetsim_allowed_in_negative":True,
+    "background_inetsim_allowed_in_negative":False,
 }
 d["release_validation"]={
     "manifest_and_structural_verification":"PASS",
@@ -167,7 +171,7 @@ d["status"]="pass"
 p.write_text(json.dumps(d,indent=2)+"\n")
 PY
 
-pass "Marker-based positive/negative real-task functional acceptance passed"
+pass "Per-task INetSim/Internet route-separation acceptance passed"
 pass "Positive PCAP proved marker-to-INetSim linkage independently of CAPE report field shape"
 kv "positive task:" "$POSITIVE_TASK"
 kv "negative task:" "$NEGATIVE_TASK"
