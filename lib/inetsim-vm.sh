@@ -280,10 +280,19 @@ inetsim_enable_gui_guest() {
     return 1
   }
 
-  # A freshly refreshed cloud-derived appliance can reach multi-user state
-  # before systemd starts the display manager even though LightDM is baked and
-  # enabled. Make graphical activation explicit and verify it instead of
-  # treating that boot-order race as an appliance failure.
+  # Make the appliance console deterministic: authorize the dedicated GUI
+  # account for LightDM's standard autologin groups and explicitly select XFCE.
+  qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/bash -c '
+    groupadd -f autologin
+    groupadd -f nopasswdlogin
+    usermod -aG video,autologin,nopasswdlogin capeinetsim
+    install -d -m 0755 /etc/lightdm/lightdm.conf.d
+    printf "%s\n"       "[Seat:*]"       "autologin-user=capeinetsim"       "autologin-user-timeout=0"       "autologin-session=xfce"       "user-session=xfce"       "pam-autologin-service=lightdm-autologin"       > /etc/lightdm/lightdm.conf.d/50-cape-inetsim-autologin.conf
+  ' >/dev/null 2>&1 || {
+    fail "Could not configure standard LightDM XFCE autologin in INetSim appliance"
+    return 1
+  }
+
   qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/systemctl set-default graphical.target >/dev/null 2>&1 || true
   qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/systemctl enable lightdm.service >/dev/null 2>&1 || true
 
@@ -295,13 +304,15 @@ inetsim_enable_gui_guest() {
          systemctl is-active --quiet lightdm.service &&
          test -f /usr/lib/xorg/modules/drivers/qxl_drv.so &&
          test -S /tmp/.X11-unix/X0 &&
-         pgrep -x Xorg >/dev/null
+         pgrep -x Xorg >/dev/null &&
+         pgrep -u capeinetsim -f "xfce4-session|xfce4-panel|xfdesktop" >/dev/null
        ' >/dev/null 2>&1; then
       sleep 3
       if qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/sh -c '
            systemctl is-active --quiet lightdm.service &&
            test -S /tmp/.X11-unix/X0 &&
-           pgrep -x Xorg >/dev/null
+           pgrep -x Xorg >/dev/null &&
+           pgrep -u capeinetsim -f "xfce4-session|xfce4-panel|xfdesktop" >/dev/null
          ' >/dev/null 2>&1; then
         lightdm_ready=yes
         break
@@ -328,7 +339,7 @@ inetsim_enable_gui_guest() {
       echo "=== default target ==="
       qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/systemctl get-default || true
     } >>"$guest_log" 2>&1
-    fail "INetSim graphical session did not become stable (LightDM + Xorg + X11 socket); diagnostics captured at $guest_log"
+    fail "INetSim graphical session did not become stable (LightDM + Xorg + capeinetsim XFCE session); diagnostics captured at $guest_log"
     return 1
   fi
 
@@ -338,7 +349,7 @@ inetsim_enable_gui_guest() {
     fail "INetSim appliance has no active SPICE graphical display"
     return 1
   }
-  pass "INetSim Ubuntu graphical interface is available through virt-manager"
+  pass "INetSim Ubuntu XFCE desktop is auto-logged-in and available through virt-manager"
 }
 
 inetsim_domain_macs() {
