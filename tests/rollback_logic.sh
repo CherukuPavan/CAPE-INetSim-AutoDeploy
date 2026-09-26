@@ -25,6 +25,9 @@ remove=s[s.index("rollback_remove_staged_resources()"):s.index("rollback_finish_
 assert "ROLLBACK_CRITICAL_FAILURES > 0" in remove
 assert "preserving containment firewall/network/appliance resources for safe retry" in remove
 assert remove.index("ROLLBACK_CRITICAL_FAILURES > 0") < remove.index("firewall_rollback")
+assert "routing_forwarding_rollback" in remove
+assert remove.index("firewall_rollback") < remove.index("routing_forwarding_rollback")
+assert remove.index("routing_forwarding_rollback") < remove.index("isolated_network_rollback")
 
 finish=s[s.index("rollback_finish_cape_handoff()"):s.index("autodeploy_rollback_internal()")]
 assert "ROLLBACK_CRITICAL_FAILURES" in finish
