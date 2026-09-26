@@ -44,6 +44,14 @@ grep -Fq -- '--video virtio' "$ROOT/lib/inetsim-vm.sh"
 ! grep -Fq -- '--video qxl' "$ROOT/lib/inetsim-vm.sh"
 
 
+# Regression: package status checks executed inside guest shells must escape the
+# dpkg-query format variable. Otherwise the guest shell expands ${Status} to an
+# empty shell variable and a valid freshly-refreshed appliance is rejected.
+grep -Fq 'dpkg-query -W -f="\${Status}" xubuntu-desktop-minimal' "$ROOT/lib/inetsim-vm.sh"
+! grep -Fq 'dpkg-query -W -f="${Status}" xubuntu-desktop-minimal' "$ROOT/lib/inetsim-vm.sh"
+grep -Fq 'inetsim-gui-refresh-validation.log' "$ROOT/lib/inetsim-vm.sh"
+grep -Fq 'for refresh_try in $(seq 1 30)' "$ROOT/lib/inetsim-vm.sh"
+
 # Regression: a host may expose QGA guest-exec while denying guest-file-*.
 # The deployer must then use only a byte-identical baked configurator.
 TMP="$(mktemp -d)"
