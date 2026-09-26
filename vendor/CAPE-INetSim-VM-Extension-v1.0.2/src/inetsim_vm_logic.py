@@ -479,10 +479,10 @@ def _route_none_https_rows(network, server_ip):
     return rows
 
 
-def build_route_none_inetsim_context(network, server_ip):
+def build_inetsim_route_context(network, server_ip):
     """
     Build the visual data model for Ubuntu-VM INetSim analyses
-    submitted with CAPE route=none.
+    submitted with CAPE route=inetsim.
 
     This function uses only task-local CAPE network evidence.
     It never reads or fabricates global INetSim service-log data.
@@ -492,9 +492,9 @@ def build_route_none_inetsim_context(network, server_ip):
 
     base = {
         "enabled": False,
-        "route": "none",
+        "route": "inetsim",
         "server": server_ip,
-        "mode": "route-none-task-network",
+        "mode": "route-inetsim-task-network",
 
         "correlation": {
             "method": "CAPE task-local network evidence",
@@ -668,3 +668,9 @@ def build_route_none_inetsim_context(network, server_ip):
         })
 
     return base
+
+
+# Backward-compatible import alias for RC.44 acceptance artifacts. New UI code
+# must use build_inetsim_route_context and gate it on the authoritative task route.
+def build_route_none_inetsim_context(network, server_ip):
+    return build_inetsim_route_context(network, server_ip)
