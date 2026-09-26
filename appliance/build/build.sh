@@ -68,7 +68,7 @@ USER_DATA="$WORK/user-data"
 META_DATA="$WORK/meta-data"
 SEED="$WORK/nocloud-seed.img"
 CONSOLE="$WORK/qemu-console.log"
-python3 "$ROOT/appliance/build/render-cloud-init.py"   --guest-configure "$ROOT/appliance/guest-configure.sh"   --prepare "$ROOT/appliance/image-rootfs-prepare.sh"   --output "$USER_DATA"
+python3 "$ROOT/appliance/build/render-cloud-init.py"   --guest-configure "$ROOT/appliance/guest-configure.sh"   --prepare "$ROOT/appliance/image-rootfs-prepare.sh"   --gui-enable "$ROOT/appliance/gui-enable.sh"   --output "$USER_DATA"
 cat >"$META_DATA" <<'EOF_META'
 instance-id: cape-inetsim-appliance-build-v1
 local-hostname: cape-inetsim-build
@@ -137,6 +137,7 @@ rm-f /var/log/cloud-init-output.log
 rm-f /root/cape-inetsim-image-rootfs-prepare
 rm-f /root/cape-inetsim-build-wrapper
 rm-f /usr/local/src/cape-inetsim-guest-configure
+rm-f /usr/local/src/cape-inetsim-gui-enable
 EOF_GUESTFISH
 
 qemu-img check "$OUT.part" >/dev/null
@@ -151,6 +152,8 @@ grep -q '^VERSION_ID="24.04"$' <<<"$OS_RELEASE"
 grep -Fxq 'net.ipv4.ip_forward=0' < <(virt-cat -a "$OUT.part" /etc/sysctl.d/99-cape-inetsim-isolation.conf)
 grep -Fxq 'net.ipv6.conf.all.forwarding=0' < <(virt-cat -a "$OUT.part" /etc/sysctl.d/99-cape-inetsim-isolation.conf)
 virt-cat -a "$OUT.part" /usr/local/sbin/cape-inetsim-guest-configure | grep -q -- '--management-mac'
+virt-cat -a "$OUT.part" /usr/local/sbin/cape-inetsim-gui-enable | grep -q 'CAPE_INETSIM_GUI_OK'
+virt-cat -a "$OUT.part" /etc/cape-inetsim-gui-v1 >/dev/null
 virt-cat -a "$OUT.part" /etc/cloud/cloud-init.disabled >/dev/null
 
 mv "$OUT.part" "$OUT"
