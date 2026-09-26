@@ -86,7 +86,7 @@ grep -Fq '{% load inetsim_vm_tags %}' "$C/web/templates/analysis/network/index.h
 grep -Fq 'network_inetsim-tab' "$C/web/templates/analysis/network/index.html"
 grep -Fq 'network_inetsim_tab' "$C/web/templates/analysis/network/index.html"
 grep -Fq 'inetsim_vm_active:analysis.info.route' "$C/web/templates/analysis/network/index.html"
-grep -Fq 'inetsim_vm_context:analysis.info.route' "$C/web/templates/analysis/network/index.html"
+grep -Fq 'inetsim_vm_context:analysis.info.route' "$C/web/templates/analysis/network/_inetsim_vm_visual.html"
 [[ -f "$C/web/analysis/templatetags/inetsim_vm_tags.py" ]]
 [[ -f "$C/web/templates/analysis/network/_inetsim_vm_visual.html" ]]
 [[ -f "$C/web/analysis/inetsim_vm_logic.py" ]]
