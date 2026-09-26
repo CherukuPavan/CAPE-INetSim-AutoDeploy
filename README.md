@@ -55,9 +55,9 @@ install/bootstrap
   -> isolated libvirt network
   -> persistent host egress/input firewall guard
   -> generalized Ubuntu INetSim appliance
-  -> Windows isolated secondary NIC
-  -> Windows no-default-route / DNS / IPv6 safety gates
-  -> deployment-owned safety + working + running snapshots
+  -> preserve existing Windows analysis VM network/snapshot baseline
+  -> CAPE-native per-task route selection (internet / inetsim / none-drop)
+  -> host-routed isolated INetSim path with no Windows fake NIC/IP/DNS
   -> CAPE isolated capture integration
   -> Network Analysis processing visibility
   -> CAPE-INetSim-VM-Extension v1.0.1
@@ -70,13 +70,13 @@ install/bootstrap
 - Route selection is task-scoped: route=internet preserves CAPE's normal Internet path, route=inetsim redirects only that task to the isolated Ubuntu INetSim appliance, and route=none/drop remains blocked.
 - The fake-Internet bridge is never attached to a physical NIC and never configured with libvirt NAT/forwarding.
 - A deployment-owned nftables guard blocks forwarding from the isolated bridge as defense in depth.
-- Windows validation requires zero IPv4 default routes, zero IPv6 default routes, no enabled IPv6 bindings, no unexpected active third adapter, INetSim-only DNS, working CAPE ResultServer reachability, and failed public IPv4/IPv6 reachability.
+- AutoDeploy does not rewrite Windows IP, DNS, gateway, DHCP, NICs, IPv6 state, or snapshots. The guest's existing CAPE baseline remains authoritative.
 - CAPE source is modified only after a known layout/anchor passes the compatibility gate; unknown layouts safe-stop before mutation.
 - Busy CAPE systems are staged non-disruptively and cut over only after AutoDeploy atomically acquires CAPE machine maintenance ownership.
 - Running qcow2 analysis disks are inspected read-only with QEMU shared-image semantics when their live QEMU process holds the normal image lock; AutoDeploy never runs qemu-img repair/conversion against a live analysis disk.
-- Existing CAPE analysis baselines must be running-state snapshots. Saved VM memory may be either libvirt `internal` or `external`; both modes are accepted after domain identity and management-NIC validation.
+- If CAPE already specifies an analysis snapshot, AutoDeploy validates and preserves it exactly; hosts without a configured snapshot remain supported when the existing CAPE/libvirt baseline is otherwise safe.
 - On modular libvirt hosts, an installed standard `clean-traffic` definition with an inactive `virtnwfilterd.socket` is detected as safely activatable; deployment enables/starts that socket before cutover, proves the filter through libvirt, records ownership, and restores the prior runtime state on rollback when safe.
-- Every mutable CAPE file is backed up before edit. Libvirt resources, Windows NICs/snapshots, firewall resources, and extension state are deployment-owned and recorded before/after mutation so interrupted operations can be resumed or rolled back safely.
+- Every mutable CAPE file is backed up before edit. AutoDeploy-owned appliance/network/firewall resources and extension state are journaled before/after mutation so interrupted operations can be resumed or rolled back safely. Windows guest networking and snapshots are not deployment resources in the route-separated design.
 - No SSL43/SSL44/SSL45-specific values belong in product logic.
 - `192.168.200.0/24` is only a preferred candidate; AutoDeploy selects another unused private subnet if it conflicts.
 - The generalized appliance is a separately versioned, checksum-pinned artifact and contains no deployment-specific fake-Internet subnet.
@@ -102,7 +102,7 @@ Before v1.0.0 can be called deployable, all of the following must be true:
 2. The artifact is published in versioned release/artifact storage and its exact SHA-256 is pinned in `appliance/manifest.json`.
 3. The same release passes a controlled end-to-end deployment on one supported CAPE host.
 4. The exact same release/command passes on a second independent CAPE host with different CAPE/libvirt/VM identifiers. The second host is treated as a blind/random supported installation: no host-specific scripts, identifiers, manual prerequisite fixes, or candidate changes are allowed between first-host and second-host validation. If the second host exposes a product defect, the candidate is invalidated, the fix must be generalized, and validation restarts from the first host.
-5. Positive and negative Network Analysis/INetSim visibility checks pass without giving the Windows analysis VM real Internet access.
+5. Route-separation acceptance passes: a route=inetsim positive task reaches only the isolated fake-Internet endpoint, while a route=internet negative task contains no INetSim traffic. Real Internet is available only when CAPE explicitly selects the Internet route.
 
 
 ## Per-task route separation
