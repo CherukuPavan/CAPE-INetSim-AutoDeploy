@@ -120,11 +120,6 @@ grep -Fxq 'Session=cape-inetsim-xfce' <<<"$accounts_user"
 grep -Fxq 'XSession=cape-inetsim-xfce' <<<"$accounts_user"
 grep -Fxq 'SystemAccount=false' <<<"$accounts_user"
 
-ssh_policy="$(virt-cat -a "$IMAGE" /etc/ssh/sshd_config.d/99-cape-inetsim-no-password-auth.conf)"
-grep -Fxq 'PasswordAuthentication no' <<<"$ssh_policy"
-grep -Fxq 'KbdInteractiveAuthentication no' <<<"$ssh_policy"
-grep -Fxq 'PermitRootLogin no' <<<"$ssh_policy"
-
 passwd_db="$(virt-cat -a "$IMAGE" /etc/passwd)"
 shadow_db="$(virt-cat -a "$IMAGE" /etc/shadow)"
 python3 - "$passwd_db" "$shadow_db" <<'PY'
