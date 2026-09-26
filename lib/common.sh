@@ -11,6 +11,41 @@ info(){ printf '[INFO] %s\n' "$*"; }
 kv(){ printf '%-32s %s\n' "$1" "$2"; }
 have(){ command -v "$1" >/dev/null 2>&1; }
 
+ad_select_host_python() {
+  local candidate path version_ok
+  if [[ -n "${AD_HOST_PYTHON:-}" && -x "${AD_HOST_PYTHON:-}" ]]; then
+    printf '%s\n' "$AD_HOST_PYTHON"
+    return 0
+  fi
+  for candidate in python3 python; do
+    path="$(command -v "$candidate" 2>/dev/null || true)"
+    [[ -n "$path" && -x "$path" ]] || continue
+    if "$path" - <<'PY' >/dev/null 2>&1
+import sys
+raise SystemExit(0 if sys.version_info >= (3, 10) else 1)
+PY
+    then
+      printf '%s\n' "$path"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Resolve the host-side interpreter once from PATH. Runtime code uses this
+# absolute executable; it never assumes /usr/bin/python3 or a CAPE venv path.
+if [[ -z "${AD_HOST_PYTHON:-}" ]]; then
+  AD_HOST_PYTHON="$(ad_select_host_python 2>/dev/null || true)"
+fi
+export AD_HOST_PYTHON
+ad_python() {
+  [[ -n "${AD_HOST_PYTHON:-}" && -x "$AD_HOST_PYTHON" ]] || {
+    fail "No supported host Python >= 3.10 was discovered"
+    return 127
+  }
+  "$AD_HOST_PYTHON" "$@"
+}
+
 
 nwfilter_definition_roots() {
   if [[ -n "${NWFILTER_DEFINITION_ROOT:-}" ]]; then
