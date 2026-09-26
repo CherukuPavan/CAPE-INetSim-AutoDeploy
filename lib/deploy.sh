@@ -625,6 +625,12 @@ deploy_run() {
     validate_deployment_services
   fi
 
+  if [[ "${CAPE_INETSIM_E2E_REQUIRED:-yes}" != no ]]; then
+    "$AUTODEPLOY_ROOT/bin/cape-inetsim-selftest"
+  else
+    warn "Automatic CAPE end-to-end self-test explicitly disabled by CAPE_INETSIM_E2E_REQUIRED=no"
+  fi
+
   state_set_phase committed
   trap - ERR INT TERM
   echo
