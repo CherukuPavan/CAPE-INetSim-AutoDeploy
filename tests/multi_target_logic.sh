@@ -42,14 +42,14 @@ targets_discover_all
 
 ISOLATED_SUBNET=192.168.200.0/24
 targets_prepare_after_network_plan
-[[ "$(targets_get 0 fake_ip)" == 192.168.200.10 ]]
-[[ "$(targets_get 1 fake_ip)" == 192.168.200.11 ]]
-[[ "$(targets_get 2 fake_ip)" == 192.168.200.12 ]]
+[[ -z "$(targets_get 0 fake_ip)" ]]
+[[ -z "$(targets_get 1 fake_ip)" ]]
+[[ -z "$(targets_get 2 fake_ip)" ]]
 
 targets_bind 1
 [[ "$CAPE_MACHINE_SECTION" == win10 ]]
 [[ "$DOMAIN" == win10 ]]
-[[ "$WINDOWS_FAKE_IP" == 192.168.200.11 ]]
+[[ -z "$WINDOWS_FAKE_IP" ]]
 
 identity_before="$(targets_identity_sha256)"
 WINDOWS_ISOLATED_MAC=52:54:00:aa:bb:cc
@@ -87,13 +87,13 @@ targets_validate_uniqueness
 grep -Fq 'libvirt domain is not unique' <<<"${DISCOVERY_ERRORS[0]}"
 
 # Static policy: production discovery/deployment/CAPE integration are target-set
-# oriented, and missing old snapshots are explicitly supported.
+# oriented; route-scoped deployment preserves already-proven CAPE snapshots.
 grep -Fq 'targets_discover_all' "$ROOT/lib/plan.sh"
 ! grep -Fq 'auto_select_cape_machine' "$ROOT/lib/plan.sh"
 grep -Fq 'for ((i=0;i<CAPE_TARGETS_COUNT;i++))' "$ROOT/lib/deploy.sh"
 grep -Fq 'for ((i=0;i<CAPE_TARGETS_COUNT;i++))' "$ROOT/lib/cape-configure.sh"
 grep -Fq 'CAPE_ANALYSIS_SNAPSHOT_STATUS="not-configured"' "$ROOT/lib/libvirt.sh"
-grep -Fq 'analysis_snapshot_status") in ("proven","not-configured")' "$ROOT/lib/deploy.sh"
+grep -Fq 'analysis_snapshot_status") == "proven"' "$ROOT/lib/deploy.sh"
 grep -Fq 'No supported zero-touch Windows control channel is available' "$ROOT/lib/windows-control.sh"
 grep -Fq 'CAPE_DOMAIN=' "$ROOT/lib/extension.sh"
 
