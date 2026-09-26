@@ -126,10 +126,20 @@ inetsim_enable_gui_guest() {
   else
     : >"$guest_log"
     chmod 0600 "$guest_log"
-    qga_file_write "$INETSIM_DOMAIN_NAME" "$AUTODEPLOY_ROOT/appliance/gui-enable.sh" "$remote" >>"$guest_log" 2>&1 || {
-      fail "Could not upload GUI enable helper to INetSim appliance"
+    local upload_ok=no upload_attempt
+    for upload_attempt in 1 2 3 4 5; do
+      if qga_file_write "$INETSIM_DOMAIN_NAME" "$AUTODEPLOY_ROOT/appliance/gui-enable.sh" "$remote" >>"$guest_log" 2>&1; then
+        upload_ok=yes
+        break
+      fi
+      printf 'GUI helper upload attempt %d failed; waiting for QGA recovery\n' "$upload_attempt" >>"$guest_log"
+      qga_wait "$INETSIM_DOMAIN_NAME" 30 >/dev/null 2>&1 || true
+      sleep "$upload_attempt"
+    done
+    if [[ "$upload_ok" != yes ]]; then
+      fail "Could not upload GUI enable helper to INetSim appliance after 5 attempts; log captured at $guest_log"
       return 1
-    }
+    fi
 
     info "Installing lightweight Ubuntu XFCE desktop inside INetSim appliance; this may take several minutes"
     if ! QGA_EXEC_WAIT_SECONDS=1500 qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/bash -c       "/bin/bash '$remote' >/var/log/cape-inetsim-gui-enable.log 2>&1" >>"$guest_log" 2>&1; then
