@@ -96,22 +96,49 @@ inetsim_refresh_baked_gui_appliance() {
     return 1
   fi
 
-  if ! virsh start "$INETSIM_DOMAIN_NAME" >/dev/null ||
-     ! qga_wait "$INETSIM_DOMAIN_NAME" 240 ||
-     ! qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/sh -c '
-       test -f /etc/cape-inetsim-gui-v6 &&
-       test -f /usr/lib/xorg/modules/drivers/modesetting_drv.so &&
-       test -f /usr/share/xsessions/xubuntu.desktop &&
-       dpkg-query -W -f="${Status}" xubuntu-desktop-minimal 2>/dev/null | grep -Fq "install ok installed" &&
-       id capeinetsim >/dev/null 2>&1 &&
-       systemctl list-unit-files lightdm.service >/dev/null 2>&1
-     ' >/dev/null 2>&1; then
+  local refresh_ready=no refresh_try
+  if virsh start "$INETSIM_DOMAIN_NAME" >/dev/null &&
+     qga_wait "$INETSIM_DOMAIN_NAME" 240; then
+    for refresh_try in $(seq 1 30); do
+      if qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/bash -c '
+        set -eu
+        test -f /etc/cape-inetsim-gui-v6
+        test -f /usr/lib/xorg/modules/drivers/modesetting_drv.so
+        test -f /usr/share/xsessions/xubuntu.desktop
+        test "$(dpkg-query -W -f="\${Status}" xubuntu-desktop-minimal 2>/dev/null)" = "install ok installed"
+        id capeinetsim >/dev/null 2>&1
+        systemctl list-unit-files lightdm.service >/dev/null 2>&1
+      ' >/dev/null 2>&1; then
+        refresh_ready=yes
+        break
+      fi
+      sleep 2
+    done
+  fi
+
+  if [[ "$refresh_ready" != yes ]]; then
+    local refresh_log="$AD_LOG_ROOT/${DEPLOYMENT_ID}-inetsim-gui-refresh-validation.log"
+    {
+      echo "=== GUI marker ==="
+      qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/ls -l /etc/cape-inetsim-gui-v6 || true
+      echo "=== modesetting driver ==="
+      qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/ls -l /usr/lib/xorg/modules/drivers/modesetting_drv.so || true
+      echo "=== xubuntu session ==="
+      qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/ls -l /usr/share/xsessions/xubuntu.desktop || true
+      echo "=== xubuntu package status ==="
+      qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/bash -c 'dpkg-query -W -f="\${Status}\n" xubuntu-desktop-minimal 2>&1 || true' || true
+      echo "=== capeinetsim identity ==="
+      qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/id capeinetsim || true
+      echo "=== lightdm unit ==="
+      qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/bash -c 'systemctl list-unit-files lightdm.service 2>&1 || true' || true
+    } >"$refresh_log" 2>&1
+
     virsh destroy "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1 || true
     rm -f "$INETSIM_DISK_PATH"
     mv "$old_disk" "$INETSIM_DISK_PATH"
     virsh start "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1 || true
     qga_wait "$INETSIM_DOMAIN_NAME" 120 >/dev/null 2>&1 || true
-    fail "GUI-ready appliance refresh failed validation; original INetSim disk was restored"
+    fail "GUI-ready appliance refresh failed validation; original INetSim disk was restored; diagnostics captured at $refresh_log"
     return 1
   fi
 
@@ -192,7 +219,7 @@ inetsim_enable_gui_guest() {
        test -f /etc/cape-inetsim-gui-v6 &&
        test -f /usr/lib/xorg/modules/drivers/modesetting_drv.so &&
        test -f /usr/share/xsessions/xubuntu.desktop &&
-       dpkg-query -W -f="${Status}" xubuntu-desktop-minimal 2>/dev/null | grep -Fq "install ok installed" &&
+       dpkg-query -W -f="\${Status}" xubuntu-desktop-minimal 2>/dev/null | grep -Fq "install ok installed" &&
        id capeinetsim >/dev/null 2>&1
      ' >/dev/null 2>&1; then
     info "Existing INetSim appliance predates the validated Xubuntu GUI image; refreshing only the AutoDeploy-owned appliance"
