@@ -223,6 +223,32 @@ validate_resultserver_host() {
   return 1
 }
 
+validate_windows_route_separation() {
+  [[ -z "${WINDOWS_FAKE_IP:-}" ]] || {
+    fail "Route-separated target still records a legacy Windows fake IP for $CAPE_MACHINE_SECTION"
+    return 1
+  }
+  [[ -z "${WINDOWS_ISOLATED_MAC:-}" ]] || {
+    fail "Route-separated target still records a legacy Windows isolated NIC for $CAPE_MACHINE_SECTION"
+    return 1
+  }
+
+  local xml
+  xml="$(virsh dumpxml "$DOMAIN" --inactive 2>/dev/null)" || {
+    fail "Could not inspect persistent Windows domain XML for $DOMAIN"
+    return 1
+  }
+  python3 - "$ISOLATED_NETWORK_NAME" <<'PY' <<<"$xml"
+import sys,xml.etree.ElementTree as ET
+network=sys.argv[1]
+root=ET.fromstring(sys.stdin.read())
+for iface in root.findall("./devices/interface"):
+    source=iface.find("source")
+    if source is not None and source.get("network","")==network:
+        raise SystemExit("legacy Windows NIC remains attached to isolated INetSim network")
+PY
+}
+
 validate_all_targets_structural() {
   local saved="${TARGET_INDEX:-}" i failures=0
   CAPE_TARGETS_COUNT="$(targets_count)"
@@ -241,6 +267,10 @@ validate_all_targets_structural() {
         failures=$((failures+1))
       }
     fi
+    validate_windows_route_separation || {
+      fail "Windows route-separation baseline validation failed for $CAPE_MACHINE_SECTION"
+      failures=$((failures+1))
+    }
     validate_cape_configuration || {
       fail "CAPE route-separated configuration validation failed for $CAPE_MACHINE_SECTION"
       failures=$((failures+1))
