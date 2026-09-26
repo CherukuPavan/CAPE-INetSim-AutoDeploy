@@ -30,7 +30,7 @@ PY
 
 cat >"$TMP/cape/storage/analyses/20/reports/report.json" <<'JSON'
 {
-  "info":{"id":20,"route":"none"},
+  "info":{"id":20,"route":"inetsim"},
   "network":{
     "tcp":[{"src":"10.77.50.10","dst":"10.77.50.2","dport":80}],
     "dns":[
@@ -44,7 +44,7 @@ JSON
 
 cat >"$TMP/negative.json" <<'JSON'
 {
-  "info":{"id":19,"route":"none"},
+  "info":{"id":19,"route":"inetsim"},
   "network":{
     "tcp":[{"src":"10.77.50.10","dst":"10.77.50.2","dport":443}],
     "dns":[{"request":"background.test","answers":[{"data":"10.77.50.2"}]}]
@@ -82,13 +82,13 @@ fi
 
 # Regression: CAPE reports do not always preserve enough destination/answer
 # fields to prove marker-to-INetSim linkage. The report layer should still
-# accept the controlled marker when the task is route=none and has INetSim
+# accept the controlled marker when the task is route=inetsim and has INetSim
 # context; the shell acceptance layer then proves the linkage from a PCAP
 # filtered to the INetSim host.
 mkdir -p "$TMP/cape/storage/analyses/18/reports"
 cat >"$TMP/cape/storage/analyses/18/reports/report.json" <<'JSON'
 {
-  "info":{"id":18,"route":"none"},
+  "info":{"id":18,"route":"inetsim"},
   "network":{
     "tcp":[{"src":"10.77.50.10","dst":"10.77.50.2","dport":443}],
     "dns":[
