@@ -56,6 +56,64 @@ print(ET.tostring(r,encoding="unicode"))
 
 INETSIM_GRAPHICS_CHANGED=no
 
+inetsim_refresh_baked_gui_appliance() {
+  local artifact new_disk old_disk state i
+  state_resource_owned domain "$INETSIM_DOMAIN_NAME" || {
+    fail "Refusing GUI appliance refresh because INetSim domain is not AutoDeploy-owned"
+    return 1
+  }
+  state_resource_owned disk "$INETSIM_DISK_PATH" || {
+    fail "Refusing GUI appliance refresh because INetSim disk is not AutoDeploy-owned"
+    return 1
+  }
+
+  artifact="$(appliance_fetch "$APPLIANCE_MANIFEST")" || return 1
+  new_disk="$INETSIM_DISK_PATH.gui-refresh-new"
+  old_disk="$INETSIM_DISK_PATH.gui-refresh-old"
+
+  rm -f "$new_disk" "$old_disk"
+  info "Preparing verified GUI-ready INetSim appliance replacement"
+  qemu-img convert -p -O qcow2 "$artifact" "$new_disk"
+  qemu-img check "$new_disk" >/dev/null || {
+    rm -f "$new_disk"
+    fail "Prepared GUI-ready INetSim appliance disk failed qcow2 integrity check"
+    return 1
+  }
+
+  virsh shutdown "$INETSIM_DOMAIN_NAME" --mode agent >/dev/null 2>&1 || true
+  for ((i=0;i<60;i++)); do
+    state="$(virsh domstate "$INETSIM_DOMAIN_NAME" 2>/dev/null | tr -d '\r' || true)"
+    [[ "$state" == "shut off" ]] && break
+    sleep 1
+  done
+  state="$(virsh domstate "$INETSIM_DOMAIN_NAME" 2>/dev/null | tr -d '\r' || true)"
+  [[ "$state" == "shut off" ]] || virsh destroy "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1 || true
+
+  mv "$INETSIM_DISK_PATH" "$old_disk"
+  if ! mv "$new_disk" "$INETSIM_DISK_PATH"; then
+    mv "$old_disk" "$INETSIM_DISK_PATH" 2>/dev/null || true
+    fail "Could not activate GUI-ready INetSim appliance disk"
+    return 1
+  fi
+
+  if ! virsh start "$INETSIM_DOMAIN_NAME" >/dev/null ||
+     ! qga_wait "$INETSIM_DOMAIN_NAME" 240 ||
+     ! qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/test -f /etc/cape-inetsim-gui-v1 >/dev/null 2>&1; then
+    virsh destroy "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1 || true
+    rm -f "$INETSIM_DISK_PATH"
+    mv "$old_disk" "$INETSIM_DISK_PATH"
+    virsh start "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1 || true
+    qga_wait "$INETSIM_DOMAIN_NAME" 120 >/dev/null 2>&1 || true
+    fail "GUI-ready appliance refresh failed validation; original INetSim disk was restored"
+    return 1
+  fi
+
+  rm -f "$old_disk"
+  state_record_resource inetsim-gui-refresh "$INETSIM_DOMAIN_NAME" replaced yes "verified-release-appliance"
+  state_write_atomic
+  pass "Refreshed INetSim appliance to verified GUI-ready release image"
+}
+
 inetsim_ensure_graphics_console() {
   local raw="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-inetsim-graphics.xml"
   local current
@@ -120,6 +178,14 @@ inetsim_enable_gui_guest() {
     fail "INetSim appliance QEMU Guest Agent did not come online for GUI setup"
     return 1
   }
+
+  if ! qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/test -f /etc/cape-inetsim-gui-v1 >/dev/null 2>&1; then
+    info "Existing INetSim appliance predates the baked graphical desktop; refreshing only the AutoDeploy-owned appliance"
+    inetsim_refresh_baked_gui_appliance || return 1
+    inetsim_configure_guest || return 1
+    inetsim_verify_host || return 1
+    restart=yes
+  fi
 
   if qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/test -f /etc/cape-inetsim-gui-v1 >/dev/null 2>&1; then
     pass "INetSim Ubuntu graphical desktop already installed"
