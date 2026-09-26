@@ -66,8 +66,8 @@ targets_capture_bound 1
 
 summary="$(targets_summary_lines)"
 grep -Fq 'win10 -> win10' <<<"$summary"
-grep -Fq 'snapshot=ready' <<<"$summary"
-! grep -Fq 'snapshot=snap10' <<<"$summary"
+grep -Fq 'normal_snapshot=snap10' <<<"$summary"
+grep -Fq 'inetsim_snapshot=ready' <<<"$summary"
 
 # --machine remains a deliberate single-target override, but the default is all.
 REQUESTED_MACHINE=win7
