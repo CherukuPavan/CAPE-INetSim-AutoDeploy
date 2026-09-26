@@ -227,11 +227,10 @@ echo "INETSIM_GUEST_CONFIG_OK management=$MGMT_IF isolated=$ISO_IF ip=$CIDR"
     if not hits:
         s += f"\nstart_service {service}\n"
         continue
-    first=True
+    first=[True]
     def repl(m):
-        nonlocal first
-        if first:
-            first=False
+        if first[0]:
+            first[0]=False
             return f"start_service {service}"
         return f"# duplicate disabled by CAPE-INetSim-AutoDeploy: start_service {service}"
     s=pat.sub(repl,s)
