@@ -9,12 +9,14 @@ python3 -m py_compile \
 dash -n "$ROOT/appliance/image-rootfs-prepare.sh"
 bash -n "$ROOT/appliance/build/verify-artifact.sh"
 bash -n "$ROOT/appliance/build/runtime-smoke-test.sh"
+bash -n "$ROOT/appliance/gui-enable.sh"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 python3 "$ROOT/appliance/build/render-cloud-init.py" \
   --guest-configure "$ROOT/appliance/guest-configure.sh" \
   --prepare "$ROOT/appliance/image-rootfs-prepare.sh" \
+  --gui-enable "$ROOT/appliance/gui-enable.sh" \
   --output "$TMP/user-data"
 
 printf 'raw appliance test bytes\n' >"$TMP/test.qcow2"
@@ -43,6 +45,7 @@ PY
 grep -Fxq '#cloud-config' "$TMP/user-data"
 grep -q 'cape-inetsim-image-rootfs-prepare' "$TMP/user-data"
 grep -q 'cape-inetsim-build-wrapper' "$TMP/user-data"
+grep -q 'cape-inetsim-gui-enable' "$TMP/user-data"
 grep -q '^growpart:' "$TMP/user-data"
 grep -q '^resize_rootfs: true$' "$TMP/user-data"
 
@@ -83,6 +86,10 @@ grep -q 'using verified cached Ubuntu base release' "$ROOT/appliance/build/build
 
 grep -q 'Acquire::http::Timeout=30' "$ROOT/appliance/image-rootfs-prepare.sh"
 grep -q 'timeout 600 apt-get' "$ROOT/appliance/image-rootfs-prepare.sh"
+grep -Fq 'cape-inetsim-gui-enable' "$ROOT/appliance/image-rootfs-prepare.sh"
+grep -Fq 'xfce4' "$ROOT/appliance/gui-enable.sh"
+grep -Fq 'lightdm' "$ROOT/appliance/gui-enable.sh"
+grep -Fq 'cape-inetsim-gui-v1' "$ROOT/appliance/gui-enable.sh"
 
 grep -q 'full-backing-filename' "$ROOT/appliance/build/verify-artifact.sh"
 grep -q 'persistent machine-id' "$ROOT/appliance/build/verify-artifact.sh"
