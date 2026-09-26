@@ -297,9 +297,17 @@ firewall_apply() {
     return 1
   }
   systemctl is-active --quiet cape-inetsim-autodeploy-firewall.service
-  state_record_resource firewall-file "$FIREWALL_RULES" created yes "bridge=$ISOLATED_BRIDGE_NAME"
+  local old_bridge old_mac old_ip old_domain
+  while IFS='|' read -r old_bridge old_mac old_ip old_domain; do
+    [[ -n "$old_domain" && -n "$old_mac" ]] || continue
+    if state_resource_owned firewall-management-guard "$old_domain:$old_mac"; then
+      state_record_resource firewall-management-guard "$old_domain:$old_mac" removed-by-route-aware-upgrade yes "CAPE per-task routing now authoritative"
+    fi
+  done < <(firewall_management_records)
+
+  state_record_resource firewall-file "$FIREWALL_RULES" created yes "bridge=$ISOLATED_BRIDGE_NAME route-aware=yes"
   state_record_resource firewall-unit "$FIREWALL_UNIT" created yes ""
-  state_record_resource firewall-table "$FIREWALL_TABLE" created yes "bridge=$ISOLATED_BRIDGE_NAME"
+  state_record_resource firewall-table "$FIREWALL_TABLE" created yes "bridge=$ISOLATED_BRIDGE_NAME route-aware=yes"
   state_write_atomic
   pass "Installed host forwarding/input guard for isolated bridge $ISOLATED_BRIDGE_NAME"
 }
