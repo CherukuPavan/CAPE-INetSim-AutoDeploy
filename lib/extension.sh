@@ -113,6 +113,7 @@ extension_write_config() {
   {
     printf 'CAPE_ROOT=%q\n' "$CAPE_ROOT"
     printf 'CAPE_MACHINE=%q\n' "$CAPE_MACHINE_SECTION"
+    printf 'CAPE_MACHINE_LABEL=%q\n' "$CAPE_MACHINE_LABEL"
     printf 'CAPE_DOMAIN=%q\n' "$DOMAIN"
     printf 'CAPE_GUEST_CONTROL_IP=%q\n' "$CAPE_MACHINE_IP"
     printf 'CAPE_RESULTSERVER_IP=%q\n' "$CAPE_RESULTSERVER_IP"
