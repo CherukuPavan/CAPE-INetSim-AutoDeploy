@@ -143,7 +143,6 @@ REQUIRED_VARS=(
     CAPE_GUEST_CONTROL_IP
     CAPE_RESULTSERVER_IP
     INETSIM_SERVER_IP
-    ANALYSIS_GUEST_IP
     CAPTURE_INTERFACE
 )
 
@@ -169,7 +168,6 @@ IP_VARS=(
     CAPE_GUEST_CONTROL_IP
     CAPE_RESULTSERVER_IP
     INETSIM_SERVER_IP
-    ANALYSIS_GUEST_IP
 )
 
 if command -v python3 >/dev/null 2>&1; then
@@ -374,9 +372,14 @@ if [[ -r "$KVM_CONF" ]] &&
         section_value "$KVM_CONF" "$CAPE_MACHINE" "snapshot"
     )"
 
+    auxiliary_capture="$(
+        section_value "${CAPE_ROOT:-}/conf/auxiliary.conf" "sniffer" "inetsim_capture_interface"
+    )"
+
     info "Configured machine IP: ${configured_ip:-<not set>}"
     info "Configured ResultServer IP: ${configured_resultserver:-<not set>}"
-    info "Configured capture interface: ${configured_interface:-<not set>}"
+    info "Normal CAPE machine interface: ${configured_interface:-<not set>}"
+    info "Route-scoped INetSim capture interface: ${auxiliary_capture:-<not set>}"
     info "Configured snapshot: ${configured_snapshot:-<not set>}"
 
     if [[ "$configured_ip" == "$CAPE_GUEST_CONTROL_IP" ]]; then
@@ -391,10 +394,10 @@ if [[ -r "$KVM_CONF" ]] &&
         warn "Configured ResultServer IP differs from extension configuration"
     fi
 
-    if [[ "$configured_interface" == "$CAPTURE_INTERFACE" ]]; then
-        pass "Capture interface matches extension configuration"
+    if [[ "$auxiliary_capture" == "$CAPTURE_INTERFACE" ]]; then
+        pass "Route-scoped INetSim capture interface matches extension configuration"
     else
-        warn "Configured capture interface differs from extension configuration"
+        fail "Route-scoped INetSim capture interface differs from extension configuration"
     fi
 
 else
