@@ -154,6 +154,32 @@ if [[ "$REPAIR_ROOTER_ACTIVE" == yes ]]; then systemctl is-active --quiet cape-r
 if [[ "$REPAIR_CAPE_ACTIVE" == yes ]]; then systemctl start cape.service; else systemctl stop cape.service >/dev/null 2>&1 || true; fi
 
 validate_deployment_services
+
+# A checksum-pinned release bootstrap may be repairing an older committed
+# deployment (for example RC44 -> route-aware release). Promote release
+# provenance only after every repair gate above has passed, so a failed repair
+# never claims the newer source.
+if [[ -n "${CAPE_INETSIM_RELEASE_TAG:-}" ||
+      -n "${CAPE_INETSIM_RELEASE_SOURCE_BUNDLE:-}" ||
+      -n "${CAPE_INETSIM_RELEASE_SOURCE_SHA256:-}" ||
+      -n "${CAPE_INETSIM_RELEASE_SOURCE_COMMIT:-}" ]]; then
+  [[ -n "${CAPE_INETSIM_RELEASE_TAG:-}" &&
+     -n "${CAPE_INETSIM_RELEASE_SOURCE_BUNDLE:-}" &&
+     -n "${CAPE_INETSIM_RELEASE_SOURCE_SHA256:-}" &&
+     -n "${CAPE_INETSIM_RELEASE_SOURCE_COMMIT:-}" ]] || {
+    fail "Repair release provenance is incomplete; refusing to commit"
+    exit 27
+  }
+
+  PREVIOUS_RELEASE_TAG="${RELEASE_TAG:-development/unknown}"
+  RELEASE_TAG="$CAPE_INETSIM_RELEASE_TAG"
+  RELEASE_SOURCE_BUNDLE="$CAPE_INETSIM_RELEASE_SOURCE_BUNDLE"
+  RELEASE_SOURCE_SHA256="$CAPE_INETSIM_RELEASE_SOURCE_SHA256"
+  RELEASE_SOURCE_COMMIT="$CAPE_INETSIM_RELEASE_SOURCE_COMMIT"
+  state_record_resource repair-release "${PREVIOUS_RELEASE_TAG}->${RELEASE_TAG}" upgraded yes "route-aware-repair"
+  validate_release_provenance
+fi
+
 state_set_phase committed
 trap - ERR INT TERM
 pass "Safe task-aware repair completed"
