@@ -138,8 +138,9 @@ appliance_download_transport() {
 
   if curl "${args[@]}" --output "$part" "$url"; then
     return 0
+  else
+    rc=$?
   fi
-  rc=$?
 
   # curl 33 means the remote endpoint rejected the requested resume offset.
   # Keep generic network failures resumable, but a server that cannot resume
