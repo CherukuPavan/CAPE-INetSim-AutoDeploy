@@ -126,6 +126,15 @@ PY
   case "$layout" in
     already-present)
       COMPAT_STATUS="plan-compatible"; add_note "capture-override:already-present" ;;
+    legacy-route-global-capture)
+      if [[ "${CAPE_INETSIM_ALLOW_LEGACY_UPGRADE:-no}" == yes ]]; then
+        COMPAT_STATUS="plan-compatible"
+        add_note "capture-override:legacy-owned-upgrade"
+      else
+        COMPAT_STATUS="plan-only-unknown-cape-layout"
+        add_note "capture-override:legacy-route-global-capture"
+      fi
+      ;;
     known-clean-pattern)
       if git -C "$CAPE_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 &&
          [[ -n "$(git -C "$CAPE_ROOT" status --porcelain -- modules/auxiliary/sniffer.py 2>/dev/null || true)" ]]; then
