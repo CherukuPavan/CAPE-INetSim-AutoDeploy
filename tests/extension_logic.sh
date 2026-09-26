@@ -117,6 +117,30 @@ cmp "$EXTENSION_ROOT/install.sh" "$EXTENSION_BUNDLED_ROOT/install.sh"
 grep -Fq 'refreshing-unowned-runtime' "$AD_LOG_ROOT/${DEPLOYMENT_ID}-extension-materialize.log"
 grep -Fq 'materialized=yes' "$AD_LOG_ROOT/${DEPLOYMENT_ID}-extension-materialize.log"
 
+# RC47 regression: a protected same-version recovery directory may contain
+# stale executable runtime from an older release. Refresh code from the current
+# bundle while preserving rollback pointers, backups, and local config.
+EXTENSION_ROOT="$TMP/protected-stale-extension"
+mkdir -p "$EXTENSION_ROOT/src" "$EXTENSION_ROOT/backups/keep"
+printf '1.0.2\n' >"$EXTENSION_ROOT/VERSION"
+printf '#!/bin/sh\nexit 97\n' >"$EXTENSION_ROOT/install.sh"
+chmod +x "$EXTENSION_ROOT/install.sh"
+printf '%s\n' "$EXTENSION_ROOT/backups/keep" >"$EXTENSION_ROOT/.installed_backup"
+printf '%s\n' "$EXTENSION_ROOT/backups/keep" >"$EXTENSION_ROOT/.last_backup"
+printf 'sentinel\n' >"$EXTENSION_ROOT/backups/keep/SENTINEL"
+printf 'CAPE_ROOT=/opt/preserved\n' >"$EXTENSION_ROOT/src/inetsim-vm.conf"
+printf 'broken manifest\n' >"$EXTENSION_ROOT/RUNTIME-SHA256SUMS"
+
+extension_fetch_extract
+
+cmp "$EXTENSION_ROOT/install.sh" "$EXTENSION_BUNDLED_ROOT/install.sh"
+grep -Fxq "$EXTENSION_ROOT/backups/keep" "$EXTENSION_ROOT/.installed_backup"
+grep -Fxq "$EXTENSION_ROOT/backups/keep" "$EXTENSION_ROOT/.last_backup"
+grep -Fxq 'sentinel' "$EXTENSION_ROOT/backups/keep/SENTINEL"
+grep -Fxq 'CAPE_ROOT=/opt/preserved' "$EXTENSION_ROOT/src/inetsim-vm.conf"
+grep -Fq 'refreshing-stale-protected-runtime' "$AD_LOG_ROOT/${DEPLOYMENT_ID}-extension-materialize.log"
+grep -Fq 'materialized=yes' "$AD_LOG_ROOT/${DEPLOYMENT_ID}-extension-materialize.log"
+
 grep -Fq 'extension_upgrade_route_gated' "$ROOT/lib/extension.sh"
 grep -Fq 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$ROOT/lib/extension.sh"
 grep -Fq 'Legacy INetSim extension is not transaction-owned' "$ROOT/lib/extension.sh"
