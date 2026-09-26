@@ -28,6 +28,8 @@ rollback_cutover_resources_exist() {
   state_has_owned_kind domain-interface && return 0
   state_has_owned_kind snapshot && return 0
   state_has_owned_kind management-dhcp-host && return 0
+  state_has_owned_kind routing-sysctl-file && return 0
+  state_has_owned_kind routing-sysctl-runtime && return 0
   return 1
 }
 
@@ -105,6 +107,7 @@ rollback_finish_cape_handoff() {
     rollback_try_critical "release CAPE maintenance lock" cape_release_maintenance
   fi
   if ((ROLLBACK_CRITICAL_FAILURES == 0)); then
+    rollback_try_critical "restore original IPv4 forwarding state" routing_forwarding_rollback
     rollback_try_critical "restore original CAPE service states" services_restore_desired_state
   fi
 }
