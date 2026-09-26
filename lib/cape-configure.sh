@@ -96,8 +96,14 @@ cape_configure_inetsim() {
 
   python3 "$edit" "$CAPE_ROOT/conf/processing.conf" network dnswhitelist no
   python3 "$edit" "$CAPE_ROOT/conf/processing.conf" network ipwhitelist no
+  # Keep a fail-closed default, but let each submitted task choose its route.
+  # The dedicated fake-Internet path is CAPE's native route=inetsim.
   python3 "$edit" "$CAPE_ROOT/conf/routing.conf" routing route none
   python3 "$edit" "$CAPE_ROOT/conf/routing.conf" routing enable_pcap yes
+  python3 "$edit" "$CAPE_ROOT/conf/routing.conf" inetsim enabled yes
+  python3 "$edit" "$CAPE_ROOT/conf/routing.conf" inetsim server "$INETSIM_IP"
+  python3 "$edit" "$CAPE_ROOT/conf/routing.conf" inetsim dnsport 53
+  python3 "$edit" "$CAPE_ROOT/conf/routing.conf" inetsim interface "$ISOLATED_BRIDGE_NAME"
 
   local py
   py="$(cape_runtime_python)"
