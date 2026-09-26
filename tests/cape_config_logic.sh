@@ -20,7 +20,7 @@ grep -q 'CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1' "$TMP/sniffer.py"
 grep -q 'capture_host_key = f"capture_host_{self.machine.label}"' "$TMP/sniffer.py"
 patch_sniffer_capture_override "$TMP/sniffer.py"
 [[ "$(grep -c CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1 "$TMP/sniffer.py")" -eq 1 ]]
-echo '[PASS] exact-match CAPE sniffer patch logic'
+echo '[PASS] legacy sniffer patch helper remains deterministic for rollback compatibility'
 
 # Compatibility must reject non-unique/partial source anchors rather than
 # claiming a source layout is safe to patch.
@@ -92,7 +92,10 @@ check_cape_layout
 [[ "$COMPAT_STATUS" == plan-only-unknown-cape-layout ]]
 
 grep -Fq 'routing enable_pcap yes' "$ROOT/lib/cape-configure.sh"
-grep -Fq 'CAPE packet capture is disabled for route none' "$ROOT/lib/validate.sh"
+grep -Fq 'inetsim enabled yes' "$ROOT/lib/cape-configure.sh"
+grep -Fq 'inetsim server "$INETSIM_IP"' "$ROOT/lib/cape-configure.sh"
+grep -Fq 'CAPE inetsim route is not enabled' "$ROOT/lib/validate.sh"
+grep -Fq 'CAPE inetsim server mismatch' "$ROOT/lib/validate.sh"
 
 grep -Fq 'cape_capture_post_hashes' "$ROOT/lib/cape-configure.sh"
 grep -Fq 'Refusing to rollback CAPE file changed after AutoDeploy' "$ROOT/lib/cape-configure.sh"
