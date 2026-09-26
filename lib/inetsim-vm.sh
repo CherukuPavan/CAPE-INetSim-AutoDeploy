@@ -100,7 +100,7 @@ inetsim_refresh_baked_gui_appliance() {
      ! qga_wait "$INETSIM_DOMAIN_NAME" 240 ||
      ! qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/sh -c '
        test -f /etc/cape-inetsim-gui-v6 &&
-       test -f /usr/lib/xorg/modules/drivers/qxl_drv.so &&
+       test -f /usr/lib/xorg/modules/drivers/modesetting_drv.so &&
        test -f /usr/share/xsessions/xubuntu.desktop &&
        dpkg-query -W -f="${Status}" xubuntu-desktop-minimal 2>/dev/null | grep -Fq "install ok installed" &&
        id capeinetsim >/dev/null 2>&1 &&
@@ -136,7 +136,7 @@ import sys,xml.etree.ElementTree as ET
 r=ET.fromstring(sys.stdin.read())
 g=r.find("./devices/graphics")
 v=r.find("./devices/video/model")
-ok=(g is not None and g.get("type")=="spice" and v is not None and v.get("type")=="qxl")
+ok=(g is not None and g.get("type")=="spice" and v is not None and v.get("type")=="virtio")
 raise SystemExit(0 if ok else 1)
 ' <<<"$current"; then
     return 0
@@ -156,20 +156,20 @@ for x in list(d.findall("video")):
 g=ET.SubElement(d,"graphics",{"type":"spice","autoport":"yes","listen":"127.0.0.1"})
 ET.SubElement(g,"listen",{"type":"address","address":"127.0.0.1"})
 v=ET.SubElement(d,"video")
-ET.SubElement(v,"model",{"type":"qxl","ram":"65536","vram":"65536","vgamem":"16384","heads":"1","primary":"yes"})
+ET.SubElement(v,"model",{"type":"virtio","heads":"1","primary":"yes"})
 ET.indent(r,space="  ")
 ET.ElementTree(r).write(out,encoding="unicode")
 ' "$raw" <<<"$current"
 
   virsh define "$raw" >/dev/null || {
-    fail "Could not add persistent SPICE/QXL graphical console to INetSim appliance"
+    fail "Could not add persistent SPICE/Virtio graphical console to INetSim appliance"
     return 1
   }
 
   INETSIM_GRAPHICS_CHANGED=yes
-  state_record_resource domain-graphics "$INETSIM_DOMAIN_NAME" configured yes "type=spice video=qxl listen=127.0.0.1"
+  state_record_resource domain-graphics "$INETSIM_DOMAIN_NAME" configured yes "type=spice video=virtio listen=127.0.0.1"
   state_write_atomic
-  pass "Configured persistent SPICE/QXL graphical console for INetSim appliance"
+  pass "Configured persistent SPICE/Virtio graphical console for INetSim appliance"
 }
 
 inetsim_enable_gui_guest() {
@@ -190,7 +190,7 @@ inetsim_enable_gui_guest() {
   # Internet access.
   if ! qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/bash -c '
        test -f /etc/cape-inetsim-gui-v6 &&
-       test -f /usr/lib/xorg/modules/drivers/qxl_drv.so &&
+       test -f /usr/lib/xorg/modules/drivers/modesetting_drv.so &&
        test -f /usr/share/xsessions/xubuntu.desktop &&
        dpkg-query -W -f="${Status}" xubuntu-desktop-minimal 2>/dev/null | grep -Fq "install ok installed" &&
        id capeinetsim >/dev/null 2>&1
@@ -389,7 +389,7 @@ EOF
     fail "INetSim appliance has no active SPICE graphical display"
     return 1
   }
-  pass "INetSim GUI acceptance passed: one visible capeinetsim account, stable Xubuntu desktop, SPICE/QXL console"
+  pass "INetSim GUI acceptance passed: one visible capeinetsim account, stable Xubuntu desktop, SPICE/Virtio console"
 }
 
 inetsim_domain_macs() {
@@ -510,7 +510,7 @@ inetsim_define_domain() {
 
   local raw="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-inetsim-domain.raw.xml"
   local xml="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-inetsim-domain.xml"
-  virt-install --connect qemu:///system --name "$INETSIM_DOMAIN_NAME" --memory "$INETSIM_MEMORY_MIB" --vcpus 2 --import     --disk "path=$INETSIM_DISK_PATH,format=qcow2,bus=virtio"     --network "network=$MANAGEMENT_NETWORK_NAME,model=virtio"     --network "network=$ISOLATED_NETWORK_NAME,model=virtio"     --os-variant generic --graphics "spice,listen=127.0.0.1" --video qxl --noautoconsole --print-xml >"$raw"
+  virt-install --connect qemu:///system --name "$INETSIM_DOMAIN_NAME" --memory "$INETSIM_MEMORY_MIB" --vcpus 2 --import     --disk "path=$INETSIM_DISK_PATH,format=qcow2,bus=virtio"     --network "network=$MANAGEMENT_NETWORK_NAME,model=virtio"     --network "network=$ISOLATED_NETWORK_NAME,model=virtio"     --os-variant generic --graphics "spice,listen=127.0.0.1" --video virtio --noautoconsole --print-xml >"$raw"
   inject_qga_channel <"$raw" >"$xml"
 
   state_record_intent domain "$INETSIM_DOMAIN_NAME" defining "disk=$INETSIM_DISK_PATH"
