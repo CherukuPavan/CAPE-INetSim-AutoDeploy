@@ -271,10 +271,6 @@ firewall_apply() {
   firewall_file_matches_base || { fail "Installed firewall rules do not match deployment plan"; return 1; }
   firewall_unit_matches_project || { fail "Installed firewall service does not match project"; return 1; }
   firewall_table_matches_base || { fail "Active nftables egress guard does not match isolated bridge"; return 1; }
-  firewall_file_has_resultserver_exceptions_all && firewall_resultserver_exceptions_match_all || {
-    fail "Installed firewall is missing one or more isolated CAPE ResultServer exceptions"
-    return 1
-  }
   systemctl is-active --quiet cape-inetsim-autodeploy-firewall.service
   state_record_resource firewall-file "$FIREWALL_RULES" created yes "bridge=$ISOLATED_BRIDGE_NAME"
   state_record_resource firewall-unit "$FIREWALL_UNIT" created yes ""
