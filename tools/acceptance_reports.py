@@ -198,4 +198,4 @@ print(f"[PASS] positive route=inetsim task {positive['task_id']} contains marker
 if negative["uses_inetsim"]:
     print(f"[PASS] negative route=inetsim task {negative['task_id']} lacks marker {marker}; background INetSim traffic is allowed")
 else:
-    print(f"[PASS] negative route=none task {negative['task_id']} lacks marker {marker} and has no INetSim traffic")
+    print(f"[PASS] negative route=inetsim task {negative['task_id']} lacks marker {marker} and has no INetSim traffic")
