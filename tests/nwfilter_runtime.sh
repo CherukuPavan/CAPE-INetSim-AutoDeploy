@@ -210,11 +210,11 @@ nwfilter_runtime_prepare
 [[ "$socket_active" == no ]]
 [[ "$service_active" == no ]]
 
-grep -Fq 'nwfilter_runtime_prepare' "$ROOT/lib/deploy.sh"
+! grep -Fq 'nwfilter_runtime_prepare' "$ROOT/lib/deploy.sh"
 grep -Fq 'nwfilter_runtime_rollback' "$ROOT/lib/rollback.sh"
-grep -Fq 'yes|activatable' "$ROOT/lib/deploy.sh"
+! grep -Fq 'yes|activatable' "$ROOT/lib/deploy.sh"
 grep -Fq 'nwfilter-define' "$ROOT/lib/windows-network-guard.sh"
 grep -Fq 'nwfilter:///system' "$ROOT/lib/windows-network-guard.sh"
 ! grep -R --line-number --fixed-strings 'nwfilter-info' "$ROOT/lib"
 
-echo '[PASS] nwfilter runtime activation/reload is transactional, dependency-aware and rollback-safe'
+echo '[PASS] nwfilter helper remains rollback-safe but route-separated deployment does not activate or require it'
