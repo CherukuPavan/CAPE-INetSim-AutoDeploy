@@ -429,6 +429,12 @@ deploy_windows_target_cutover() {
       windows_stop_for_cutover
       windows_create_safety_snapshot
       windows_management_dhcp_align_if_needed
+      # A CAPE-configured running-memory snapshot is the strongest known-good
+      # guest-control baseline. Restore it PAUSED so no guest code executes
+      # before anti-spoofing, the isolated NIC and host egress guard exist.
+      if windows_configured_snapshot_is_running_baseline; then
+        windows_restore_configured_snapshot_paused
+      fi
       windows_management_guard_apply
       windows_attach_isolated_nic
       target_state_set_phase nic-attached
