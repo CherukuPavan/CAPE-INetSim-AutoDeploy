@@ -92,16 +92,15 @@ grep -Fxq 'qxl_drv.so' <<<"$xorg_drivers" || {
   exit 6
 }
 
-virt-cat -a "$IMAGE" /etc/cape-inetsim-gui-v4 >/dev/null
-session_wrapper="$(virt-cat -a "$IMAGE" /usr/local/bin/cape-inetsim-xfce-session)"
-grep -Fq 'dbus-run-session -- /usr/bin/xfce4-session' <<<"$session_wrapper"
-
-session_desktop="$(virt-cat -a "$IMAGE" /usr/share/xsessions/cape-inetsim-xfce.desktop)"
-grep -Fxq 'Exec=/usr/local/bin/cape-inetsim-xfce-session' <<<"$session_desktop"
-grep -Fxq 'TryExec=/usr/local/bin/cape-inetsim-xfce-session' <<<"$session_desktop"
+virt-cat -a "$IMAGE" /etc/cape-inetsim-gui-v5 >/dev/null
+xfce_desktop="$(virt-cat -a "$IMAGE" /usr/share/xsessions/xfce.desktop)"
+grep -Eq '^Exec=.*startxfce4' <<<"$xfce_desktop" || {
+  echo "[FAIL] stock XFCE xsession entry does not launch startxfce4" >&2
+  exit 7
+}
 
 lightdm_policy="$(virt-cat -a "$IMAGE" /etc/lightdm/lightdm.conf.d/99-cape-inetsim-console-login.conf)"
-for required in   'user-session=cape-inetsim-xfce'   'allow-user-switching=true'   'allow-guest=false'   'greeter-hide-users=false'   'greeter-show-manual-login=true'; do
+for required in   'user-session=xfce'   'allow-user-switching=true'   'allow-guest=false'   'greeter-hide-users=false'   'greeter-show-manual-login=true'; do
   grep -Fxq "$required" <<<"$lightdm_policy" || {
     echo "[FAIL] candidate is missing LightDM console-login policy: $required" >&2
     exit 7
@@ -112,15 +111,36 @@ done
   exit 7
 }
 
-dmrc="$(virt-cat -a "$IMAGE" /home/capeinetsim/.dmrc)"
-grep -Fxq 'Session=cape-inetsim-xfce' <<<"$dmrc"
-
-accounts_user="$(virt-cat -a "$IMAGE" /var/lib/AccountsService/users/capeinetsim)"
-grep -Fxq 'Session=cape-inetsim-xfce' <<<"$accounts_user"
-grep -Fxq 'XSession=cape-inetsim-xfce' <<<"$accounts_user"
-grep -Fxq 'SystemAccount=false' <<<"$accounts_user"
-
 passwd_db="$(virt-cat -a "$IMAGE" /etc/passwd)"
+python3 - "$passwd_db" "$IMAGE" <<'PY'
+import subprocess,sys
+passwd,image=sys.argv[1],sys.argv[2]
+for line in passwd.splitlines():
+    p=line.split(":")
+    if len(p)<7:
+        continue
+    try:
+        uid=int(p[2])
+    except ValueError:
+        continue
+    user,home,shell=p[0],p[5],p[6]
+    if uid < 1000 or shell.endswith(("nologin","false")):
+        continue
+    dmrc=subprocess.check_output(["virt-cat","-a",image,f"{home}/.dmrc"],text=True)
+    if "Session=xfce" not in dmrc.splitlines():
+        raise SystemExit(f"{user} is missing Session=xfce in .dmrc")
+    acc=subprocess.check_output(["virt-cat","-a",image,f"/var/lib/AccountsService/users/{user}"],text=True)
+    lines=set(acc.splitlines())
+    for required in ("Session=xfce","XSession=xfce","SystemAccount=false"):
+        if required not in lines:
+            raise SystemExit(f"{user} AccountsService mapping missing {required}")
+PY
+
+ssh_policy="$(virt-cat -a "$IMAGE" /etc/ssh/sshd_config.d/99-cape-inetsim-no-password-auth.conf)"
+grep -Fxq 'PasswordAuthentication no' <<<"$ssh_policy"
+grep -Fxq 'KbdInteractiveAuthentication no' <<<"$ssh_policy"
+grep -Fxq 'PermitRootLogin no' <<<"$ssh_policy"
+
 shadow_db="$(virt-cat -a "$IMAGE" /etc/shadow)"
 python3 - "$passwd_db" "$shadow_db" <<'PY'
 import sys
