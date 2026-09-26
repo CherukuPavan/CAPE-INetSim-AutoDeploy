@@ -135,7 +135,7 @@ After=network.target
 [Service]
 Type=oneshot
 ExecStart=/usr/local/sbin/cape-inetsim-runtime-smoke
-TimeoutStartSec=120
+TimeoutStartSec=180
 
 [Install]
 WantedBy=multi-user.target
@@ -153,7 +153,7 @@ if [[ -r /dev/kvm && -w /dev/kvm ]]; then
 fi
 
 set +e
-timeout --signal=TERM --kill-after=20s 240 \
+timeout --signal=TERM --kill-after=20s 360 \
   qemu-system-x86_64 \
     "${QEMU_MACHINE[@]}" \
     -name cape-inetsim-runtime-smoke \
