@@ -82,10 +82,11 @@ Safety:
   --deploy     transactional deployment; stops on unknown CAPE layouts and
                rolls back project-owned changes on failure.
   --collect    create one comprehensive read-only diagnostic .tar.gz for support/research.
-  --acceptance validate real completed positive/negative route=none task evidence read-only.
+  --acceptance validate real completed positive/negative route=inetsim task evidence read-only.
   --rollback   dry-run recovery plan unless --apply is also supplied.
 
-The malware-analysis Windows guest is never given a real/default Internet route.
+Per-task routing is authoritative: internet uses CAPE's configured Internet path,
+inetsim uses the isolated fake-Internet snapshot/appliance, and none/drop remain blocked.
 EOF
 }
 
