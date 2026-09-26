@@ -235,6 +235,14 @@ deploy_initialize_or_resume_state() {
   if [[ -f "$AD_STATE_FILE" ]]; then
     state_load
 
+    if [[ "${DEPLOYMENT_PHASE:-}" == committed &&
+          -n "${RELEASE_SOURCE_COMMIT:-}" &&
+          -n "$d_release_commit" &&
+          "$RELEASE_SOURCE_COMMIT" != "$d_release_commit" ]]; then
+      fail "A different AutoDeploy release is already committed (${RELEASE_TAG:-unknown}, source ${RELEASE_SOURCE_COMMIT}). Roll it back with that exact release before installing this route-separated release."
+      return 1
+    fi
+
     if [[ "${DEPLOYMENT_PHASE:-}" == rollback-incomplete ]]; then
       # Auto-recovery is permitted only when the persisted transaction still
       # refers to the exact CAPE installation and target identity discovered
