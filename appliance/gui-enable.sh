@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-MARKER="/etc/cape-inetsim-gui-v4"
+MARKER="/etc/cape-inetsim-gui-v5"
 GUI_USER="capeinetsim"
-SESSION_NAME="cape-inetsim-xfce"
+SESSION_NAME="xfce"
 export DEBIAN_FRONTEND=noninteractive
 
 APT_OPTS=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
 
-if ! command -v xfce4-session >/dev/null 2>&1 ||
-   ! command -v dbus-run-session >/dev/null 2>&1 ||
+if ! command -v startxfce4 >/dev/null 2>&1 ||
+   ! command -v xfce4-session >/dev/null 2>&1 ||
    ! systemctl list-unit-files lightdm.service >/dev/null 2>&1 ||
+   [[ ! -f /usr/share/xsessions/xfce.desktop ]] ||
    [[ ! -f /usr/lib/xorg/modules/drivers/qxl_drv.so ]] ||
    [[ ! -f /usr/share/dbus-1/system-services/org.freedesktop.Accounts.service ]]; then
   timeout 300 apt-get "${APT_OPTS[@]}" update
@@ -25,41 +26,15 @@ if ! id "$GUI_USER" >/dev/null 2>&1; then
   useradd -m -s /bin/bash "$GUI_USER"
 fi
 
-# Password credentials are assigned by the host repair/deployment runtime when
-# CAPE_INETSIM_GUI_PASSWORD is explicitly supplied. The baked image itself does
-# not contain a shared default credential.
+# The immutable image ships with locked account passwords. Deployment/repair may
+# explicitly assign a local-console password after import.
 passwd -l "$GUI_USER" >/dev/null 2>&1 || true
 usermod -aG video "$GUI_USER" >/dev/null 2>&1 || true
-
-# Use a dedicated session entry instead of relying on distro session-wrapper
-# behavior. The wrapper gives XFCE an explicit D-Bus session and preserves a
-# local diagnostic log if the desktop ever exits.
-cat >/usr/local/bin/cape-inetsim-xfce-session <<'EOF'
-#!/bin/sh
-LOG="$HOME/.cape-inetsim-xfce-session.log"
-exec >>"$LOG" 2>&1
-echo "=== CAPE INetSim XFCE session start: $(date -Is) ==="
-export XDG_CURRENT_DESKTOP=XFCE
-export XDG_SESSION_DESKTOP=xfce
-export DESKTOP_SESSION=cape-inetsim-xfce
-exec /usr/bin/dbus-run-session -- /usr/bin/xfce4-session
-EOF
-chmod 0755 /usr/local/bin/cape-inetsim-xfce-session
-
-cat >/usr/share/xsessions/$SESSION_NAME.desktop <<EOF
-[Desktop Entry]
-Name=CAPE INetSim XFCE
-Comment=CAPE INetSim appliance desktop
-Exec=/usr/local/bin/cape-inetsim-xfce-session
-TryExec=/usr/local/bin/cape-inetsim-xfce-session
-Type=Application
-DesktopNames=XFCE
-EOF
-chmod 0644 /usr/share/xsessions/$SESSION_NAME.desktop
 
 install -d -m 0755 /etc/lightdm/lightdm.conf.d
 rm -f /etc/lightdm/lightdm.conf.d/50-cape-inetsim-autologin.conf
 rm -f /etc/lightdm/lightdm.conf.d/99-cape-inetsim-autologin.conf
+rm -f /etc/lightdm/lightdm.conf.d/99-cape-inetsim-console-login.conf
 cat >/etc/lightdm/lightdm.conf.d/99-cape-inetsim-console-login.conf <<EOF
 [Seat:*]
 user-session=$SESSION_NAME
@@ -69,21 +44,33 @@ greeter-hide-users=false
 greeter-show-manual-login=true
 EOF
 
-install -d -m 0755 /var/lib/AccountsService/users
-cat >"/var/lib/AccountsService/users/$GUI_USER" <<EOF
+# Force every interactive non-system account onto the known-good stock XFCE
+# xsession. This prevents cloud-image users such as "ubuntu" from retaining a
+# stale/default desktop selection that immediately returns to the greeter.
+while IFS=: read -r user _ uid _ _ home shell; do
+  [[ "$uid" =~ ^[0-9]+$ ]] || continue
+  (( uid >= 1000 )) || continue
+  [[ "$shell" != */nologin && "$shell" != */false ]] || continue
+  [[ -d "$home" ]] || continue
+
+  install -d -m 0755 /var/lib/AccountsService/users
+  cat >"/var/lib/AccountsService/users/$user" <<EOF
 [User]
 Session=$SESSION_NAME
 XSession=$SESSION_NAME
 SystemAccount=false
 EOF
-chmod 0600 "/var/lib/AccountsService/users/$GUI_USER"
+  chmod 0600 "/var/lib/AccountsService/users/$user"
 
-cat >"/home/$GUI_USER/.dmrc" <<EOF
+  cat >"$home/.dmrc" <<EOF
 [Desktop]
 Session=$SESSION_NAME
 EOF
-chown "$GUI_USER:$GUI_USER" "/home/$GUI_USER/.dmrc"
-chmod 0600 "/home/$GUI_USER/.dmrc"
+  chown "$user:$user" "$home/.dmrc"
+  chmod 0600 "$home/.dmrc"
+
+  rm -f "$home/.xsession" "$home/.xinitrc"
+done </etc/passwd
 
 install -d -o "$GUI_USER" -g "$GUI_USER" -m 0755 "/home/$GUI_USER/Desktop"
 cat >"/home/$GUI_USER/Desktop/INetSim-Appliance.txt" <<'EOF'
@@ -94,6 +81,13 @@ INetSim networking remains controlled by CAPE-INetSim-AutoDeploy.
 EOF
 chown "$GUI_USER:$GUI_USER" "/home/$GUI_USER/Desktop/INetSim-Appliance.txt"
 
+install -d -m 0755 /etc/ssh/sshd_config.d
+cat >/etc/ssh/sshd_config.d/99-cape-inetsim-no-password-auth.conf <<'EOF'
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin no
+EOF
+
 systemctl set-default graphical.target
 systemctl enable lightdm.service >/dev/null 2>&1 || true
 touch "$MARKER"
@@ -101,4 +95,4 @@ touch "$MARKER"
 apt-get clean
 rm -rf /var/lib/apt/lists/*
 
-echo "CAPE_INETSIM_GUI_OK console-login-v4"
+echo "CAPE_INETSIM_GUI_OK stock-xfce-console-v5"
