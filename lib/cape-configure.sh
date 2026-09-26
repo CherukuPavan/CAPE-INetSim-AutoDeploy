@@ -280,12 +280,13 @@ cape_configure_inetsim() {
   CAPE_TARGETS_COUNT="$(targets_count)"
   for ((i=0;i<CAPE_TARGETS_COUNT;i++)); do
     targets_bind "$i"
-    [[ -n "${FINAL_SNAPSHOT:-}" ]] || { fail "Final running snapshot is not set for $CAPE_MACHINE_SECTION"; return 1; }
+    [[ -n "${NORMAL_SNAPSHOT:-}" ]] || { fail "Normal-route running snapshot is not set for $CAPE_MACHINE_SECTION"; return 1; }
+    [[ -n "${FINAL_SNAPSHOT:-}" ]] || { fail "INetSim running snapshot is not set for $CAPE_MACHINE_SECTION"; return 1; }
     [[ -n "${WINDOWS_FAKE_IP:-}" ]] || { fail "Windows fake-Internet IP is not set for $CAPE_MACHINE_SECTION"; return 1; }
 
     python3 "$edit" "$CAPE_ROOT/conf/auxiliary.conf" sniffer "inetsim_capture_host_${CAPE_MACHINE_LABEL}" "$WINDOWS_FAKE_IP"
     python3 "$edit" "$CAPE_ROOT/conf/auxiliary.conf" sniffer "inetsim_capture_interface_${CAPE_MACHINE_LABEL}" "$ISOLATED_BRIDGE_NAME"
-    python3 "$edit" "$CAPE_ROOT/conf/kvm.conf" "$CAPE_MACHINE_SECTION" snapshot "$CAPE_MACHINE_SNAPSHOT"
+    python3 "$edit" "$CAPE_ROOT/conf/kvm.conf" "$CAPE_MACHINE_SECTION" snapshot "$NORMAL_SNAPSHOT"
     python3 "$edit" "$CAPE_ROOT/conf/kvm.conf" "$CAPE_MACHINE_SECTION" inetsim_snapshot "$FINAL_SNAPSHOT"
     python3 "$edit" "$CAPE_ROOT/conf/kvm.conf" "$CAPE_MACHINE_SECTION" interface "$MANAGEMENT_BRIDGE_NAME"
 
@@ -293,7 +294,7 @@ cape_configure_inetsim() {
     grep -Fq "inetsim_capture_interface_${CAPE_MACHINE_LABEL} = $ISOLATED_BRIDGE_NAME" "$CAPE_ROOT/conf/auxiliary.conf"
     local machine_block
     machine_block="$(grep -A160 -F "[$CAPE_MACHINE_SECTION]" "$CAPE_ROOT/conf/kvm.conf" || true)"
-    grep -m1 -Fq "snapshot = $CAPE_MACHINE_SNAPSHOT" <<<"$machine_block"
+    grep -m1 -Fq "snapshot = $NORMAL_SNAPSHOT" <<<"$machine_block"
     grep -m1 -Fq "inetsim_snapshot = $FINAL_SNAPSHOT" <<<"$machine_block"
     grep -m1 -Fq "interface = $MANAGEMENT_BRIDGE_NAME" <<<"$machine_block"
 
