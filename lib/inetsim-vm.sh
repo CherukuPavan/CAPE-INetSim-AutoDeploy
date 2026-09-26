@@ -126,18 +126,39 @@ inetsim_enable_gui_guest() {
   else
     : >"$guest_log"
     chmod 0600 "$guest_log"
-    local upload_ok=no upload_attempt
+    local upload_ok=no upload_attempt helper_b64 helper_sha remote_sha
     for upload_attempt in 1 2 3 4 5; do
       if qga_file_write "$INETSIM_DOMAIN_NAME" "$AUTODEPLOY_ROOT/appliance/gui-enable.sh" "$remote" >>"$guest_log" 2>&1; then
         upload_ok=yes
         break
       fi
-      printf 'GUI helper upload attempt %d failed; waiting for QGA recovery\n' "$upload_attempt" >>"$guest_log"
+      printf 'GUI helper guest-file upload attempt %d failed; waiting for QGA recovery\n' "$upload_attempt" >>"$guest_log"
       qga_wait "$INETSIM_DOMAIN_NAME" 30 >/dev/null 2>&1 || true
       sleep "$upload_attempt"
     done
+
+    # Some QGA builds support guest-exec reliably while guest-file-open/write is
+    # unavailable or intermittently broken. The helper is small, so use a
+    # checksum-verified guest-exec/base64 fallback rather than weakening the
+    # repair gate or requiring manual guest access.
     if [[ "$upload_ok" != yes ]]; then
-      fail "Could not upload GUI enable helper to INetSim appliance after 5 attempts; log captured at $guest_log"
+      helper_b64="$(base64 -w0 "$AUTODEPLOY_ROOT/appliance/gui-enable.sh")"
+      helper_sha="$(sha256sum "$AUTODEPLOY_ROOT/appliance/gui-enable.sh" | awk '{print $1}')"
+      if qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/bash -c \
+        "printf '%s' '$helper_b64' | /usr/bin/base64 -d > '$remote' && /bin/chmod 0700 '$remote'" \
+        >>"$guest_log" 2>&1; then
+        remote_sha="$(qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/sha256sum "$remote" 2>>"$guest_log" | awk '{print $1}')"
+        if [[ "$remote_sha" == "$helper_sha" ]]; then
+          upload_ok=yes
+          printf 'GUI helper uploaded through checksum-verified guest-exec fallback\n' >>"$guest_log"
+        else
+          printf 'GUI helper guest-exec checksum mismatch: expected=%s actual=%s\n' "$helper_sha" "$remote_sha" >>"$guest_log"
+        fi
+      fi
+    fi
+
+    if [[ "$upload_ok" != yes ]]; then
+      fail "Could not upload GUI enable helper through QGA guest-file or guest-exec fallback; log captured at $guest_log"
       return 1
     fi
 
