@@ -168,6 +168,11 @@ if [[ "$REPAIR_MAINTENANCE_ACQUIRED" != yes &&
   REPAIR_MAINTENANCE_ACQUIRED=yes
 fi
 
+# The appliance is trusted infrastructure, but restarting it to activate a new
+# graphical console must still happen only while CAPE is at a task-safe point.
+inetsim_enable_gui_guest
+inetsim_verify_host
+
 DEPLOYMENT_PHASE=repairing
 state_write_atomic
 cape_configure_inetsim
