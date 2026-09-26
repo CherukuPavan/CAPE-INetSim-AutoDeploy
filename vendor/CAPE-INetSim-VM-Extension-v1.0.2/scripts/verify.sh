@@ -119,6 +119,7 @@ source "$CONFIG_FILE"
 # Older extension configurations did not carry CAPE_DOMAIN, so retain a
 # backwards-compatible fallback for standalone use.
 CAPE_DOMAIN="${CAPE_DOMAIN:-${CAPE_MACHINE:-}}"
+CAPE_MACHINE_LABEL="${CAPE_MACHINE_LABEL:-${CAPE_MACHINE:-}}"
 AUTODEPLOY_MANAGED="${AUTODEPLOY_MANAGED:-0}"
 
 managed_warn_or_fail() {
@@ -391,7 +392,36 @@ if [[ -r "$KVM_CONF" ]] &&
         warn "Configured ResultServer IP differs from extension configuration"
     fi
 
-    if [[ "$configured_interface" == "$CAPTURE_INTERFACE" ]]; then
+    if [[ "$AUTODEPLOY_MANAGED" == "1" ]]; then
+        AUX_CONF="${CAPE_ROOT:-}/conf/auxiliary.conf"
+        route_capture_interface=""
+        route_capture_host=""
+        if [[ -r "$AUX_CONF" ]]; then
+            route_capture_interface="$(section_value "$AUX_CONF" "sniffer" "inetsim_capture_interface_${CAPE_MACHINE_LABEL}")"
+            route_capture_host="$(section_value "$AUX_CONF" "sniffer" "inetsim_capture_host_${CAPE_MACHINE_LABEL}")"
+        fi
+
+        info "Normal-route CAPE capture interface: ${configured_interface:-<not set>}"
+        info "route=inetsim capture interface: ${route_capture_interface:-<not set>}"
+
+        if [[ "$route_capture_interface" == "$CAPTURE_INTERFACE" ]]; then
+            pass "route=inetsim capture override matches isolated interface $CAPTURE_INTERFACE"
+        else
+            fail "route=inetsim capture override does not match isolated interface"
+        fi
+
+        if [[ "$route_capture_host" == "$CAPE_GUEST_CONTROL_IP" ]]; then
+            pass "route=inetsim capture host matches CAPE guest control IP"
+        else
+            fail "route=inetsim capture host does not match CAPE guest control IP"
+        fi
+
+        if [[ -n "$configured_interface" && "$configured_interface" != "$CAPTURE_INTERFACE" ]]; then
+            pass "Normal-route management capture remains separate from isolated INetSim capture"
+        else
+            fail "Normal-route and isolated INetSim capture interfaces are not safely separated"
+        fi
+    elif [[ "$configured_interface" == "$CAPTURE_INTERFACE" ]]; then
         pass "Capture interface matches extension configuration"
     else
         warn "Configured capture interface differs from extension configuration"
