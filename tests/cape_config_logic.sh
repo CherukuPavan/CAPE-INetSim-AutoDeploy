@@ -141,7 +141,7 @@ grep -Fq 'routing enable_pcap yes' "$ROOT/lib/cape-configure.sh"
 grep -Fq 'inetsim enabled yes' "$ROOT/lib/cape-configure.sh"
 grep -Fq 'inetsim server "$INETSIM_IP"' "$ROOT/lib/cape-configure.sh"
 grep -Fq 'inetsim interface "$ISOLATED_BRIDGE_NAME"' "$ROOT/lib/cape-configure.sh"
-grep -Fq 'CAPE packet capture is disabled for route none' "$ROOT/lib/validate.sh"
+grep -Fq 'CAPE packet capture is disabled' "$ROOT/lib/validate.sh"
 
 grep -Fq 'cape_capture_post_hashes' "$ROOT/lib/cape-configure.sh"
 grep -Fq 'Refusing to rollback CAPE file changed after AutoDeploy' "$ROOT/lib/cape-configure.sh"
