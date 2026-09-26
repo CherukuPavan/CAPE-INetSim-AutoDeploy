@@ -270,8 +270,13 @@ jobs:
           python3 source/appliance/build/render-manifest.py             --artifact "$RAW"             --transport-artifact "$PKG"             --url "$ASSET_URL"             --output "$MANIFEST"
           cp "$MANIFEST" "$ROOT/appliance/manifest.json"
           install -m 0755 source/appliance/guest-configure.sh "$ROOT/appliance/guest-configure.sh"
+          install -m 0755 source/appliance/gui-enable.sh "$ROOT/appliance/gui-enable.sh"
           cmp -s source/appliance/guest-configure.sh "$ROOT/appliance/guest-configure.sh" || {
             echo "::error::runtime guest configurator does not match release source"
+            exit 3
+          }
+          cmp -s source/appliance/gui-enable.sh "$ROOT/appliance/gui-enable.sh" || {
+            echo "::error::runtime GUI enable helper does not match release source"
             exit 3
           }
 
@@ -381,6 +386,10 @@ jobs:
           tar -xzf "$DIST/$SOURCE_NAME" -C "$FINAL_CHECK"
           FINAL_ROOT="$FINAL_CHECK/CAPE-INetSim-AutoDeploy-${RELEASE_TAG#v}"
           FINAL_VENDOR="$FINAL_ROOT/vendor/CAPE-INetSim-VM-Extension-v$EXTENSION_VERSION"
+          [[ -x "$FINAL_ROOT/appliance/guest-configure.sh" ]]
+          [[ -x "$FINAL_ROOT/appliance/gui-enable.sh" ]]
+          cmp -s source/appliance/guest-configure.sh "$FINAL_ROOT/appliance/guest-configure.sh"
+          cmp -s source/appliance/gui-enable.sh "$FINAL_ROOT/appliance/gui-enable.sh"
           [[ -d "$FINAL_VENDOR" ]]
           [[ -s "$FINAL_VENDOR/RUNTIME-SHA256SUMS" ]]
           [[ "$(cat "$FINAL_VENDOR/VERSION")" == "$EXTENSION_VERSION" ]]
