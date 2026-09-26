@@ -79,7 +79,7 @@ if grep -Eq '^ssh_host_.*_key$' <<<"$ssh_listing"; then
 fi
 
 dpkg_status="$(virt-cat -a "$IMAGE" /var/lib/dpkg/status)"
-for pkg in   inetsim qemu-guest-agent xubuntu-desktop-minimal xubuntu-default-settings   lightdm lightdm-gtk-greeter accountsservice xserver-xorg-video-qxl spice-vdagent; do
+for pkg in   inetsim qemu-guest-agent xubuntu-desktop-minimal xubuntu-default-settings   lightdm lightdm-gtk-greeter accountsservice xserver-xorg-core spice-vdagent; do
   grep -Eq "^Package: ${pkg}$" <<<"$dpkg_status" || {
     echo "[FAIL] candidate is missing required package: $pkg" >&2
     exit 6
@@ -87,8 +87,8 @@ for pkg in   inetsim qemu-guest-agent xubuntu-desktop-minimal xubuntu-default-se
 done
 
 xorg_drivers="$(virt-ls -a "$IMAGE" /usr/lib/xorg/modules/drivers 2>/dev/null || true)"
-grep -Fxq 'qxl_drv.so' <<<"$xorg_drivers" || {
-  echo "[FAIL] candidate is missing the QXL Xorg driver required by the libvirt SPICE/QXL console" >&2
+grep -Fxq 'modesetting_drv.so' <<<"$xorg_drivers" || {
+  echo "[FAIL] candidate is missing Xorg modesetting driver required by the SPICE/Virtio console" >&2
   exit 6
 }
 
