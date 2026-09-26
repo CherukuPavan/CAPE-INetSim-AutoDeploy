@@ -146,6 +146,54 @@ cape_configure_inetsim() {
 
   if [[ "$saved" =~ ^[0-9]+$ ]]; then targets_bind "$saved"; else targets_bind 0; fi
 }
+cape_probe_inetsim_rooter_target() {
+  local py
+  py="$(cape_runtime_python)"
+
+  [[ -f "$CAPE_ROOT/utils/rooter.py" ]] || {
+    fail "CAPE Rooter implementation is missing: $CAPE_ROOT/utils/rooter.py"
+    return 1
+  }
+  grep -Fq '"inetsim_enable": inetsim_enable' "$CAPE_ROOT/utils/rooter.py" || {
+    fail "CAPE Rooter does not expose the inetsim_enable handler"
+    return 1
+  }
+
+  (
+    cd "$CAPE_ROOT"
+    "$py" - "$MANAGEMENT_BRIDGE_NAME" "$ISOLATED_BRIDGE_NAME" <<'PY'
+import sys
+from lib.cuckoo.core.rooter import rooter
+
+for iface in sys.argv[1:]:
+    for command in ("nic_available", "nic_up"):
+        response = rooter(command, iface)
+        if not isinstance(response, dict):
+            raise SystemExit(f"rooter {command}({iface}) returned no structured response")
+        if response.get("exception"):
+            raise SystemExit(f"rooter {command}({iface}) failed: {response['exception']}")
+        if not response.get("output"):
+            raise SystemExit(f"rooter {command}({iface}) reported unavailable/down")
+PY
+  ) || {
+    fail "CAPE Rooter cannot see the management/INetSim bridge pair for $CAPE_MACHINE_SECTION"
+    return 1
+  }
+
+  pass "CAPE Rooter runtime probe passed for $CAPE_MACHINE_SECTION: $MANAGEMENT_BRIDGE_NAME -> $ISOLATED_BRIDGE_NAME"
+}
+
+cape_probe_inetsim_rooter_all() {
+  local saved="${TARGET_INDEX:-}" i failures=0
+  CAPE_TARGETS_COUNT="$(targets_count)"
+  for ((i=0;i<CAPE_TARGETS_COUNT;i++)); do
+    targets_bind "$i"
+    cape_probe_inetsim_rooter_target || failures=$((failures+1))
+  done
+  if [[ "$saved" =~ ^[0-9]+$ ]]; then targets_bind "$saved"; else targets_bind 0; fi
+  ((failures == 0))
+}
+
 cape_restore_integration_files() {
   local rel expected current backup backup_sha failures=0
   for rel in modules/auxiliary/sniffer.py conf/auxiliary.conf conf/kvm.conf conf/processing.conf conf/routing.conf; do
