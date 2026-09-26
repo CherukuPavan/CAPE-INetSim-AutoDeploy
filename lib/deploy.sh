@@ -149,6 +149,8 @@ deploy_reset_resource_state() {
   CAPE_PROCESSOR_WAS_ACTIVE=""
   CAPE_WEB_WAS_ACTIVE=""
   CAPE_ROOTER_WAS_ACTIVE=""
+  CAPE_ROOTER_WAS_ENABLED=""
+  HOST_IPV4_FORWARD_WAS=""
   CAPE_SCHEDULER_STOPPED_BY_AUTODEPLOY=no
 }
 
@@ -170,6 +172,8 @@ firewall-management-guard
 firewall-file
 firewall-unit
 firewall-table
+routing-sysctl-file
+routing-sysctl-runtime
 libvirt-service
 libvirt-unit-enable
 EOF
@@ -501,15 +505,22 @@ deploy_validate_all_cape_configuration() {
 }
 
 deploy_cape_cutover() {
+  # CAPE's native route=inetsim path depends on host IPv4 forwarding and the
+  # privileged Rooter service. Establish those prerequisites while scheduling
+  # is still held at a task-safe point, before any task can observe the route.
+  deploy_ensure_maintenance
+  routing_forwarding_apply
+
   if ! deploy_phase_at_least cape-configured; then
-    deploy_ensure_maintenance
     cape_configure_inetsim
   else
     deploy_validate_all_cape_configuration
   fi
 
+  services_prepare_route_control_plane
+  cape_probe_inetsim_rooter_all
+
   if ! deploy_phase_at_least extension-installed; then
-    deploy_ensure_maintenance
     extension_install
   fi
 
@@ -525,7 +536,7 @@ deploy_cape_cutover() {
       return 1
     fi
 
-    services_restore_desired_state
+    services_activate_deployment_state
     state_set_phase handoff-complete
   fi
 
