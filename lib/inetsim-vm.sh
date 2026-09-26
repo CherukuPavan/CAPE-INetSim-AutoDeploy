@@ -99,7 +99,7 @@ inetsim_refresh_baked_gui_appliance() {
   if ! virsh start "$INETSIM_DOMAIN_NAME" >/dev/null ||
      ! qga_wait "$INETSIM_DOMAIN_NAME" 240 ||
      ! qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/sh -c '
-       test -f /etc/cape-inetsim-gui-v1 &&
+       ( test -f /etc/cape-inetsim-gui-v2 || test -f /etc/cape-inetsim-gui-v1 ) &&
        test -f /usr/lib/xorg/modules/drivers/qxl_drv.so &&
        test -f /usr/share/dbus-1/system-services/org.freedesktop.Accounts.service &&
        systemctl list-unit-files lightdm.service >/dev/null 2>&1
@@ -185,7 +185,7 @@ inetsim_enable_gui_guest() {
   }
 
   if ! qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/sh -c '
-       test -f /etc/cape-inetsim-gui-v1 &&
+       ( test -f /etc/cape-inetsim-gui-v2 || test -f /etc/cape-inetsim-gui-v1 ) &&
        test -f /usr/lib/xorg/modules/drivers/qxl_drv.so &&
        test -f /usr/share/dbus-1/system-services/org.freedesktop.Accounts.service
      ' >/dev/null 2>&1; then
@@ -197,7 +197,7 @@ inetsim_enable_gui_guest() {
   fi
 
   if qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/sh -c '
-       test -f /etc/cape-inetsim-gui-v1 &&
+       ( test -f /etc/cape-inetsim-gui-v2 || test -f /etc/cape-inetsim-gui-v1 ) &&
        test -f /usr/lib/xorg/modules/drivers/qxl_drv.so &&
        test -f /usr/share/dbus-1/system-services/org.freedesktop.Accounts.service
      ' >/dev/null 2>&1; then
@@ -275,7 +275,7 @@ inetsim_enable_gui_guest() {
     }
   fi
 
-  qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/test -f /etc/cape-inetsim-gui-v1 >/dev/null 2>&1 || {
+  qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/sh -c 'test -f /etc/cape-inetsim-gui-v2 || test -f /etc/cape-inetsim-gui-v1' >/dev/null 2>&1 || {
     fail "INetSim graphical desktop marker is missing after setup"
     return 1
   }
