@@ -36,18 +36,23 @@ PY
 }
 
 firewall_render_rules() {
-  local isolated_bridge="$1" include_management="${2:-no}"
-  local records="" resultserver_records=""
-  [[ "$include_management" == yes ]] && records="$(firewall_management_records)"
-  resultserver_records="$(firewall_isolated_resultserver_records)"
+  local isolated_bridge="$1"
 
   cat <<EOF
 # CAPE-INetSim-AutoDeploy managed rules. Do not edit while deployment is active.
+# CAPE_INETSIM_ROUTE_AWARE_FIREWALL_V2
+#
+# The isolated bridge itself is always fail-closed toward the host/routed
+# networks. We deliberately do NOT install a permanent management-NIC egress
+# drop here: CAPE's per-task rooter owns internet/inetsim/none/drop selection.
 table inet $FIREWALL_TABLE {
   chain input_guard {
     type filter hook input priority -50; policy accept;
     iifname "$isolated_bridge" ct state established,related accept
 EOF
+
+  local resultserver_records
+  resultserver_records="$(firewall_isolated_resultserver_records)"
   if [[ -n "$resultserver_records" ]]; then
     echo "    # Permit only CAPE ResultServer ingress from planned fake-IP identities."
     local fake_ip result_ip result_port result_domain
@@ -57,6 +62,7 @@ EOF
         "$isolated_bridge" "$fake_ip" "$result_ip" "$result_port"
     done <<<"$resultserver_records"
   fi
+
   cat <<EOF
     iifname "$isolated_bridge" drop
   }
@@ -65,39 +71,11 @@ EOF
     type filter hook forward priority -50; policy accept;
     iifname "$isolated_bridge" drop
     oifname "$isolated_bridge" drop
-EOF
-  if [[ -n "$records" ]]; then
-    echo "    # Block routed/lateral egress from every protected CAPE analysis management NIC."
-    local bridge mac ip domain
-    while IFS='|' read -r bridge mac ip domain; do
-      [[ -n "$bridge" && -n "$mac" && -n "$ip" ]] || continue
-      printf '    iifname "%s" ether saddr %s drop\n' "$bridge" "$mac"
-      printf '    iifname "%s" ip saddr %s drop\n' "$bridge" "$ip"
-    done <<<"$records"
-  fi
-  cat <<'EOF'
   }
 }
 EOF
-
-  if [[ -n "$records" ]]; then
-    cat <<EOF
-
-table bridge $FIREWALL_BRIDGE_TABLE {
-  chain forward_guard {
-    type filter hook forward priority -50; policy accept;
-EOF
-    local bridge mac ip domain
-    while IFS='|' read -r bridge mac ip domain; do
-      [[ -n "$mac" ]] || continue
-      printf '    ether saddr %s drop\n' "$mac"
-    done <<<"$records"
-    cat <<'EOF'
-  }
 }
-EOF
-  fi
-}
+
 firewall_render_unit() {
   cat <<EOF
 # CAPE-INetSim-AutoDeploy managed unit.
@@ -171,6 +149,7 @@ firewall_table_matches_base() {
 firewall_file_matches_base() {
   [[ -f "$FIREWALL_RULES" ]] || return 1
   grep -Fq 'CAPE-INetSim-AutoDeploy managed rules' "$FIREWALL_RULES" &&
+    grep -Fq 'CAPE_INETSIM_ROUTE_AWARE_FIREWALL_V2' "$FIREWALL_RULES" &&
     grep -Fq "iifname \"$ISOLATED_BRIDGE_NAME\"" "$FIREWALL_RULES" &&
     grep -Fq "oifname \"$ISOLATED_BRIDGE_NAME\"" "$FIREWALL_RULES"
 }
@@ -250,14 +229,14 @@ firewall_apply() {
   have nft || { fail "nftables command 'nft' is required for fake-Internet egress guard"; return 1; }
   [[ -n "${ISOLATED_BRIDGE_NAME:-}" ]] || { fail "Isolated bridge is unknown"; return 1; }
 
+  # Route-aware mode: hypervisor anti-spoof protection remains mandatory,
+  # but host management-interface egress is controlled per task by CAPE.
+  # A permanent management drop would break route=internet.
   local want_management=no
-  if [[ -n "$(firewall_management_records)" ]]; then
-    want_management=yes
-    firewall_validate_management_antispof_all || {
-      fail "One or more CAPE analysis management NIC anti-spoof guards are not active"
-      return 1
-    }
-  fi
+  firewall_validate_management_antispof_all || {
+    fail "One or more CAPE analysis management NIC anti-spoof guards are not active"
+    return 1
+  }
 
   if [[ -e "$FIREWALL_RULES" ]] &&
      ! state_resource_owned firewall-file "$FIREWALL_RULES" &&
@@ -286,10 +265,8 @@ firewall_apply() {
      firewall_file_matches_base && firewall_unit_matches_project &&
      firewall_table_matches_base &&
      systemctl is-active --quiet cape-inetsim-autodeploy-firewall.service; then
-    if [[ "$want_management" == no ]] || { firewall_file_has_management_guards_all && firewall_management_guards_match_all; }; then
-      pass "Host network safety firewall guard already active"
-      return 0
-    fi
+    pass "Route-aware isolated-network firewall guard already active"
+    return 0
   fi
 
   install -d -m 0755 "$FIREWALL_DIR"
@@ -320,17 +297,6 @@ firewall_apply() {
     return 1
   }
   systemctl is-active --quiet cape-inetsim-autodeploy-firewall.service
-  if [[ "$want_management" == yes ]]; then
-    firewall_file_has_management_guards_all && firewall_management_guards_match_all || {
-      fail "Restored firewall is missing one or more Windows management egress guards"
-      return 1
-    }
-    local bridge mac ip domain
-    while IFS='|' read -r bridge mac ip domain; do
-      state_record_resource firewall-management-guard "$domain:$mac" active yes "bridge=$bridge ip=$ip"
-    done < <(firewall_management_records)
-  fi
-
   state_record_resource firewall-file "$FIREWALL_RULES" created yes "bridge=$ISOLATED_BRIDGE_NAME"
   state_record_resource firewall-unit "$FIREWALL_UNIT" created yes ""
   state_record_resource firewall-table "$FIREWALL_TABLE" created yes "bridge=$ISOLATED_BRIDGE_NAME"
@@ -339,23 +305,20 @@ firewall_apply() {
 }
 
 firewall_enable_windows_management_guard() {
-  [[ -n "${MANAGEMENT_BRIDGE_NAME:-}" && -n "${WINDOWS_MANAGEMENT_MAC:-}" && -n "${CAPE_MACHINE_IP:-}" ]] || {
-    fail "Management bridge/MAC/IP are required before enabling the Windows egress guard"
-    return 1
-  }
-  windows_management_guard_verify || {
-    fail "Hypervisor management anti-spoof guard must be active before host management egress blocking is enabled"
+  [[ -n "\${MANAGEMENT_BRIDGE_NAME:-}" && -n "\${WINDOWS_MANAGEMENT_MAC:-}" && -n "\${CAPE_MACHINE_IP:-}" ]] || {
+    fail "Management bridge/MAC/IP are required before route-aware Windows protection"
     return 1
   }
 
-  state_record_intent firewall-management-guard "$DOMAIN:$WINDOWS_MANAGEMENT_MAC" applying "bridge=$MANAGEMENT_BRIDGE_NAME ip=$CAPE_MACHINE_IP"
-  firewall_apply
-  firewall_file_has_management_guards_all && firewall_management_guards_match_all || {
-    fail "Windows management forwarding guard did not become active for the complete protected target set"
+  # Keep only anti-spoof identity enforcement on the management NIC.
+  # CAPE's task route must remain authoritative for egress policy.
+  windows_management_guard_verify || {
+    fail "Hypervisor management anti-spoof guard must be active before route-aware cutover"
     return 1
   }
-  state_write_atomic
-  pass "Blocked routed/lateral egress from protected CAPE analysis management NICs"
+
+  firewall_apply
+  pass "Route-aware management path preserved; CAPE per-task routing remains authoritative"
 }
 
 firewall_verify() {
@@ -365,10 +328,10 @@ firewall_verify() {
   firewall_file_has_resultserver_exceptions_all || return 1
   firewall_resultserver_exceptions_match_all || return 1
   firewall_validate_management_antispof_all || return 1
-  firewall_file_has_management_guards_all || return 1
-  firewall_management_guards_match_all || return 1
+  ! firewall_bridge_table_exists || return 1
   systemctl is-active --quiet cape-inetsim-autodeploy-firewall.service
 }
+
 firewall_rollback() {
   local can_remove=no
 
