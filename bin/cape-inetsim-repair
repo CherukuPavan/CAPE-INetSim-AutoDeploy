@@ -204,6 +204,8 @@ cape_configure_inetsim
 # CAPE's native route=inetsim path uses Rooter DNAT plus forwarding from the
 # analysis VM management bridge to the isolated INetSim bridge.
 routing_forwarding_apply
+services_prepare_route_control_plane
+cape_probe_inetsim_rooter_all
 
 extension_upgrade_route_gated
 
