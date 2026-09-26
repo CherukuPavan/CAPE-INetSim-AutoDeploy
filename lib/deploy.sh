@@ -62,7 +62,7 @@ deploy_assert_supported_environment() {
     return 1
   }
   [[ "${CAPE_DB_BACKEND:-unknown}" == postgresql ]] || {
-    fail "v1.0 automated live cutover currently requires CAPE PostgreSQL for atomic scheduler maintenance locking (found: ${CAPE_DB_BACKEND:-unknown}); safe stop, no mutation."
+    fail "v1.0 automated CAPE handoff currently requires PostgreSQL for atomic scheduler maintenance locking (found: ${CAPE_DB_BACKEND:-unknown}); safe stop, no mutation."
     return 1
   }
   [[ "${CAPE_TARGETS_COUNT:-0}" =~ ^[0-9]+$ && "${CAPE_TARGETS_COUNT:-0}" -gt 0 ]] || {
@@ -75,27 +75,20 @@ a=json.loads(sys.argv[1])
 assert a, "empty target set"
 for d in a:
     platform=str(d.get("platform") or "windows-unspecified").lower()
-    assert platform.startswith("windows"), f"{d.get('section','?')}: not a Windows CAPE analysis machine"
-    assert d.get("domain"), f"{d.get('section','?')}: no libvirt domain"
-    assert d.get("snapshot_capable")=="yes", f"{d.get('section','?')}: qcow2 internal snapshots not proven"
-    assert d.get("analysis_snapshot_status") in ("proven","not-configured"), f"{d.get('section','?')}: existing CAPE snapshot is not safe/proven"
-    assert d.get("management_network"), f"{d.get('section','?')}: management network unknown"
-    assert d.get("management_bridge"), f"{d.get('section','?')}: management bridge unknown"
-    assert d.get("management_mac"), f"{d.get('section','?')}: management MAC unknown"
-    assert d.get("resultserver_ip"), f"{d.get('section','?')}: ResultServer IP unknown"
-    assert str(d.get("resultserver_port","")).isdigit(), f"{d.get('section','?')}: ResultServer port invalid"
-    assert d.get("fake_ip"), f"{d.get('section','?')}: fake-Internet IP was not planned"
+    assert platform.startswith("windows"), f"{d.get(\'section\',\'?\')}: not a Windows CAPE analysis machine"
+    assert d.get("domain"), f"{d.get(\'section\',\'?\')}: no libvirt domain"
+    assert d.get("analysis_snapshot_status")=="proven", f"{d.get(\'section\',\'?\')}: route-scoped mode requires an existing proven CAPE running snapshot"
+    assert d.get("resultserver_ip"), f"{d.get(\'section\',\'?\')}: ResultServer IP unknown"
+    assert str(d.get("resultserver_port","")).isdigit(), f"{d.get(\'section\',\'?\')}: ResultServer port invalid"
 PY
-    fail "One or more CAPE analysis VMs failed the multi-machine safety preflight"
-    return 1
-  }
-  [[ -n "${MANAGEMENT_NETWORK_NAME:-}" ]] || { fail "Management libvirt network is unknown"; return 1; }
-  [[ -n "${CAPE_RESULTSERVER_IP:-}" && "${CAPE_RESULTSERVER_PORT:-}" =~ ^[0-9]+$ ]] || {
-    fail "CAPE ResultServer path could not be derived"
+    fail "One or more CAPE analysis VMs failed the route-scoped safety preflight"
     return 1
   }
 
-  # A brand-new deployment needs the scheduler/ResultServer alive before CAPE configuration handoff.\n  local existing_phase=""
+  # Route-scoped deployment never rewrites guest networking or installs a
+  # permanent management-NIC egress block. CAPE's per-task rooter remains
+  # authoritative for internet/inetsim/none.
+  local existing_phase=""
   if [[ -f "$AD_STATE_FILE" ]]; then
     existing_phase="$( (state_load >/dev/null 2>&1 && printf '%s' "$DEPLOYMENT_PHASE") || true )"
   fi
@@ -120,7 +113,6 @@ PY
     return 1
   }
 }
-
 deploy_reset_resource_state() {
   ISOLATED_NETWORK_NAME=""
   ISOLATED_BRIDGE_NAME=""
@@ -332,7 +324,6 @@ deploy_stage_non_disruptive() {
 
 deploy_validate_staged_resources() {
   local artifact
-  nwfilter_runtime_prepare
   artifact="$(appliance_fetch "$APPLIANCE_MANIFEST")"
   isolated_network_apply
   firewall_apply
