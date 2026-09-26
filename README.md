@@ -42,7 +42,7 @@ Do **not** treat the development branch as a production release until `appliance
 
 `--collect` is the supported single-command read-only evidence collector. It writes one credential-redacted `.tar.gz` plus SHA-256 without changing CAPE, libvirt, Windows, networking, firewall, snapshots, or services.
 
-`--acceptance` is a post-deployment read-only functional gate. It re-runs the structural verifier, then validates a controlled pair of completed `route=none` tasks using a unique hostname marker. The positive task must contain the marker in task-local INetSim evidence and its pcap; the negative task must not contain the marker. Normal Windows background traffic may still reach INetSim in either task and is not treated as sample-induced evidence. This avoids host/image-specific domain blacklists while keeping the negative control meaningful.
+`--acceptance` is a post-deployment read-only functional gate. It re-runs the structural verifier, then validates a controlled pair of completed `route=inetsim` tasks using a unique hostname marker. The positive task must contain the marker in task-local INetSim evidence and its pcap; the negative task must not contain the marker. Normal Windows background traffic may still reach INetSim in either task and is not treated as sample-induced evidence. This avoids host/image-specific domain blacklists while keeping the negative control meaningful.
 
 ## Architecture
 
@@ -56,7 +56,7 @@ install/bootstrap
   -> persistent host egress/input firewall guard
   -> generalized Ubuntu INetSim appliance
   -> Windows isolated secondary NIC
-  -> Windows no-default-route / DNS / IPv6 safety gates
+  -> route-aware Windows/CAPE network safety gates
   -> deployment-owned safety + working + running snapshots
   -> CAPE isolated capture integration
   -> Network Analysis processing visibility
@@ -67,7 +67,7 @@ install/bootstrap
 
 ## Safety invariants
 
-- The Windows malware-analysis guest must never receive a real/default Internet route.
+- Per-task routing is authoritative: `internet` uses CAPE's configured Internet path, `inetsim` uses the isolated fake-Internet appliance, and `none`/`drop` must not reach either path.
 - The fake-Internet bridge is never attached to a physical NIC and never configured with libvirt NAT/forwarding.
 - A deployment-owned nftables guard blocks forwarding from the isolated bridge as defense in depth.
 - Windows validation requires zero IPv4 default routes, zero IPv6 default routes, no enabled IPv6 bindings, no unexpected active third adapter, INetSim-only DNS, working CAPE ResultServer reachability, and failed public IPv4/IPv6 reachability.
