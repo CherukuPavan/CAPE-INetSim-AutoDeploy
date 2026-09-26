@@ -42,10 +42,10 @@ rollback_prepare_cape_maintenance() {
   # Otherwise CAPE can mutate machine lock metadata between acquire/release and
   # make the recovery guard impossible to release cleanly.
   local maintenance_needed=no
-  if systemctl is-active --quiet cape.service || systemctl is-active --quiet cape-processor.service; then
+  if systemctl is-active --quiet "${CAPE_SCHEDULER_SERVICE:-__missing_scheduler__}" || systemctl is-active --quiet "${CAPE_PROCESSOR_SERVICE:-__missing_processor__}"; then
     maintenance_needed=yes
   fi
-  if systemctl is-active --quiet cape.service; then
+  if systemctl is-active --quiet "${CAPE_SCHEDULER_SERVICE:-__missing_scheduler__}"; then
     services_stop_scheduler_for_handoff || return 1
   fi
   if [[ "$maintenance_needed" == yes ]]; then
@@ -80,7 +80,7 @@ rollback_restore_cutover() {
   # is removed. Releasing the DB guard or restarting cape.service before that
   # point creates a race in which a new task could start while rollback is still
   # dismantling its network.
-  if systemctl is-active --quiet cape.service; then
+  if systemctl is-active --quiet "${CAPE_SCHEDULER_SERVICE:-__missing_scheduler__}"; then
     rollback_try_critical "stop CAPE scheduler before rollback resource removal" services_stop_scheduler_for_handoff
   fi
 }
@@ -91,6 +91,7 @@ rollback_remove_staged_resources() {
     return 0
   fi
   rollback_try "remove AutoDeploy INetSim VM/disk" inetsim_vm_rollback
+  rollback_try "remove AutoDeploy-owned Rooter unit" services_remove_owned_rooter_unit
   rollback_try "remove AutoDeploy host firewall guard" firewall_rollback
   rollback_try "remove AutoDeploy isolated libvirt network" isolated_network_rollback
   rollback_try "restore AutoDeploy-started libvirt nwfilter runtime" nwfilter_runtime_rollback
@@ -112,6 +113,9 @@ rollback_finish_cape_handoff() {
 }
 
 autodeploy_rollback_internal() {
+  if [[ -n "${CAPE_ROOT:-}" ]] && declare -F discover_cape_services >/dev/null 2>&1; then
+    discover_cape_services >/dev/null 2>&1 || true
+  fi
   ROLLBACK_FAILURES=0
   ROLLBACK_CRITICAL_FAILURES=0
   rollback_prepare_cape_maintenance || {
