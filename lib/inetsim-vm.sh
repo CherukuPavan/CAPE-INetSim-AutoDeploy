@@ -280,21 +280,50 @@ inetsim_enable_gui_guest() {
     return 1
   }
 
-  # Make the appliance console deterministic: authorize the dedicated GUI
-  # account for LightDM's standard autologin groups and explicitly select XFCE.
+  # Apply the same passwordless GUI policy used by the baked appliance. This
+  # upgrades already-deployed RC56/57 guests in place without replacing the
+  # appliance disk again.
   qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/bash -c '
     groupadd -f autologin
     groupadd -f nopasswdlogin
     usermod -aG video,autologin,nopasswdlogin capeinetsim
     install -d -m 0755 /etc/lightdm/lightdm.conf.d
-    printf "%s\n"       "[Seat:*]"       "autologin-user=capeinetsim"       "autologin-user-timeout=0"       "autologin-session=xfce"       "user-session=xfce"       "pam-autologin-service=lightdm-autologin"       > /etc/lightdm/lightdm.conf.d/50-cape-inetsim-autologin.conf
+    rm -f /etc/lightdm/lightdm.conf.d/50-cape-inetsim-autologin.conf
+    cat >/etc/lightdm/lightdm.conf.d/99-cape-inetsim-autologin.conf <<EOF
+[Seat:*]
+autologin-user=capeinetsim
+autologin-user-timeout=0
+autologin-session=xfce
+user-session=xfce
+pam-autologin-service=lightdm-autologin
+allow-user-switching=false
+allow-guest=false
+greeter-hide-users=true
+greeter-show-manual-login=false
+EOF
+    install -d -m 0755 /var/lib/AccountsService/users
+    cat >/var/lib/AccountsService/users/capeinetsim <<EOF
+[User]
+Session=xfce
+XSession=xfce
+SystemAccount=false
+EOF
+    chmod 0600 /var/lib/AccountsService/users/capeinetsim
+    cat >/home/capeinetsim/.dmrc <<EOF
+[Desktop]
+Session=xfce
+EOF
+    chown capeinetsim:capeinetsim /home/capeinetsim/.dmrc
+    chmod 0600 /home/capeinetsim/.dmrc
+    touch /etc/cape-inetsim-gui-v2
   ' >/dev/null 2>&1 || {
-    fail "Could not configure standard LightDM XFCE autologin in INetSim appliance"
+    fail "Could not configure passwordless XFCE autologin in INetSim appliance"
     return 1
   }
 
   qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/systemctl set-default graphical.target >/dev/null 2>&1 || true
   qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/systemctl enable lightdm.service >/dev/null 2>&1 || true
+  qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/systemctl restart lightdm.service >/dev/null 2>&1 || true
 
   local lightdm_ready=no lightdm_try
   for lightdm_try in $(seq 1 45); do
@@ -303,6 +332,7 @@ inetsim_enable_gui_guest() {
     if qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/sh -c '
          systemctl is-active --quiet lightdm.service &&
          test -f /usr/lib/xorg/modules/drivers/qxl_drv.so &&
+         test -f /etc/cape-inetsim-gui-v2 &&
          test -S /tmp/.X11-unix/X0 &&
          pgrep -x Xorg >/dev/null &&
          pgrep -u capeinetsim -f "xfce4-session|xfce4-panel|xfdesktop" >/dev/null
