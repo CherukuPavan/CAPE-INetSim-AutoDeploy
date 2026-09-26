@@ -52,35 +52,34 @@ install/bootstrap
   -> CAPE compatibility gate
   -> deterministic plan
   -> transaction + backup/ownership journal
-  -> isolated libvirt network
-  -> persistent host egress/input firewall guard
+  -> isolated libvirt network with no NAT/default gateway
+  -> persistent isolated-bridge containment guard
   -> generalized Ubuntu INetSim appliance
-  -> Windows isolated secondary NIC
-  -> Windows no-default-route / DNS / IPv6 safety gates
-  -> deployment-owned safety + working + running snapshots
-  -> CAPE isolated capture integration
-  -> Network Analysis processing visibility
-  -> CAPE-INetSim-VM-Extension v1.0.1
+  -> preserve existing Windows analysis snapshot/network baseline unchanged
+  -> register appliance as CAPE native route=inetsim backend
+  -> route-aware packet capture (normal interface vs INetSim bridge)
+  -> Network Analysis visibility only for explicit route=inetsim tasks
+  -> CAPE-INetSim-VM-Extension v1.0.2
   -> structural + live validation
   -> commit or ownership-aware rollback
 ```
 
 ## Safety invariants
 
-- The Windows malware-analysis guest must never receive a real/default Internet route.
-- The fake-Internet bridge is never attached to a physical NIC and never configured with libvirt NAT/forwarding.
-- A deployment-owned nftables guard blocks forwarding from the isolated bridge as defense in depth.
-- Windows validation requires zero IPv4 default routes, zero IPv6 default routes, no enabled IPv6 bindings, no unexpected active third adapter, INetSim-only DNS, working CAPE ResultServer reachability, and failed public IPv4/IPv6 reachability.
+- CAPE's per-task route selection is authoritative: `internet` keeps the host's existing CAPE Internet routing, `inetsim` uses the dedicated Ubuntu INetSim appliance, and `none` uses CAPE's no-network/drop path.
+- AutoDeploy does not permanently replace Windows DNS, remove its default gateway, attach a fake-network NIC, or otherwise force every task through INetSim.
+- The dedicated INetSim bridge is never attached to a physical NIC and has no libvirt NAT/default forwarding.
+- The host containment guard permits traffic onto the isolated bridge only when conntrack proves CAPE task-scoped DNAT to the configured INetSim server; direct/lateral forwarding remains blocked.
+- Normal and Internet-routed tasks retain CAPE's ordinary analysis capture interface. Only explicit `route=inetsim` tasks switch capture to the isolated bridge.
+- The INetSim visual is gated by the task's authoritative route as well as task-local captured evidence; Internet tasks must not be labelled as fake-Internet tasks.
 - CAPE source is modified only after a known layout/anchor passes the compatibility gate; unknown layouts safe-stop before mutation.
 - Busy CAPE systems are staged non-disruptively and cut over only after AutoDeploy atomically acquires CAPE machine maintenance ownership.
-- Running qcow2 analysis disks are inspected read-only with QEMU shared-image semantics when their live QEMU process holds the normal image lock; AutoDeploy never runs qemu-img repair/conversion against a live analysis disk.
-- Existing CAPE analysis baselines must be running-state snapshots. Saved VM memory may be either libvirt `internal` or `external`; both modes are accepted after domain identity and management-NIC validation.
-- On modular libvirt hosts, an installed standard `clean-traffic` definition with an inactive `virtnwfilterd.socket` is detected as safely activatable; deployment enables/starts that socket before cutover, proves the filter through libvirt, records ownership, and restores the prior runtime state on rollback when safe.
-- Every mutable CAPE file is backed up before edit. Libvirt resources, Windows NICs/snapshots, firewall resources, and extension state are deployment-owned and recorded before/after mutation so interrupted operations can be resumed or rolled back safely.
+- Existing CAPE analysis baselines must be proven running-state snapshots. AutoDeploy preserves those snapshots instead of replacing their guest network configuration.
+- Every mutable CAPE file is backed up before edit, and deployment-owned appliance/network/firewall/extension resources are journaled for rollback.
 - No SSL43/SSL44/SSL45-specific values belong in product logic.
 - `192.168.200.0/24` is only a preferred candidate; AutoDeploy selects another unused private subnet if it conflicts.
 - The generalized appliance is a separately versioned, checksum-pinned artifact and contains no deployment-specific fake-Internet subnet.
-- CAPE-INetSim-VM-Extension v1.0.1 runtime files are vendored with exact file hashes inside the AutoDeploy source bundle, so a random target host never needs credentials for the separate private extension development repository.
+- CAPE-INetSim-VM-Extension v1.0.2 runtime files are vendored with exact file hashes inside the AutoDeploy source bundle.
 
 ## Appliance build
 
