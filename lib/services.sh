@@ -130,6 +130,98 @@ services_wait_expected_active() {
   return 1
 }
 
+services_rooter_socket_path() {
+  python3 - "$CAPE_ROOT/conf/cuckoo.conf" <<'PY'
+import configparser,sys
+p=sys.argv[1]
+c=configparser.ConfigParser(interpolation=None,strict=False)
+c.read(p)
+print(c.get("cuckoo","rooter",fallback="/tmp/cuckoo-rooter").strip() or "/tmp/cuckoo-rooter")
+PY
+}
+
+services_rooter_socket_probe() {
+  local socket_path="$1"
+  python3 - "$socket_path" <<'PY'
+import json,os,socket,sys,tempfile
+server=sys.argv[1]
+if not os.path.exists(server):
+    raise SystemExit(2)
+client_path=None
+s=socket.socket(socket.AF_UNIX,socket.SOCK_DGRAM)
+s.settimeout(2.0)
+try:
+    fd,client_path=tempfile.mkstemp(prefix="cape-inetsim-rooter-probe-",dir="/tmp")
+    os.close(fd)
+    os.unlink(client_path)
+    s.bind(client_path)
+    s.connect(server)
+    s.send(json.dumps({"command":"nic_available","args":["lo"],"kwargs":{}}).encode())
+    reply=json.loads(s.recv(65536))
+    if not isinstance(reply,dict) or reply.get("exception") or reply.get("output") is not True:
+        raise SystemExit(3)
+finally:
+    try: s.close()
+    except Exception: pass
+    if client_path:
+        try: os.unlink(client_path)
+        except FileNotFoundError: pass
+PY
+}
+
+services_wait_rooter_ready() {
+  local timeout="${1:-$CAPE_SERVICE_READY_TIMEOUT}"
+  local poll="${CAPE_SERVICE_READY_POLL:-1}"
+  local elapsed=0 socket_path log=""
+  [[ "$timeout" =~ ^[1-9][0-9]*$ ]] || timeout=60
+  [[ "$poll" =~ ^[1-9][0-9]*$ ]] || poll=1
+  socket_path="$(services_rooter_socket_path)"
+
+  if [[ -n "${AD_LOG_ROOT:-}" && -n "${DEPLOYMENT_ID:-}" ]]; then
+    log="$AD_LOG_ROOT/${DEPLOYMENT_ID}-cape-rooter-readiness.log"
+    : >"$log"
+    chmod 0600 "$log" 2>/dev/null || true
+  fi
+
+  while ((elapsed < timeout)); do
+    if systemctl is-failed --quiet cape-rooter.service 2>/dev/null; then
+      [[ -n "$log" ]] && {
+        printf '%s elapsed=%ss status=service-failed socket=%s\n' "$(date -Is)" "$elapsed" "$socket_path"
+        systemctl status cape-rooter.service --no-pager -l 2>&1 || true
+        journalctl -u cape-rooter.service -n 160 --no-pager 2>&1 || true
+      } >>"$log"
+      fail "cape-rooter.service entered failed state before its Unix socket became ready"
+      return 1
+    fi
+
+    if systemctl is-active --quiet cape-rooter.service &&
+       [[ -S "$socket_path" ]] &&
+       services_rooter_socket_probe "$socket_path" >/dev/null 2>&1; then
+      [[ -n "$log" ]] && printf '%s elapsed=%ss status=ready socket=%s\n' "$(date -Is)" "$elapsed" "$socket_path" >>"$log"
+      return 0
+    fi
+
+    [[ -n "$log" ]] && printf '%s elapsed=%ss status=waiting socket=%s\n' "$(date -Is)" "$elapsed" "$socket_path" >>"$log"
+    sleep "$poll"
+    elapsed=$((elapsed+poll))
+  done
+
+  if [[ -n "$log" ]]; then
+    {
+      echo "=== rooter service status ==="
+      systemctl status cape-rooter.service --no-pager -l 2>&1 || true
+      echo "=== rooter journal ==="
+      journalctl -u cape-rooter.service -n 200 --no-pager 2>&1 || true
+      echo "=== socket path ==="
+      ls -l "$socket_path" 2>&1 || true
+      echo "=== socket table ==="
+      ss -xlpn 2>&1 | grep -F "$socket_path" || true
+    } >>"$log"
+  fi
+  fail "Timed out waiting ${timeout}s for CAPE Rooter Unix socket readiness at $socket_path"
+  return 1
+}
+
 services_prepare_route_control_plane() {
   # Bring up only the privileged routing control plane while CAPE scheduling is
   # held at a task-safe point. This is intentionally separate from the final
@@ -142,10 +234,12 @@ services_prepare_route_control_plane() {
   routing_forwarding_verify || routing_forwarding_apply || return 1
 
   systemctl enable cape-rooter.service >/dev/null
+  systemctl reset-failed cape-rooter.service >/dev/null 2>&1 || true
   systemctl restart cape-rooter.service
   services_wait_expected_active cape-rooter.service "$CAPE_SERVICE_READY_TIMEOUT" || return 1
+  services_wait_rooter_ready "$CAPE_SERVICE_READY_TIMEOUT" || return 1
 
-  pass "CAPE Rooter control plane is active for route=inetsim validation"
+  pass "CAPE Rooter control plane and Unix socket are ready for route=inetsim validation"
 }
 
 services_activate_deployment_state() {
@@ -169,8 +263,10 @@ services_activate_deployment_state() {
   fi
 
   systemctl enable cape-rooter.service >/dev/null
+  systemctl reset-failed cape-rooter.service >/dev/null 2>&1 || true
   systemctl restart cape-rooter.service
   services_wait_expected_active cape-rooter.service "$CAPE_SERVICE_READY_TIMEOUT" || return 1
+  services_wait_rooter_ready "$CAPE_SERVICE_READY_TIMEOUT" || return 1
 
   if [[ "${CAPE_SERVICE_WAS_ACTIVE:-no}" == yes ]]; then
     systemctl start cape.service
@@ -242,6 +338,7 @@ services_validate_deployment_state() {
     fail "cape-rooter.service is not enabled persistently"
     return 1
   }
+  services_wait_rooter_ready "$CAPE_SERVICE_READY_TIMEOUT" || return 1
   routing_forwarding_verify || {
     fail "Host IPv4 forwarding prerequisite for route=inetsim is not active/persistent"
     return 1
