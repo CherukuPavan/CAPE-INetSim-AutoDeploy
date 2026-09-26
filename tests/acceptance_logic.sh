@@ -192,7 +192,7 @@ cat "$pcap"
 SH
 chmod +x "$TMP/fakebin/tcpdump"
 
-printf '\n# CAPE_INETSIM_VM_ROUTE_NONE_V1\n' >>"$TMP/cape/web/analysis/inetsim_vm_logic.py"
+printf '\n# CAPE_INETSIM_VM_ROUTE_AWARE_V1\n' >>"$TMP/cape/web/analysis/inetsim_vm_logic.py"
 printf 'cape-inetsim-accept-123.invalid\n' >"$TMP/cape/storage/analyses/20/dump.pcap"
 printf 'background-only\n' >"$TMP/cape/storage/analyses/19/dump.pcap"
 
