@@ -113,6 +113,14 @@ fi
 
 grep -Fq 'services_wait_expected_active' "$ROOT/lib/services.sh"
 grep -Fq 'CAPE_SERVICE_READY_TIMEOUT' "$ROOT/lib/services.sh"
+grep -Fq 'net.ipv4.ip_forward = 1' "$ROOT/lib/services.sh"
+grep -Fq 'systemctl enable cape-rooter.service' "$ROOT/lib/services.sh"
+grep -Fq 'systemctl restart cape-rooter.service' "$ROOT/lib/services.sh"
+grep -Fq 'services_activate_deployment_state' "$ROOT/lib/deploy.sh"
+grep -Fq 'services_validate_deployment_state' "$ROOT/lib/validate.sh"
+grep -Fq 'routing_forwarding_apply' "$ROOT/bin/cape-inetsim-repair"
+grep -Fq 'CAPE_ROOTER_WAS_ENABLED' "$ROOT/lib/state.sh"
+grep -Fq 'HOST_IPV4_FORWARD_WAS' "$ROOT/lib/state.sh"
 
 # RC62 routing prerequisite lifecycle: prove the project-owned sysctl is
 # applied, verified and restored without touching the CI runner's real sysctls.
