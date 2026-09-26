@@ -66,19 +66,18 @@ inetsim_ensure_graphics_console() {
     return 1
   }
 
-  if python3 - <<'PY' <<<"$current"
+  if python3 -c '
 import sys,xml.etree.ElementTree as ET
 r=ET.fromstring(sys.stdin.read())
 g=r.find("./devices/graphics")
 v=r.find("./devices/video/model")
 ok=(g is not None and g.get("type")=="spice" and v is not None and v.get("type")=="qxl")
 raise SystemExit(0 if ok else 1)
-PY
-  then
+' <<<"$current"; then
     return 0
   fi
 
-  python3 - "$raw" <<'PY' <<<"$current"
+  python3 -c '
 import sys,xml.etree.ElementTree as ET
 out=sys.argv[1]
 r=ET.fromstring(sys.stdin.read())
@@ -95,7 +94,7 @@ v=ET.SubElement(d,"video")
 ET.SubElement(v,"model",{"type":"qxl","ram":"65536","vram":"65536","vgamem":"16384","heads":"1","primary":"yes"})
 ET.indent(r,space="  ")
 ET.ElementTree(r).write(out,encoding="unicode")
-PY
+' "$raw" <<<"$current"
 
   virsh define "$raw" >/dev/null || {
     fail "Could not add persistent SPICE/QXL graphical console to INetSim appliance"
