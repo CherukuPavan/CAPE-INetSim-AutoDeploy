@@ -61,19 +61,8 @@ validate_recovery_assets() {
     fi
   fi
 
-  local saved="${TARGET_INDEX:-}" i
-  CAPE_TARGETS_COUNT="$(targets_count)"
-  for ((i=0;i<CAPE_TARGETS_COUNT;i++)); do
-    targets_bind "$i"
-    if [[ -z "${SAFETY_SNAPSHOT:-}" ]] ||
-       ! state_resource_owned snapshot "$DOMAIN:$SAFETY_SNAPSHOT" ||
-       ! virsh snapshot-info "$DOMAIN" "$SAFETY_SNAPSHOT" >/dev/null 2>&1; then
-      fail "Deployment-owned pre-change Windows safety snapshot is missing for $CAPE_MACHINE_SECTION/$DOMAIN"
-      failures=$((failures+1))
-    fi
-  done
-  [[ "$saved" =~ ^[0-9]+$ ]] && targets_bind "$saved"
-
+  # Per-task route separation does not mutate Windows networking or snapshots,
+  # so no deployment-owned Windows safety snapshot is required.
   ((failures == 0))
 }
 validate_windows_result_path() {
@@ -155,9 +144,9 @@ if not mgmt_guard: raise SystemExit("snapshot does not preserve the Windows mana
 }
 
 validate_cape_configuration() {
-  python3 - "$CAPE_ROOT" "$CAPE_MACHINE_SECTION" "$CAPE_MACHINE_LABEL" "$FINAL_SNAPSHOT" "$ISOLATED_BRIDGE_NAME" "$WINDOWS_FAKE_IP" <<'PY'
+  python3 - "$CAPE_ROOT" "$CAPE_MACHINE_SECTION" "$CAPE_MACHINE_LABEL" "${FINAL_SNAPSHOT:-}" "$MANAGEMENT_BRIDGE_NAME" "$ISOLATED_BRIDGE_NAME" "$CAPE_MACHINE_IP" "$INETSIM_IP" <<'PY'
 import configparser,sys
-root,section,label,snapshot,iface,fake=sys.argv[1:]
+root,section,label,snapshot,mgmt_iface,inetsim_iface,machine_ip,inetsim_ip=sys.argv[1:]
 def load(name):
     c=configparser.ConfigParser(interpolation=None,strict=False)
     c.optionxform=str.lower
@@ -168,15 +157,30 @@ a=load("auxiliary")
 p=load("processing")
 r=load("routing")
 if not k.has_section(section): raise SystemExit("CAPE machine section missing")
-if k.get(section,"snapshot",fallback="") != snapshot: raise SystemExit("CAPE snapshot mismatch")
-if k.get(section,"interface",fallback="") != iface: raise SystemExit("CAPE interface mismatch")
-if a.get("sniffer",f"capture_host_{label}",fallback="") != fake: raise SystemExit("capture host mismatch")
-if p.get("network","dnswhitelist",fallback="").lower() != "no": raise SystemExit("dnswhitelist not disabled")
-if p.get("network","ipwhitelist",fallback="").lower() != "no": raise SystemExit("ipwhitelist not disabled")
-if r.get("routing","route",fallback="").lower() != "none": raise SystemExit("CAPE default route is not none")
-if r.get("routing","enable_pcap",fallback="").lower() not in ("yes","true","1","on"): raise SystemExit("CAPE packet capture is disabled for route none")
+if snapshot and k.get(section,"snapshot",fallback="") != snapshot:
+    raise SystemExit("CAPE snapshot mismatch")
+if k.get(section,"interface",fallback="") != mgmt_iface:
+    raise SystemExit("CAPE machine interface is not the management bridge")
+if a.get("sniffer",f"inetsim_capture_interface_{label}",fallback="") != inetsim_iface:
+    raise SystemExit("INetSim capture interface mismatch")
+if a.get("sniffer",f"inetsim_capture_host_{label}",fallback="") != machine_ip:
+    raise SystemExit("INetSim capture host mismatch")
+if p.get("network","dnswhitelist",fallback="").lower() != "no":
+    raise SystemExit("dnswhitelist not disabled")
+if p.get("network","ipwhitelist",fallback="").lower() != "no":
+    raise SystemExit("ipwhitelist not disabled")
+if r.get("routing","enable_pcap",fallback="").lower() not in ("yes","true","1","on"):
+    raise SystemExit("CAPE packet capture is disabled")
+if r.get("inetsim","enabled",fallback="").lower() not in ("yes","true","1","on"):
+    raise SystemExit("CAPE INetSim route is not enabled")
+if r.get("inetsim","server",fallback="") != inetsim_ip:
+    raise SystemExit("CAPE INetSim server mismatch")
+if r.get("inetsim","interface",fallback="") != inetsim_iface:
+    raise SystemExit("CAPE INetSim interface mismatch")
+if r.get("inetsim","dnsport",fallback="") != "53":
+    raise SystemExit("CAPE INetSim DNS port mismatch")
 PY
-  grep -q 'CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1' "$CAPE_ROOT/modules/auxiliary/sniffer.py"
+  grep -q 'CAPE_INETSIM_AUTODEPLOY_CAPTURE_V2' "$CAPE_ROOT/modules/auxiliary/sniffer.py"
 }
 
 validate_resultserver_host() {
@@ -231,21 +235,14 @@ validate_all_targets_structural() {
       failures=$((failures+1))
       continue
     }
-    windows_management_dhcp_verify_if_owned || {
-      fail "Windows management DHCP alignment validation failed for $CAPE_MACHINE_SECTION"
-      failures=$((failures+1))
-    }
-    windows_management_guard_verify || {
-      fail "Windows management anti-spoof guard validation failed for $CAPE_MACHINE_SECTION"
-      failures=$((failures+1))
-    }
-    validate_windows_result_file || failures=$((failures+1))
-    validate_final_snapshot_hardware || {
-      fail "Final snapshot hardware validation failed for $CAPE_MACHINE_SECTION"
-      failures=$((failures+1))
-    }
+    if [[ -n "${FINAL_SNAPSHOT:-}" ]]; then
+      virsh snapshot-info "$DOMAIN" "$FINAL_SNAPSHOT" >/dev/null 2>&1 || {
+        fail "Preserved CAPE snapshot is missing for $CAPE_MACHINE_SECTION"
+        failures=$((failures+1))
+      }
+    fi
     validate_cape_configuration || {
-      fail "CAPE configuration validation failed for $CAPE_MACHINE_SECTION"
+      fail "CAPE route-separated configuration validation failed for $CAPE_MACHINE_SECTION"
       failures=$((failures+1))
     }
   done
@@ -271,7 +268,7 @@ validate_deployment_structural() {
   firewall_verify
   inetsim_verify_host
   validate_all_targets_structural
-  grep -Rqs 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$CAPE_ROOT/web"
+  grep -Rqs 'CAPE_INETSIM_VM_ROUTE_GATED_V2' "$CAPE_ROOT/web"
   validate_recovery_assets
   pass "Structural deployment, release-provenance and recovery gates passed for all CAPE analysis machines"
 }
