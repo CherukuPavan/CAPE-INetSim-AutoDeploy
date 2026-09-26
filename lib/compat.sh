@@ -36,6 +36,7 @@ checks=[
     ("auxiliary","sniffer"),
     ("processing","network"),
     ("routing","routing"),
+    ("routing","inetsim"),
 ]
 problems=[]
 for name,section in checks:
@@ -105,12 +106,15 @@ PY
 import sys
 p=sys.argv[1]
 s=open(p,encoding="utf-8").read()
-marker="CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1"
-old="        host = self.machine.ip\n        # Selects per-machine interface if available.\n"
+marker="CAPE_INETSIM_AUTODEPLOY_CAPTURE_V2"
+legacy="CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1"
+old="        host = self.machine.ip\n        # Selects per-machine interface if available.\n        interface = self.machine.interface or self.options.get(\"interface\")\n"
 if s.count(marker)==1:
     print("already-present")
 elif s.count(marker)>1:
     print("ambiguous-marker")
+elif legacy in s:
+    print("legacy-route-global-capture")
 elif s.count(old)==1:
     print("known-clean-pattern")
 elif s.count(old)>1:
@@ -134,7 +138,7 @@ PY
     *)
       COMPAT_STATUS="plan-only-unknown-cape-layout"; add_note "capture-override:$layout" ;;
   esac
-  if grep -Rqs 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$CAPE_ROOT/web" 2>/dev/null; then add_note "extension:already-present"; else add_note "extension:not-present"; fi
+  if grep -Rqs 'CAPE_INETSIM_VM_ROUTE_GATED_V2' "$CAPE_ROOT/web" 2>/dev/null; then add_note "extension:already-present"; elif grep -Rqs 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$CAPE_ROOT/web" 2>/dev/null; then add_note "extension:legacy-route-global"; else add_note "extension:not-present"; fi
 }
 
 discover_resources() {
