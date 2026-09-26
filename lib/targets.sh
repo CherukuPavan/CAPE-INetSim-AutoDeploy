@@ -78,6 +78,8 @@ mapping={
 }
 for key,var in mapping.items():
     v=d.get(key,"")
+    if key=="normal_snapshot" and not v:
+        v=d.get("original_snapshot","")
     if v is None: v=""
     print(f"{var}={shlex.quote(str(v))}")
 print(f"TARGET_INDEX={i}")
