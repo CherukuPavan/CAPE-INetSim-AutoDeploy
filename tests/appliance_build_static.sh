@@ -113,7 +113,7 @@ grep -q 'appliance_runtime_smoke.outcome' "$ROOT/.github/workflows/appliance-bui
 grep -q 'runtime-smoke-test.sh' "$ROOT/.github/workflows/appliance-build.yml"
 grep -q 'cape-inetsim-runtime-smoke-ok' "$ROOT/appliance/build/runtime-smoke-test.sh"
 grep -Fq -- '-vga qxl' "$ROOT/appliance/build/runtime-smoke-test.sh"
-grep -Fq 'stable QXL/LightDM console login' "$ROOT/appliance/build/runtime-smoke-test.sh"
+grep -Fq 'real stable Xubuntu/XFCE desktop session' "$ROOT/appliance/build/runtime-smoke-test.sh"
 grep -q -- '--transport-artifact' "$ROOT/appliance/build/render-manifest.py"
 grep -q '"compression":"gzip"' "$ROOT/appliance/build/render-manifest.py"
 
