@@ -85,6 +85,8 @@ echo '[PASS] transactional Windows cutover iterates and persists every CAPE anal
 # SSL-44 regression: after successful live configuration/verification, final
 # running snapshot must be captured BEFORE the single shutdown used for the
 # configured rollback snapshot. A second boot/backend probe is forbidden.
+# Restore the real implementation after the multi-target harness stub above.
+source "$ROOT/lib/deploy.sh"
 SNAPLOG="$TMP/snapshot-order.log"
 : >"$SNAPLOG"
 DOMAIN=ssl44-win10
