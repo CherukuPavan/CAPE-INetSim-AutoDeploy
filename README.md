@@ -53,14 +53,14 @@ install/bootstrap
   -> deterministic plan
   -> transaction + backup/ownership journal
   -> isolated libvirt network
-  -> persistent host egress/input firewall guard
+  -> isolated-bridge input/forwarding firewall guard
   -> generalized Ubuntu INetSim appliance
   -> Windows isolated secondary NIC
   -> route-aware Windows/CAPE network safety gates
   -> deployment-owned safety + working + running snapshots
-  -> CAPE isolated capture integration
+  -> route-aware CAPE packet-capture integration
   -> Network Analysis processing visibility
-  -> CAPE-INetSim-VM-Extension v1.0.1
+  -> CAPE-INetSim-VM-Extension v1.0.2
   -> structural + live validation
   -> commit or ownership-aware rollback
 ```
@@ -70,7 +70,7 @@ install/bootstrap
 - Per-task routing is authoritative: `internet` uses CAPE's configured Internet path, `inetsim` uses the isolated fake-Internet appliance, and `none`/`drop` must not reach either path.
 - The fake-Internet bridge is never attached to a physical NIC and never configured with libvirt NAT/forwarding.
 - A deployment-owned nftables guard blocks forwarding from the isolated bridge as defense in depth.
-- Windows validation requires zero IPv4 default routes, zero IPv6 default routes, no enabled IPv6 bindings, no unexpected active third adapter, INetSim-only DNS, working CAPE ResultServer reachability, and failed public IPv4/IPv6 reachability.
+- The dedicated `route=inetsim` Windows snapshot is validated with zero IPv4/IPv6 default routes, INetSim-only DNS, working CAPE ResultServer reachability, and failed public IPv4/IPv6 reachability. The separate normal-route snapshot preserves the pre-existing CAPE networking used by `internet`/`none`/`drop`.
 - CAPE source is modified only after a known layout/anchor passes the compatibility gate; unknown layouts safe-stop before mutation.
 - Busy CAPE systems are staged non-disruptively and cut over only after AutoDeploy atomically acquires CAPE machine maintenance ownership.
 - Running qcow2 analysis disks are inspected read-only with QEMU shared-image semantics when their live QEMU process holds the normal image lock; AutoDeploy never runs qemu-img repair/conversion against a live analysis disk.
