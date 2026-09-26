@@ -83,8 +83,82 @@ fi
 
 dpkg_status="$(virt-cat -a "$IMAGE" /var/lib/dpkg/status)"
 # Keep the package checks in shell so package names are visible in logs.
-grep -Eq '^Package: inetsim$' <<<"$dpkg_status"
-grep -Eq '^Package: qemu-guest-agent$' <<<"$dpkg_status"
+grep -Eq '^Package: inetsim
+
+cloud_instances="$(virt-ls -R -a "$IMAGE" /var/lib/cloud/instances 2>/dev/null || true)"
+[[ -z "${cloud_instances//[[:space:]]/}" ]] || {
+  echo "[FAIL] candidate still contains cloud-init instance state" >&2
+  exit 4
+}
+
+echo "[PASS] generalized INetSim appliance artifact verification"
+ <<<"$dpkg_status"
+grep -Eq '^Package: qemu-guest-agent
+
+cloud_instances="$(virt-ls -R -a "$IMAGE" /var/lib/cloud/instances 2>/dev/null || true)"
+[[ -z "${cloud_instances//[[:space:]]/}" ]] || {
+  echo "[FAIL] candidate still contains cloud-init instance state" >&2
+  exit 4
+}
+
+echo "[PASS] generalized INetSim appliance artifact verification"
+ <<<"$dpkg_status"
+grep -Eq '^Package: xfce4
+
+cloud_instances="$(virt-ls -R -a "$IMAGE" /var/lib/cloud/instances 2>/dev/null || true)"
+[[ -z "${cloud_instances//[[:space:]]/}" ]] || {
+  echo "[FAIL] candidate still contains cloud-init instance state" >&2
+  exit 4
+}
+
+echo "[PASS] generalized INetSim appliance artifact verification"
+ <<<"$dpkg_status"
+grep -Eq '^Package: lightdm
+
+cloud_instances="$(virt-ls -R -a "$IMAGE" /var/lib/cloud/instances 2>/dev/null || true)"
+[[ -z "${cloud_instances//[[:space:]]/}" ]] || {
+  echo "[FAIL] candidate still contains cloud-init instance state" >&2
+  exit 4
+}
+
+echo "[PASS] generalized INetSim appliance artifact verification"
+ <<<"$dpkg_status"
+grep -Eq '^Package: lightdm-gtk-greeter
+
+cloud_instances="$(virt-ls -R -a "$IMAGE" /var/lib/cloud/instances 2>/dev/null || true)"
+[[ -z "${cloud_instances//[[:space:]]/}" ]] || {
+  echo "[FAIL] candidate still contains cloud-init instance state" >&2
+  exit 4
+}
+
+echo "[PASS] generalized INetSim appliance artifact verification"
+ <<<"$dpkg_status"
+grep -Eq '^Package: accountsservice
+
+cloud_instances="$(virt-ls -R -a "$IMAGE" /var/lib/cloud/instances 2>/dev/null || true)"
+[[ -z "${cloud_instances//[[:space:]]/}" ]] || {
+  echo "[FAIL] candidate still contains cloud-init instance state" >&2
+  exit 4
+}
+
+echo "[PASS] generalized INetSim appliance artifact verification"
+ <<<"$dpkg_status"
+grep -Eq '^Package: xserver-xorg-video-qxl
+
+cloud_instances="$(virt-ls -R -a "$IMAGE" /var/lib/cloud/instances 2>/dev/null || true)"
+[[ -z "${cloud_instances//[[:space:]]/}" ]] || {
+  echo "[FAIL] candidate still contains cloud-init instance state" >&2
+  exit 4
+}
+
+echo "[PASS] generalized INetSim appliance artifact verification"
+ <<<"$dpkg_status"
+
+xorg_drivers="$(virt-ls -a "$IMAGE" /usr/lib/xorg/modules/drivers 2>/dev/null || true)"
+grep -Fxq 'qxl_drv.so' <<<"$xorg_drivers" || {
+  echo "[FAIL] candidate is missing the QXL Xorg driver required by the libvirt SPICE/QXL console" >&2
+  exit 6
+}
 
 cloud_instances="$(virt-ls -R -a "$IMAGE" /var/lib/cloud/instances 2>/dev/null || true)"
 [[ -z "${cloud_instances//[[:space:]]/}" ]] || {
