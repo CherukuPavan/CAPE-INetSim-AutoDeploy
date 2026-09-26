@@ -3,7 +3,10 @@
 WINDOWS_MGMT_FILTER_NAME="${WINDOWS_MGMT_FILTER_NAME:-clean-traffic}"
 
 windows_management_interface_xml() {
-  virsh dumpxml --inactive "$DOMAIN" 2>/dev/null | python3 -c '
+  local scope="${1:-inactive}"
+  local -a args=(dumpxml "$DOMAIN")
+  [[ "$scope" == inactive ]] && args+=(--inactive)
+  virsh "${args[@]}" 2>/dev/null | python3 -c '
 import sys,xml.etree.ElementTree as ET
 mac=sys.argv[1].lower(); net=sys.argv[2]
 try: root=ET.fromstring(sys.stdin.read())
@@ -26,7 +29,8 @@ windows_management_guard_backup_path() {
 }
 
 windows_management_guard_filter_facts() {
-  windows_management_interface_xml | python3 -c '
+  local scope="${1:-inactive}"
+  windows_management_interface_xml "$scope" | python3 -c '
 import sys,xml.etree.ElementTree as ET
 ip=sys.argv[1]
 try: i=ET.fromstring(sys.stdin.read())
@@ -46,7 +50,8 @@ print(name+"|"+(",".join(vals)))
 }
 
 windows_management_guard_exact() {
-  [[ "$(windows_management_guard_filter_facts)" == "$WINDOWS_MGMT_FILTER_NAME|$CAPE_MACHINE_IP" ]]
+  local scope="${1:-inactive}"
+  [[ "$(windows_management_guard_filter_facts "$scope")" == "$WINDOWS_MGMT_FILTER_NAME|$CAPE_MACHINE_IP" ]]
 }
 
 nwfilter_virsh() {
@@ -308,10 +313,12 @@ nwfilter_runtime_rollback() {
 }
 
 windows_management_guard_apply() {
-  [[ "$(virsh domstate "$DOMAIN" 2>/dev/null | xargs)" == "shut off" ]] || {
-    fail "Windows management anti-spoof guard must be applied while the analysis VM is shut off"
-    return 1
-  }
+  local state
+  state="$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)"
+  case "$state" in
+    "shut off"|paused) ;;
+    *) fail "Windows management anti-spoof guard must be applied while the analysis VM is shut off or paused"; return 1 ;;
+  esac
   [[ -n "${WINDOWS_MANAGEMENT_MAC:-}" && -n "${MANAGEMENT_NETWORK_NAME:-}" && -n "${CAPE_MACHINE_IP:-}" ]] || {
     fail "Windows management NIC identity is incomplete"
     return 1
@@ -322,6 +329,8 @@ windows_management_guard_apply() {
   }
 
   local facts backup original guarded
+  local -a update_args=(--config)
+  [[ "$state" == paused ]] && update_args+=(--live)
   facts="$(windows_management_guard_filter_facts)" || {
     fail "Could not inspect Windows management NIC filter state"
     return 1
@@ -370,11 +379,15 @@ PY
   chmod 0600 "$guarded"
 
   state_record_intent domain-interface-filter "$DOMAIN:$WINDOWS_MANAGEMENT_MAC" applying "filter=$WINDOWS_MGMT_FILTER_NAME ip=$CAPE_MACHINE_IP backup=$backup"
-  virsh update-device "$DOMAIN" "$guarded" --config >/dev/null
-  windows_management_guard_exact || {
-    fail "Could not verify Windows management anti-spoof guard after libvirt update"
+  virsh update-device "$DOMAIN" "$guarded" "${update_args[@]}" >/dev/null
+  windows_management_guard_exact inactive || {
+    fail "Could not verify persistent Windows management anti-spoof guard after libvirt update"
     return 1
   }
+  if [[ "$state" == paused ]] && ! windows_management_guard_exact current; then
+    fail "Could not verify live Windows management anti-spoof guard on paused analysis VM"
+    return 1
+  fi
   state_record_resource domain-interface-filter "$DOMAIN:$WINDOWS_MANAGEMENT_MAC" applied yes "filter=$WINDOWS_MGMT_FILTER_NAME ip=$CAPE_MACHINE_IP backup=$backup"
   state_write_atomic
   pass "Applied hypervisor anti-spoof guard to Windows management NIC"
@@ -405,7 +418,7 @@ windows_management_guard_restore_if_owned() {
     return 1
   }
   state="$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)"
-  [[ "$state" == running ]] && args+=(--live)
+  [[ "$state" == running || "$state" == paused ]] && args+=(--live)
   virsh update-device "$DOMAIN" "$backup" "${args[@]}" >/dev/null
 
   facts="$(windows_management_guard_filter_facts 2>/dev/null || true)"
