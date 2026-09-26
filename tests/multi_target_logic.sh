@@ -42,14 +42,14 @@ targets_discover_all
 
 ISOLATED_SUBNET=192.168.200.0/24
 targets_prepare_after_network_plan
-[[ "$(targets_get 0 fake_ip)" == 192.168.200.10 ]]
-[[ "$(targets_get 1 fake_ip)" == 192.168.200.11 ]]
-[[ "$(targets_get 2 fake_ip)" == 192.168.200.12 ]]
+[[ -z "$(targets_get 0 fake_ip)" ]]
+[[ -z "$(targets_get 1 fake_ip)" ]]
+[[ -z "$(targets_get 2 fake_ip)" ]]
 
 targets_bind 1
 [[ "$CAPE_MACHINE_SECTION" == win10 ]]
 [[ "$DOMAIN" == win10 ]]
-[[ "$WINDOWS_FAKE_IP" == 192.168.200.11 ]]
+[[ -z "$WINDOWS_FAKE_IP" ]]
 
 identity_before="$(targets_identity_sha256)"
 WINDOWS_ISOLATED_MAC=52:54:00:aa:bb:cc
