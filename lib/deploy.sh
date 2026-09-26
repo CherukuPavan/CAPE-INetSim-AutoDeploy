@@ -75,11 +75,11 @@ a=json.loads(sys.argv[1])
 assert a, "empty target set"
 for d in a:
     platform=str(d.get("platform") or "windows-unspecified").lower()
-    assert platform.startswith("windows"), f"{d.get(\'section\',\'?\')}: not a Windows CAPE analysis machine"
-    assert d.get("domain"), f"{d.get(\'section\',\'?\')}: no libvirt domain"
-    assert d.get("analysis_snapshot_status")=="proven", f"{d.get(\'section\',\'?\')}: route-scoped mode requires an existing proven CAPE running snapshot"
-    assert d.get("resultserver_ip"), f"{d.get(\'section\',\'?\')}: ResultServer IP unknown"
-    assert str(d.get("resultserver_port","")).isdigit(), f"{d.get(\'section\',\'?\')}: ResultServer port invalid"
+    assert platform.startswith("windows"), f"{d.get('section','?')}: not a Windows CAPE analysis machine"
+    assert d.get("domain"), f"{d.get('section','?')}: no libvirt domain"
+    assert d.get("analysis_snapshot_status")=="proven", f"{d.get('section','?')}: route-scoped mode requires an existing proven CAPE running snapshot"
+    assert d.get("resultserver_ip"), f"{d.get('section','?')}: ResultServer IP unknown"
+    assert str(d.get("resultserver_port","")).isdigit(), f"{d.get('section','?')}: ResultServer port invalid"
 PY
     fail "One or more CAPE analysis VMs failed the route-scoped safety preflight"
     return 1
