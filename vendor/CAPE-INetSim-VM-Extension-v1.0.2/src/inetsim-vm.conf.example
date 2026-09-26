@@ -66,13 +66,8 @@ CAPE_RESULTSERVER_IP=192.0.2.1
 # EXAMPLE ONLY.
 INETSIM_SERVER_IP=198.51.100.2
 
-# Secondary isolated-network IP of the Windows analysis VM.
-#
-# EXAMPLE ONLY.
-ANALYSIS_GUEST_IP=198.51.100.10
-
-# Host-side bridge/interface carrying the isolated INetSim
-# traffic.
+# Host-side bridge/interface carrying CAPE's explicit route=inetsim
+# traffic after task-scoped routing.
 #
 # Example names may look like:
 #
