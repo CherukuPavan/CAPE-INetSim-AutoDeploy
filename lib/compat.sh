@@ -25,7 +25,7 @@ check_cape_layout() {
   COMPAT_STATUS="blocked"; COMPAT_NOTES=()
   [[ -n "${CAPE_ROOT:-}" ]] || return 0
   local f missing=()
-  for f in conf/kvm.conf conf/auxiliary.conf conf/processing.conf modules/auxiliary/sniffer.py web/analysis/views.py; do [[ -e "$CAPE_ROOT/$f" ]] || missing+=("$f"); done
+  for f in conf/kvm.conf conf/auxiliary.conf conf/processing.conf conf/routing.conf modules/auxiliary/sniffer.py modules/machinery/kvm.py lib/cuckoo/common/abstracts.py lib/cuckoo/core/machinery_manager.py lib/cuckoo/core/analysis_manager.py web/analysis/views.py; do [[ -e "$CAPE_ROOT/$f" ]] || missing+=("$f"); done
   if ((${#missing[@]})); then add_note "missing:${missing[*]}"; return 0; fi
 
   local config_layout
@@ -100,41 +100,71 @@ PY
   fi
   add_note "maintenance-api:known-layout"
 
-  local sniffer="$CAPE_ROOT/modules/auxiliary/sniffer.py" layout
-  layout="$(python3 - "$sniffer" <<'PY'
-import sys
-p=sys.argv[1]
-s=open(p,encoding="utf-8").read()
-marker="CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1"
-old="        host = self.machine.ip\n        # Selects per-machine interface if available.\n"
-if s.count(marker)==1:
-    print("already-present")
-elif s.count(marker)>1:
-    print("ambiguous-marker")
-elif s.count(old)==1:
-    print("known-clean-pattern")
-elif s.count(old)>1:
-    print("ambiguous-clean-pattern")
-else:
-    print("unknown")
+  local route_layout
+  route_layout="$(python3 - "$CAPE_ROOT" <<'PY'
+import pathlib,sys
+root=pathlib.Path(sys.argv[1])
+checks={
+  "modules/auxiliary/sniffer.py":(
+    "CAPE_INETSIM_ROUTE_AWARE_CAPTURE_V2",
+    "CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1",
+    '        host = self.machine.ip\n        # Selects per-machine interface if available.\n        interface = self.machine.interface or self.options.get("interface")\n',
+  ),
+  "lib/cuckoo/common/abstracts.py":(
+    "CAPE_INETSIM_ROUTE_SNAPSHOT_OVERRIDE_V1","",
+    '    def start(self, label=None):\n        """Starts a virtual machine.\n',
+  ),
+  "lib/cuckoo/core/machinery_manager.py":(
+    "CAPE_INETSIM_MACHINERY_ROUTE_START_V1","",
+    '    def start_machine(self, machine: Machine) -> None:\n',
+  ),
+  "lib/cuckoo/core/analysis_manager.py":(
+    "CAPE_INETSIM_ANALYSIS_ROUTE_START_V1","",
+    '                self.machinery_manager.start_machine(self.machine)\n',
+  ),
+  "modules/machinery/kvm.py":(
+    "CAPE_INETSIM_KVM_ROUTE_SNAPSHOT_V1","",
+    '    def start(self, label):\n        super(KVM, self).start(label)\n',
+  ),
+}
+bad=[]; states=[]
+for rel,(marker,legacy,anchor) in checks.items():
+    p=root/rel
+    if not p.is_file():
+        bad.append(rel+":missing"); continue
+    t=p.read_text(encoding="utf-8",errors="replace")
+    if t.count(marker)==1:
+        states.append(rel+":patched"); continue
+    if t.count(marker)>1:
+        bad.append(rel+":ambiguous-marker"); continue
+    if legacy and t.count(legacy)==1:
+        states.append(rel+":legacy"); continue
+    if t.count(anchor)==1:
+        states.append(rel+":clean")
+    elif t.count(anchor)>1:
+        bad.append(rel+":ambiguous-anchor")
+    else:
+        bad.append(rel+":unknown-layout")
+print(("OK\t"+";".join(states)) if not bad else ("BAD\t"+";".join(bad)))
 PY
 )"
-  case "$layout" in
-    already-present)
-      COMPAT_STATUS="plan-compatible"; add_note "capture-override:already-present" ;;
-    known-clean-pattern)
-      if git -C "$CAPE_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 &&
-         [[ -n "$(git -C "$CAPE_ROOT" status --porcelain -- modules/auxiliary/sniffer.py 2>/dev/null || true)" ]]; then
-        COMPAT_STATUS="plan-only-unknown-cape-layout"
-        add_note "capture-override:preexisting-source-modification"
-      else
-        COMPAT_STATUS="plan-compatible"; add_note "capture-override:known-clean-pattern"
-      fi
+  case "$route_layout" in
+    OK$'\t'*)
+      COMPAT_STATUS="plan-compatible"
+      add_note "route-aware-source:\${route_layout#*$'\t'}"
       ;;
     *)
-      COMPAT_STATUS="plan-only-unknown-cape-layout"; add_note "capture-override:$layout" ;;
+      COMPAT_STATUS="plan-only-unknown-cape-layout"
+      add_note "route-aware-source:\${route_layout#*$'\t'}"
+      ;;
   esac
-  if grep -Rqs 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$CAPE_ROOT/web" 2>/dev/null; then add_note "extension:already-present"; else add_note "extension:not-present"; fi
+  if grep -Rqs 'CAPE_INETSIM_VM_ROUTE_AWARE_V1' "$CAPE_ROOT/web" 2>/dev/null; then
+    add_note "extension:route-aware"
+  elif grep -Rqs 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$CAPE_ROOT/web" 2>/dev/null; then
+    add_note "extension:legacy-present"
+  else
+    add_note "extension:not-present"
+  fi
 }
 
 discover_resources() {
