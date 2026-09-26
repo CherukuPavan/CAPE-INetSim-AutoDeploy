@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - dev/v1-orchestrator-hardening
+      - prod/final-production-hardening
 
 permissions:
   contents: read
@@ -24,6 +25,14 @@ jobs:
       - name: Python syntax
         run: |
           python3 -m py_compile tools/*.py
+      - name: Production assumption guard
+        run: bash tests/no_machine_specific_assumptions.sh
+      - name: Production fresh/upgrade/broken/custom-layout matrix
+        run: bash tests/production_matrix.sh
+      - name: Pre-change inventory schema
+        run: bash tests/inventory_logic.sh
+      - name: End-to-end selftest wiring
+        run: bash tests/selftest_logic.sh
       - name: Universal discovery logic
         run: bash tests/universal_logic.sh
       - name: Multi-machine CAPE target-set logic
