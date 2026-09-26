@@ -45,7 +45,7 @@ if [ "\$rc" -eq 0 ]; then
   {
     test -f /etc/cape-inetsim-gui-v6
     test -f /usr/share/xsessions/xubuntu.desktop
-    test -f /usr/lib/xorg/modules/drivers/qxl_drv.so
+    test -f /usr/lib/xorg/modules/drivers/modesetting_drv.so
     id capeinetsim
 
     # Mirror target-host cleanup, then temporarily autologin the production GUI
@@ -163,7 +163,7 @@ timeout --signal=TERM --kill-after=20s 360 \
     -device "virtio-net-pci,netdev=mgmt,mac=$MGMT_MAC" \
     -netdev user,id=isolated,restrict=on \
     -device "virtio-net-pci,netdev=isolated,mac=$ISO_MAC" \
-    -vga qxl \
+    -vga virtio \
     -nographic -monitor none -no-reboot \
     >"$CONSOLE" 2>&1
 QEMU_RC=$?
