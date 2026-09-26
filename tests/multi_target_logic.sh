@@ -72,6 +72,28 @@ grep -Fq 'win10 -> win10' <<<"$summary"
 grep -Fq 'snapshot=ready' <<<"$summary"
 ! grep -Fq 'snapshot=snap10' <<<"$summary"
 
+# Route-separated migration must erase legacy RC44 fake-network target state
+# while preserving the original/normal CAPE snapshot and target identity.
+CAPE_TARGETS_JSON="$(python3 - "$CAPE_TARGETS_JSON" <<'PY'
+import json,sys
+a=json.loads(sys.argv[1])
+a[1]["fake_ip"]="192.168.200.11"
+print(json.dumps(a,separators=(",",":")))
+PY
+)"
+targets_bind 1
+targets_clear_legacy_windows_cutover 1
+[[ -z "$(targets_get 1 fake_ip)" ]]
+[[ -z "$(targets_get 1 isolated_nic_model)" ]]
+[[ -z "$(targets_get 1 isolated_mac)" ]]
+[[ -z "$(targets_get 1 backend_used)" ]]
+[[ -z "$(targets_get 1 safety_snapshot)" ]]
+[[ -z "$(targets_get 1 working_snapshot)" ]]
+[[ -z "$(targets_get 1 final_snapshot)" ]]
+[[ "$(targets_get 1 normal_snapshot)" == snap10 ]]
+[[ "$(targets_get 1 phase)" == snapshots-ready ]]
+[[ "$(targets_identity_sha256)" == "$identity_before" ]]
+
 # --machine remains a deliberate single-target override, but the default is all.
 REQUESTED_MACHINE=win7
 DISCOVERY_ERRORS=()
