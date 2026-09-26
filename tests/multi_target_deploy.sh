@@ -32,6 +32,7 @@ windows_restore_configured_snapshot_paused(){ echo "restore:$DOMAIN" >>"$LOG"; }
 windows_management_guard_apply(){ echo "guard:$DOMAIN" >>"$LOG"; }
 windows_attach_isolated_nic(){ WINDOWS_ISOLATED_MAC="52:54:00:aa:00:$(printf '%02d' $((TARGET_INDEX+1)))"; echo "nic:$DOMAIN" >>"$LOG"; }
 firewall_enable_windows_management_guard(){ echo "firewall:$DOMAIN" >>"$LOG"; }
+firewall_apply(){ echo "firewall-apply:${1:-base}" >>"$LOG"; }
 windows_start_for_cutover(){ echo "start:$DOMAIN" >>"$LOG"; }
 windows_select_live_backend(){ WINDOWS_BACKEND_USED=cape-agent-execpy; echo "backend:$DOMAIN" >>"$LOG"; }
 windows_configure_selected_backend(){ echo "configure:$DOMAIN:$WINDOWS_FAKE_IP" >>"$LOG"; }
@@ -46,6 +47,8 @@ deploy_finish_windows_snapshots(){
 deploy_windows_cutover
 
 [[ "$DEPLOYMENT_PHASE" == windows-all-ready ]]
+grep -Fxq 'firewall-apply:base' "$LOG"
+[[ "$(grep -Fc 'firewall-apply:base' "$LOG")" -eq 1 ]]
 for i in 0 1 2; do
   [[ "$(targets_get "$i" phase)" == snapshots-ready ]]
   [[ -n "$(targets_get "$i" safety_snapshot)" ]]
