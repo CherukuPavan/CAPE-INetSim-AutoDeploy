@@ -120,6 +120,14 @@ while (($#)); do
   esac
 done
 
+# The INetSim appliance console is bound to localhost-only SPICE and SSH
+# password authentication is disabled. Keep a deterministic lab-console
+# credential so a fresh random host needs no second setup step.
+if [[ "$MODE" == deploy || "$MODE" == repair ]]; then
+  CAPE_INETSIM_GUI_PASSWORD="${CAPE_INETSIM_GUI_PASSWORD:-123}"
+  export CAPE_INETSIM_GUI_PASSWORD
+fi
+
 case "$MODE" in
   plan)
     require_root_for_plan
