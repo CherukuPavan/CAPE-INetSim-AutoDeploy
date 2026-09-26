@@ -161,6 +161,7 @@ firewall_table_matches_base() {
 firewall_file_matches_base() {
   [[ -f "$FIREWALL_RULES" ]] || return 1
   grep -Fq 'CAPE-INetSim-AutoDeploy managed rules' "$FIREWALL_RULES" &&
+    grep -Fq 'Per-task route separation' "$FIREWALL_RULES" &&
     grep -Fq "iifname \"$ISOLATED_BRIDGE_NAME\"" "$FIREWALL_RULES" &&
     grep -Fq "oifname \"$ISOLATED_BRIDGE_NAME\"" "$FIREWALL_RULES"
 }
@@ -276,6 +277,8 @@ firewall_apply() {
      state_resource_owned firewall-table "$FIREWALL_TABLE" &&
      firewall_file_matches_base && firewall_unit_matches_project &&
      firewall_table_matches_base &&
+     firewall_inetsim_route_exceptions_match_all &&
+     ! firewall_bridge_table_exists &&
      systemctl is-active --quiet cape-inetsim-autodeploy-firewall.service; then
     pass "Host INetSim isolation firewall guard already active"
     return 0
