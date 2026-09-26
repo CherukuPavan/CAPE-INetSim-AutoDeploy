@@ -21,6 +21,8 @@ grep -Fq 'command -v python3' "$BOOT"
 ! grep -Fq '/archive/refs/heads/main' "$BOOT"
 ! grep -Fq '/archive/refs/heads/main' "$ROOT/install"
 grep -Fq "not a trusted network bootstrap" "$ROOT/install"
+grep -Fq 'Promote release provenance only after every repair gate' "$ROOT/bin/cape-inetsim-repair"
+grep -Fq 'CAPE_INETSIM_RELEASE_SOURCE_COMMIT' "$ROOT/bin/cape-inetsim-repair"
 
 grep -q '^  workflow_dispatch:' "$WF"
 ! grep -q '^  push:' "$WF"
