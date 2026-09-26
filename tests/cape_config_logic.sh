@@ -16,18 +16,18 @@ class X:
         interface = self.machine.interface or self.options.get("interface")
 PY
 patch_sniffer_capture_override "$TMP/sniffer.py"
-grep -q 'CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1' "$TMP/sniffer.py"
+grep -q 'CAPE_INETSIM_ROUTE_AWARE_CAPTURE_V2' "$TMP/sniffer.py"
 grep -q 'capture_host_key = f"capture_host_{self.machine.label}"' "$TMP/sniffer.py"
 patch_sniffer_capture_override "$TMP/sniffer.py"
-[[ "$(grep -c CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1 "$TMP/sniffer.py")" -eq 1 ]]
+[[ "$(grep -c CAPE_INETSIM_ROUTE_AWARE_CAPTURE_V2 "$TMP/sniffer.py")" -eq 1 ]]
 echo '[PASS] exact-match CAPE sniffer patch logic'
 
 # Compatibility must reject non-unique/partial source anchors rather than
 # claiming a source layout is safe to patch.
 source "$ROOT/lib/compat.sh"
 CAPE_ROOT="$TMP/cape"
-mkdir -p "$CAPE_ROOT/conf" "$CAPE_ROOT/modules/auxiliary" "$CAPE_ROOT/web/analysis" \
-  "$CAPE_ROOT/lib/cuckoo/core/data"
+mkdir -p "$CAPE_ROOT/conf" "$CAPE_ROOT/modules/auxiliary" "$CAPE_ROOT/modules/machinery" "$CAPE_ROOT/web/analysis" \
+  "$CAPE_ROOT/lib/cuckoo/core/data" "$CAPE_ROOT/lib/cuckoo/common" "$CAPE_ROOT/lib/cuckoo/core"
 cat >"$CAPE_ROOT/lib/cuckoo/core/data/machines.py" <<'PY'
 class Machine(Base):
     locked: Mapped[bool]
@@ -52,6 +52,43 @@ class Database:
     pass
 def init_database(*args, **kwargs):
     pass
+PY
+cat >"$CAPE_ROOT/lib/cuckoo/common/abstracts.py" <<'PY'
+class LibVirtMachinery:
+    def start(self, label=None):
+        """Starts a virtual machine.
+        """
+        vm_info = self.db.view_machine_by_label(label)
+        snapshot = None
+        snapshot_list = vm.snapshotListNames(flags=0)
+        # If a snapshot is configured try to use it.
+        if vm_info.snapshot and vm_info.snapshot in snapshot_list:
+            log.debug("Using snapshot %s for virtual machine %s", vm_info.snapshot, label)
+            snapshot = vm.snapshotLookupByName(vm_info.snapshot, flags=0)
+        else:
+            snapshot = self._get_snapshot(label, vm)
+PY
+cat >"$CAPE_ROOT/lib/cuckoo/core/machinery_manager.py" <<'PY'
+class MachineryManager:
+    def start_machine(self, machine: Machine) -> None:
+        if (
+            True
+        ):
+            pass
+        with self.machine_lock:
+            self.machinery.start(machine.label)
+PY
+cat >"$CAPE_ROOT/lib/cuckoo/core/analysis_manager.py" <<'PY'
+class AnalysisManager:
+    def machine_running(self):
+        with self.db.session.begin():
+            self.machinery_manager.start_machine(self.machine)
+PY
+cat >"$CAPE_ROOT/modules/machinery/kvm.py" <<'PY'
+class KVM:
+    def start(self, label):
+        super(KVM, self).start(label)
+        machine = self.db.view_machine_by_label(label)
 PY
 cat >"$CAPE_ROOT/conf/kvm.conf" <<'EOF'
 [win10]
@@ -79,8 +116,17 @@ COMPAT_NOTES=()
 check_cape_layout
 [[ "$COMPAT_STATUS" == plan-compatible ]]
 
+patch_libvirt_route_snapshot_override "$CAPE_ROOT/lib/cuckoo/common/abstracts.py"
+patch_machinery_manager_route_start "$CAPE_ROOT/lib/cuckoo/core/machinery_manager.py"
+patch_analysis_manager_route_start "$CAPE_ROOT/lib/cuckoo/core/analysis_manager.py"
+patch_kvm_route_snapshot "$CAPE_ROOT/modules/machinery/kvm.py"
+grep -Fq 'CAPE_INETSIM_ROUTE_SNAPSHOT_OVERRIDE_V1' "$CAPE_ROOT/lib/cuckoo/common/abstracts.py"
+grep -Fq 'CAPE_INETSIM_MACHINERY_ROUTE_START_V1' "$CAPE_ROOT/lib/cuckoo/core/machinery_manager.py"
+grep -Fq 'CAPE_INETSIM_ANALYSIS_ROUTE_START_V1' "$CAPE_ROOT/lib/cuckoo/core/analysis_manager.py"
+grep -Fq 'CAPE_INETSIM_KVM_ROUTE_SNAPSHOT_V1' "$CAPE_ROOT/modules/machinery/kvm.py"
+
 # A vague host assignment without the exact neighboring source line is unsafe.
-sed '/Selects per-machine interface/d' "$TMP/sniffer.py" | sed '/CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1/d' >"$CAPE_ROOT/modules/auxiliary/sniffer.py"
+sed '/Selects per-machine interface/d' "$TMP/sniffer.py" | sed '/CAPE_INETSIM_ROUTE_AWARE_CAPTURE_V2/d' >"$CAPE_ROOT/modules/auxiliary/sniffer.py"
 COMPAT_NOTES=()
 check_cape_layout
 [[ "$COMPAT_STATUS" == plan-only-unknown-cape-layout ]]
