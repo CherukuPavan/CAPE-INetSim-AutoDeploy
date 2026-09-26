@@ -322,8 +322,13 @@ jobs:
           cp "$RUNNER_TEMP/evidence/cape-inetsim-appliance-v1.0.0.qcow2.info.txt" "$DIST/"
           cp "$RUNNER_TEMP/evidence/candidate-provenance.json" "$DIST/"
           cp "$RUNNER_TEMP/evidence/artifact-verify.log" "$DIST/"
-          sha256sum "$DIST/install" >"$DIST/install.sha256"
-          sha256sum "$DIST/appliance-manifest.json" >"$DIST/appliance-manifest.json.sha256"
+          (
+            cd "$DIST"
+            sha256sum install >install.sha256
+            sha256sum appliance-manifest.json >appliance-manifest.json.sha256
+            sha256sum -c install.sha256
+            sha256sum -c appliance-manifest.json.sha256
+          )
 
           python3 - "$DIST/release-provenance.json" "$SOURCE_SHA" "$CANDIDATE_RUN_ID" "$RELEASE_TAG" "$PUBLIC_REPO" "$SOURCE_NAME" "$SOURCE_SHA256" "$MANIFEST" <<'PY'
           import hashlib,json,pathlib,sys
