@@ -65,14 +65,19 @@ network = {
     }],
 }
 
-if not inetsim_vm_tags.inetsim_vm_active(network):
+if not inetsim_vm_tags.inetsim_vm_active(network, "inetsim"):
     raise SystemExit("FAIL: task-local INetSim traffic was not detected")
 
-ctx = inetsim_vm_tags.inetsim_vm_context(network)
+if inetsim_vm_tags.inetsim_vm_active(network, "internet"):
+    raise SystemExit("FAIL: internet-routed task incorrectly enabled INetSim visual")
+if inetsim_vm_tags.inetsim_vm_context(network, "internet").get("enabled"):
+    raise SystemExit("FAIL: internet-routed task incorrectly built INetSim context")
+
+ctx = inetsim_vm_tags.inetsim_vm_context(network, "inetsim")
 if not ctx.get("enabled"):
     raise SystemExit("FAIL: task-local INetSim context is not enabled")
 
-rendered = visual.render(Context({"network": network}))
+rendered = visual.render(Context({"network": network, "analysis": {"info": {"route": "inetsim"}}}))
 for expected in (server, "modern-runtime.test", "modern-cape", "INetSim Visual"):
     if expected not in rendered:
         raise SystemExit(f"FAIL: rendered visual missing {expected!r}")
@@ -83,7 +88,7 @@ unrelated = {
     "udp": [],
     "http": [],
 }
-if inetsim_vm_tags.inetsim_vm_active(unrelated):
+if inetsim_vm_tags.inetsim_vm_active(unrelated, "inetsim"):
     raise SystemExit("FAIL: unrelated task traffic incorrectly enabled INetSim visual")
 
 other_server = "203.0.113.2"
@@ -93,12 +98,12 @@ other_network = {
     "udp": [],
     "http": [],
 }
-if not inetsim_vm_logic.build_route_none_inetsim_context(other_network, other_server).get("enabled"):
+if not inetsim_vm_logic.build_inetsim_route_context(other_network, other_server).get("enabled"):
     raise SystemExit("FAIL: helper is not subnet-independent")
 
 print("PASS: modern CAPE template filters registered")
 print("PASS: task-local INetSim evidence enables visual")
-print("PASS: unrelated task traffic keeps visual hidden")
+print("PASS: unrelated and internet-routed task traffic keeps visual hidden")
 print("PASS: modern visual renders DNS/HTTP evidence")
 print("PASS: helper remains subnet-independent")
 print("STATUS: UNIVERSAL CAPE DJANGO CANDIDATE VALIDATION PASSED")
