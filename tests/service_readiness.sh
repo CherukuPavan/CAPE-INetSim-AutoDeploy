@@ -160,6 +160,13 @@ routing_forwarding_apply
 [[ "$HOST_IPV4_FORWARD_WAS" == 0 ]]
 routing_forwarding_verify
 grep -Fq 'net.ipv4.ip_forward = 1' "$ROUTING_SYSCTL_FILE"
+
+# RC63 regression: deploy/repair both call this helper. CI must execute it,
+# not merely grep for the call site, so a missing definition cannot ship again.
+declare -F services_prepare_route_control_plane >/dev/null
+services_prepare_route_control_plane
+[[ "$FORWARD_VALUE" == 1 ]]
+
 routing_forwarding_rollback
 [[ "$FORWARD_VALUE" == 0 ]]
 [[ ! -e "$ROUTING_SYSCTL_FILE" ]]
