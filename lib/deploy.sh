@@ -571,7 +571,22 @@ deploy_run() {
   require_root
   transaction_lock_acquire
   run_discovery
+  deployment_decision_classify
+  deployment_decision_require_safe
+  discover_cape_runtime || {
+    fail "CAPE Python/runtime discovery failed before any system mutation"
+    return 1
+  }
+  inventory_write_json
   deploy_assert_supported_environment
+
+  case "$DEPLOYMENT_DECISION" in
+    upgrade|repair)
+      info "Decision engine selected $DEPLOYMENT_DECISION; entering ownership-safe in-place migration/repair"
+      exec "$AUTODEPLOY_ROOT/bin/cape-inetsim-repair"
+      ;;
+  esac
+
   deploy_initialize_or_resume_state
 
   if [[ "${DEPLOYMENT_PHASE:-}" == committed ]]; then
