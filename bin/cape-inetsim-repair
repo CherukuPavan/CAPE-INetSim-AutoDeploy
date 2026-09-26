@@ -274,6 +274,14 @@ if [[ -n "${CAPE_INETSIM_RELEASE_TAG:-}" ||
   validate_release_provenance
 fi
 
+DEPLOYMENT_PHASE=handoff-complete
+state_write_atomic
+if [[ "${CAPE_INETSIM_E2E_REQUIRED:-yes}" != no ]]; then
+  "$AUTODEPLOY_ROOT/bin/cape-inetsim-selftest"
+else
+  warn "Automatic CAPE end-to-end self-test explicitly disabled by CAPE_INETSIM_E2E_REQUIRED=no"
+fi
+
 state_set_phase committed
 trap - ERR INT TERM
-pass "Safe task-aware repair completed"
+pass "Safe task-aware repair completed with end-to-end route validation"
