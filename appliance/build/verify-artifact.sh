@@ -79,7 +79,7 @@ if grep -Eq '^ssh_host_.*_key$' <<<"$ssh_listing"; then
 fi
 
 dpkg_status="$(virt-cat -a "$IMAGE" /var/lib/dpkg/status)"
-for pkg in   inetsim qemu-guest-agent xfce4 xfce4-session xfce4-panel xfdesktop4 xfwm4   lightdm lightdm-gtk-greeter accountsservice xserver-xorg-video-qxl   dbus-user-session libglib2.0-bin upower; do
+for pkg in   inetsim qemu-guest-agent xubuntu-desktop-minimal xubuntu-default-settings   lightdm lightdm-gtk-greeter accountsservice xserver-xorg-video-qxl spice-vdagent; do
   grep -Eq "^Package: ${pkg}$" <<<"$dpkg_status" || {
     echo "[FAIL] candidate is missing required package: $pkg" >&2
     exit 6
@@ -92,29 +92,31 @@ grep -Fxq 'qxl_drv.so' <<<"$xorg_drivers" || {
   exit 6
 }
 
-virt-cat -a "$IMAGE" /etc/cape-inetsim-gui-v5 >/dev/null
-xfce_desktop="$(virt-cat -a "$IMAGE" /usr/share/xsessions/xfce.desktop)"
-grep -Eq '^Exec=.*startxfce4' <<<"$xfce_desktop" || {
-  echo "[FAIL] stock XFCE xsession entry does not launch startxfce4" >&2
+virt-cat -a "$IMAGE" /etc/cape-inetsim-gui-v6 >/dev/null
+xubuntu_desktop="$(virt-cat -a "$IMAGE" /usr/share/xsessions/xubuntu.desktop)"
+grep -Eq '^Exec=.*startxfce4' <<<"$xubuntu_desktop" || {
+  echo "[FAIL] Xubuntu xsession entry does not launch startxfce4" >&2
   exit 7
 }
 
 lightdm_policy="$(virt-cat -a "$IMAGE" /etc/lightdm/lightdm.conf.d/99-cape-inetsim-console-login.conf)"
-for required in   'user-session=xfce'   'allow-user-switching=true'   'allow-guest=false'   'greeter-hide-users=false'   'greeter-show-manual-login=true'; do
+for required in   'user-session=xubuntu'   'allow-user-switching=false'   'allow-guest=false'   'greeter-hide-users=false'   'greeter-show-manual-login=false'; do
   grep -Fxq "$required" <<<"$lightdm_policy" || {
-    echo "[FAIL] candidate is missing LightDM console-login policy: $required" >&2
+    echo "[FAIL] candidate is missing LightDM console policy: $required" >&2
     exit 7
   }
 done
 ! grep -Eq '^autologin-user=' <<<"$lightdm_policy" || {
-  echo "[FAIL] candidate unexpectedly enables LightDM autologin" >&2
+  echo "[FAIL] immutable candidate unexpectedly enables LightDM autologin" >&2
   exit 7
 }
 
 passwd_db="$(virt-cat -a "$IMAGE" /etc/passwd)"
-python3 - "$passwd_db" "$IMAGE" <<'PY'
+shadow_db="$(virt-cat -a "$IMAGE" /etc/shadow)"
+python3 - "$passwd_db" "$shadow_db" "$IMAGE" <<'PY'
 import subprocess,sys
-passwd,image=sys.argv[1],sys.argv[2]
+passwd,shadow,image=sys.argv[1:]
+users={}
 for line in passwd.splitlines():
     p=line.split(":")
     if len(p)<7:
@@ -123,50 +125,45 @@ for line in passwd.splitlines():
         uid=int(p[2])
     except ValueError:
         continue
-    user,home,shell=p[0],p[5],p[6]
-    if uid < 1000 or shell.endswith(("nologin","false")):
-        continue
-    dmrc=subprocess.check_output(["virt-cat","-a",image,f"{home}/.dmrc"],text=True)
-    if "Session=xfce" not in dmrc.splitlines():
-        raise SystemExit(f"{user} is missing Session=xfce in .dmrc")
-    acc=subprocess.check_output(["virt-cat","-a",image,f"/var/lib/AccountsService/users/{user}"],text=True)
-    lines=set(acc.splitlines())
-    for required in ("Session=xfce","XSession=xfce","SystemAccount=false"):
-        if required not in lines:
-            raise SystemExit(f"{user} AccountsService mapping missing {required}")
+    users[p[0]]={"uid":uid,"home":p[5],"shell":p[6]}
+
+gui=[u for u,v in users.items() if v["uid"]>=1000 and not v["shell"].endswith(("nologin","false"))]
+if gui != ["capeinetsim"]:
+    raise SystemExit("expected exactly one interactive non-root account (capeinetsim), got: "+",".join(gui))
+
+if "ubuntu" in users and not users["ubuntu"]["shell"].endswith("nologin"):
+    raise SystemExit("cloud bootstrap user ubuntu is still interactive")
+
+dmrc=subprocess.check_output(["virt-cat","-a",image,"/home/capeinetsim/.dmrc"],text=True)
+if "Session=xubuntu" not in dmrc.splitlines():
+    raise SystemExit("capeinetsim .dmrc is not pinned to xubuntu")
+
+acc=subprocess.check_output(["virt-cat","-a",image,"/var/lib/AccountsService/users/capeinetsim"],text=True)
+lines=set(acc.splitlines())
+for required in ("Session=xubuntu","XSession=xubuntu","SystemAccount=false"):
+    if required not in lines:
+        raise SystemExit("capeinetsim AccountsService mapping missing "+required)
+
+if "ubuntu" in users:
+    uacc=subprocess.check_output(["virt-cat","-a",image,"/var/lib/AccountsService/users/ubuntu"],text=True)
+    if "SystemAccount=true" not in uacc.splitlines():
+        raise SystemExit("ubuntu cloud bootstrap account is not hidden from AccountsService")
+
+sh={}
+for line in shadow.splitlines():
+    p=line.split(":")
+    if len(p)>=2:
+        sh[p[0]]=p[1]
+for user in ("root","capeinetsim"):
+    token=sh.get(user,"")
+    if not token or token[0] not in ("!","*"):
+        raise SystemExit(user+" has a usable password in the immutable image")
 PY
 
 ssh_policy="$(virt-cat -a "$IMAGE" /etc/ssh/sshd_config.d/99-cape-inetsim-no-password-auth.conf)"
 grep -Fxq 'PasswordAuthentication no' <<<"$ssh_policy"
 grep -Fxq 'KbdInteractiveAuthentication no' <<<"$ssh_policy"
 grep -Fxq 'PermitRootLogin no' <<<"$ssh_policy"
-
-shadow_db="$(virt-cat -a "$IMAGE" /etc/shadow)"
-python3 - "$passwd_db" "$shadow_db" <<'PY'
-import sys
-pw={}
-for line in sys.argv[1].splitlines():
-    p=line.split(":")
-    if len(p)>=7:
-        try:
-            uid=int(p[2])
-        except ValueError:
-            continue
-        pw[p[0]]=uid
-shadow={}
-for line in sys.argv[2].splitlines():
-    p=line.split(":")
-    if len(p)>=2:
-        shadow[p[0]]=p[1]
-bad=[]
-for user,uid in pw.items():
-    if uid==0 or uid>=1000:
-        token=shadow.get(user,"")
-        if not token or token[0] not in ("!","*"):
-            bad.append(user)
-if bad:
-    raise SystemExit("interactive accounts with usable password hashes: "+",".join(sorted(bad)))
-PY
 
 cloud_instances="$(virt-ls -R -a "$IMAGE" /var/lib/cloud/instances 2>/dev/null || true)"
 [[ -z "${cloud_instances//[[:space:]]/}" ]] || {
