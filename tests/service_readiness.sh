@@ -3,7 +3,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="$(mktemp -d)"
 SERVER_PID=""
-trap '[[ -n "$SERVER_PID" ]] && kill "$SERVER_PID" >/dev/null 2>&1 || true; rm -rf "$TMP"' EXIT
+ROOTER_PID=""
+trap '[[ -n "$SERVER_PID" ]] && kill "$SERVER_PID" >/dev/null 2>&1 || true; [[ -n "$ROOTER_PID" ]] && kill "$ROOTER_PID" >/dev/null 2>&1 || true; rm -rf "$TMP"' EXIT
 
 AUTODEPLOY_ROOT="$ROOT"
 source "$ROOT/lib/common.sh"
@@ -161,11 +162,49 @@ routing_forwarding_apply
 routing_forwarding_verify
 grep -Fq 'net.ipv4.ip_forward = 1' "$ROUTING_SYSCTL_FILE"
 
-# RC63 regression: deploy/repair both call this helper. CI must execute it,
-# not merely grep for the call site, so a missing definition cannot ship again.
+# RC63/64 regression: deploy/repair both call the helper and "systemd active"
+# is insufficient. Start a delayed fake CAPE Rooter datagram socket and prove
+# the production readiness gate waits for a real request/response round trip.
 declare -F services_prepare_route_control_plane >/dev/null
+declare -F services_wait_rooter_ready >/dev/null
+
+CAPE_ROOT="$TMP/cape"
+mkdir -p "$CAPE_ROOT/conf"
+ROOTER_SOCKET="$TMP/cuckoo-rooter"
+cat >"$CAPE_ROOT/conf/cuckoo.conf" <<EOF
+[cuckoo]
+rooter = $ROOTER_SOCKET
+EOF
+
+python3 - "$ROOTER_SOCKET" <<'PY' &
+import json,os,socket,sys,time
+path=sys.argv[1]
+time.sleep(1.25)
+try: os.unlink(path)
+except FileNotFoundError: pass
+s=socket.socket(socket.AF_UNIX,socket.SOCK_DGRAM)
+s.bind(path)
+try:
+    data,addr=s.recvfrom(65536)
+    req=json.loads(data)
+    ok=req.get("command")=="nic_available" and req.get("args")==["lo"]
+    s.sendto(json.dumps({"output": bool(ok), "exception": None}).encode(), addr)
+finally:
+    s.close()
+PY
+ROOTER_PID=$!
+
+CAPE_SERVICE_READY_TIMEOUT=5
+CAPE_SERVICE_READY_POLL=1
+AD_LOG_ROOT="$TMP"
+DEPLOYMENT_ID="rc64-rooter-readiness"
 services_prepare_route_control_plane
+wait "$ROOTER_PID"
+ROOTER_PID=""
 [[ "$FORWARD_VALUE" == 1 ]]
+ROOTER_LOG="$TMP/${DEPLOYMENT_ID}-cape-rooter-readiness.log"
+grep -Fq 'status=waiting' "$ROOTER_LOG"
+grep -Fq 'status=ready' "$ROOTER_LOG"
 
 routing_forwarding_rollback
 [[ "$FORWARD_VALUE" == 0 ]]
