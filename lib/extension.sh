@@ -84,7 +84,6 @@ extension_write_config() {
     printf 'CAPE_GUEST_CONTROL_IP=%q\n' "$CAPE_MACHINE_IP"
     printf 'CAPE_RESULTSERVER_IP=%q\n' "$CAPE_RESULTSERVER_IP"
     printf 'INETSIM_SERVER_IP=%q\n' "$INETSIM_IP"
-    printf 'ANALYSIS_GUEST_IP=%q\n' "$WINDOWS_FAKE_IP"
     printf 'CAPTURE_INTERFACE=%q\n' "$ISOLATED_BRIDGE_NAME"
     printf 'AUTODEPLOY_MANAGED=1\n'
   } >"$cfg"
