@@ -24,6 +24,8 @@ grep -Fq 'web/templates/analysis/network/index.html' "$EXTENSION_BUNDLED_ROOT/sc
 grep -Fq 'web/analysis/templatetags/__init__.py' "$EXTENSION_BUNDLED_ROOT/scripts/verify.sh"
 ! grep -Fq '"web/analysis/templatetags/inetsim_tags.py"' "$EXTENSION_BUNDLED_ROOT/scripts/verify.sh"
 ! grep -Fq '"web/templates/analysis/network/_inetsim_visual.html"' "$EXTENSION_BUNDLED_ROOT/scripts/verify.sh"
+grep -Fq 'CAPE_INETSIM_VM_ROUTE_GATED_V2' "$EXTENSION_BUNDLED_ROOT/scripts/install_production.sh"
+! grep -Fq 'CAPE_INETSIM_VM_ROUTE_NONE_V1' "$EXTENSION_BUNDLED_ROOT/scripts/install_production.sh"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
