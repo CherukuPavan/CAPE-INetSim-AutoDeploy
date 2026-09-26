@@ -337,7 +337,7 @@ cape_configure_inetsim() {
 }
 cape_restore_integration_files() {
   local rel expected current backup backup_sha failures=0
-  for rel in modules/auxiliary/sniffer.py conf/auxiliary.conf conf/kvm.conf conf/processing.conf conf/routing.conf; do
+  for rel in modules/auxiliary/sniffer.py lib/cuckoo/common/abstracts.py lib/cuckoo/core/machinery_manager.py lib/cuckoo/core/analysis_manager.py modules/machinery/kvm.py conf/auxiliary.conf conf/kvm.conf conf/processing.conf conf/routing.conf; do
     backup="$AD_BACKUP_ROOT/${DEPLOYMENT_ID}/$rel"
     [[ -e "$backup" ]] || continue
     backup_sha="$(sha256sum "$backup" | awk '{print $1}')"
@@ -361,6 +361,11 @@ cape_restore_integration_files() {
   done
   local py
   py="$(cape_runtime_python)"
-  "$py" -m py_compile "$CAPE_ROOT/modules/auxiliary/sniffer.py"
+  "$py" -m py_compile \
+    "$CAPE_ROOT/modules/auxiliary/sniffer.py" \
+    "$CAPE_ROOT/lib/cuckoo/common/abstracts.py" \
+    "$CAPE_ROOT/lib/cuckoo/core/machinery_manager.py" \
+    "$CAPE_ROOT/lib/cuckoo/core/analysis_manager.py" \
+    "$CAPE_ROOT/modules/machinery/kvm.py"
   ((failures == 0))
 }
