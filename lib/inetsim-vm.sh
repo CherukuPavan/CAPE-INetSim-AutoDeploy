@@ -99,10 +99,11 @@ inetsim_refresh_baked_gui_appliance() {
   if ! virsh start "$INETSIM_DOMAIN_NAME" >/dev/null ||
      ! qga_wait "$INETSIM_DOMAIN_NAME" 240 ||
      ! qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/sh -c '
-       test -f /etc/cape-inetsim-gui-v4 &&
+       test -f /etc/cape-inetsim-gui-v5 &&
        test -f /usr/lib/xorg/modules/drivers/qxl_drv.so &&
-       test -x /usr/bin/dbus-run-session &&
+       test -x /usr/bin/startxfce4 &&
        test -x /usr/bin/xfce4-session &&
+       test -f /usr/share/xsessions/xfce.desktop &&
        test -f /usr/share/dbus-1/system-services/org.freedesktop.Accounts.service &&
        systemctl list-unit-files lightdm.service >/dev/null 2>&1
      ' >/dev/null 2>&1; then
@@ -187,10 +188,11 @@ inetsim_enable_gui_guest() {
   }
 
   if ! qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/sh -c '
-       ( test -f /etc/cape-inetsim-gui-v4 || test -f /etc/cape-inetsim-gui-v3 || test -f /etc/cape-inetsim-gui-v2 || test -f /etc/cape-inetsim-gui-v1 ) &&
+       ( test -f /etc/cape-inetsim-gui-v5 || test -f /etc/cape-inetsim-gui-v4 || test -f /etc/cape-inetsim-gui-v3 || test -f /etc/cape-inetsim-gui-v2 || test -f /etc/cape-inetsim-gui-v1 ) &&
        test -f /usr/lib/xorg/modules/drivers/qxl_drv.so &&
-       test -x /usr/bin/dbus-run-session &&
+       test -x /usr/bin/startxfce4 &&
        test -x /usr/bin/xfce4-session &&
+       test -f /usr/share/xsessions/xfce.desktop &&
        test -f /usr/share/dbus-1/system-services/org.freedesktop.Accounts.service
      ' >/dev/null 2>&1; then
     info "Existing INetSim appliance has an incomplete/legacy graphical stack; refreshing only the AutoDeploy-owned appliance"
@@ -201,10 +203,11 @@ inetsim_enable_gui_guest() {
   fi
 
   if qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/sh -c '
-       ( test -f /etc/cape-inetsim-gui-v4 || test -f /etc/cape-inetsim-gui-v3 || test -f /etc/cape-inetsim-gui-v2 || test -f /etc/cape-inetsim-gui-v1 ) &&
+       ( test -f /etc/cape-inetsim-gui-v5 || test -f /etc/cape-inetsim-gui-v4 || test -f /etc/cape-inetsim-gui-v3 || test -f /etc/cape-inetsim-gui-v2 || test -f /etc/cape-inetsim-gui-v1 ) &&
        test -f /usr/lib/xorg/modules/drivers/qxl_drv.so &&
-       test -x /usr/bin/dbus-run-session &&
+       test -x /usr/bin/startxfce4 &&
        test -x /usr/bin/xfce4-session &&
+       test -f /usr/share/xsessions/xfce.desktop &&
        test -f /usr/share/dbus-1/system-services/org.freedesktop.Accounts.service
      ' >/dev/null 2>&1; then
     pass "INetSim Ubuntu graphical desktop and QXL display stack already installed"
@@ -281,48 +284,26 @@ inetsim_enable_gui_guest() {
     }
   fi
 
-  qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/sh -c 'test -f /etc/cape-inetsim-gui-v4 || test -f /etc/cape-inetsim-gui-v3 || test -f /etc/cape-inetsim-gui-v2 || test -f /etc/cape-inetsim-gui-v1' >/dev/null 2>&1 || {
+  qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/sh -c 'test -f /etc/cape-inetsim-gui-v5 || test -f /etc/cape-inetsim-gui-v4 || test -f /etc/cape-inetsim-gui-v3 || test -f /etc/cape-inetsim-gui-v2 || test -f /etc/cape-inetsim-gui-v1' >/dev/null 2>&1 || {
     fail "INetSim graphical desktop marker is missing after setup"
     return 1
   }
 
-  # RC58 console policy: use the ordinary LightDM login screen and make the
-  # dedicated XFCE session deterministic. A password is applied only when the
-  # caller explicitly supplies CAPE_INETSIM_GUI_PASSWORD.
+  # RC59: force every interactive user (including the cloud-image "ubuntu"
+  # account shown by LightDM) to the stock XFCE session.
   qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/bash -c '
     set -eu
-    test -x /usr/bin/dbus-run-session
+    test -x /usr/bin/startxfce4
     test -x /usr/bin/xfce4-session
-
-    cat >/usr/local/bin/cape-inetsim-xfce-session <<"EOF"
-#!/bin/sh
-LOG="$HOME/.cape-inetsim-xfce-session.log"
-exec >>"$LOG" 2>&1
-echo "=== CAPE INetSim XFCE session start: $(date -Is) ==="
-export XDG_CURRENT_DESKTOP=XFCE
-export XDG_SESSION_DESKTOP=xfce
-export DESKTOP_SESSION=cape-inetsim-xfce
-exec /usr/bin/dbus-run-session -- /usr/bin/xfce4-session
-EOF
-    chmod 0755 /usr/local/bin/cape-inetsim-xfce-session
-
-    cat >/usr/share/xsessions/cape-inetsim-xfce.desktop <<"EOF"
-[Desktop Entry]
-Name=CAPE INetSim XFCE
-Comment=CAPE INetSim appliance desktop
-Exec=/usr/local/bin/cape-inetsim-xfce-session
-TryExec=/usr/local/bin/cape-inetsim-xfce-session
-Type=Application
-DesktopNames=XFCE
-EOF
-    chmod 0644 /usr/share/xsessions/cape-inetsim-xfce.desktop
+    test -f /usr/share/xsessions/xfce.desktop
 
     install -d -m 0755 /etc/lightdm/lightdm.conf.d
     rm -f /etc/lightdm/lightdm.conf.d/50-cape-inetsim-autologin.conf
     rm -f /etc/lightdm/lightdm.conf.d/99-cape-inetsim-autologin.conf
+    rm -f /etc/lightdm/lightdm.conf.d/99-cape-inetsim-console-login.conf
     cat >/etc/lightdm/lightdm.conf.d/99-cape-inetsim-console-login.conf <<"EOF"
 [Seat:*]
-user-session=cape-inetsim-xfce
+user-session=xfce
 allow-user-switching=true
 allow-guest=false
 greeter-hide-users=false
@@ -330,20 +311,28 @@ greeter-show-manual-login=true
 EOF
 
     install -d -m 0755 /var/lib/AccountsService/users
-    cat >/var/lib/AccountsService/users/capeinetsim <<"EOF"
+    while IFS=: read -r user _ uid _ _ home shell; do
+      case "$uid" in (*[!0-9]*|"") continue;; esac
+      [ "$uid" -ge 1000 ] || continue
+      case "$shell" in */nologin|*/false) continue;; esac
+      [ -d "$home" ] || continue
+
+      cat >"/var/lib/AccountsService/users/$user" <<EOF
 [User]
-Session=cape-inetsim-xfce
-XSession=cape-inetsim-xfce
+Session=xfce
+XSession=xfce
 SystemAccount=false
 EOF
-    chmod 0600 /var/lib/AccountsService/users/capeinetsim
+      chmod 0600 "/var/lib/AccountsService/users/$user"
 
-    cat >/home/capeinetsim/.dmrc <<"EOF"
+      cat >"$home/.dmrc" <<EOF
 [Desktop]
-Session=cape-inetsim-xfce
+Session=xfce
 EOF
-    chown capeinetsim:capeinetsim /home/capeinetsim/.dmrc
-    chmod 0600 /home/capeinetsim/.dmrc
+      chown "$user:$user" "$home/.dmrc"
+      chmod 0600 "$home/.dmrc"
+      rm -f "$home/.xsession" "$home/.xinitrc"
+    done </etc/passwd
 
     install -d -m 0755 /etc/ssh/sshd_config.d
     cat >/etc/ssh/sshd_config.d/99-cape-inetsim-no-password-auth.conf <<"EOF"
@@ -352,9 +341,9 @@ KbdInteractiveAuthentication no
 PermitRootLogin no
 EOF
 
-    touch /etc/cape-inetsim-gui-v4
+    touch /etc/cape-inetsim-gui-v5
   ' >/dev/null 2>&1 || {
-    fail "Could not configure the INetSim console-login policy"
+    fail "Could not map every interactive INetSim account to the stock XFCE session"
     return 1
   }
 
@@ -380,6 +369,23 @@ EOF
     pass "Applied the requested console password to all interactive INetSim appliance accounts"
   fi
 
+  qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/bash -c '
+    set -eu
+    while IFS=: read -r user _ uid _ _ home shell; do
+      case "$uid" in (*[!0-9]*|"") continue;; esac
+      [ "$uid" -ge 1000 ] || continue
+      case "$shell" in */nologin|*/false) continue;; esac
+      [ -d "$home" ] || continue
+      grep -Fxq "Session=xfce" "$home/.dmrc"
+      grep -Fxq "Session=xfce" "/var/lib/AccountsService/users/$user"
+      grep -Fxq "XSession=xfce" "/var/lib/AccountsService/users/$user"
+    done </etc/passwd
+  ' >/dev/null 2>&1 || {
+    fail "One or more interactive INetSim accounts is not mapped to XFCE"
+    return 1
+  }
+  pass "All interactive INetSim accounts are mapped to the stock XFCE desktop"
+
   qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/systemctl set-default graphical.target >/dev/null 2>&1 || true
   qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/systemctl enable lightdm.service >/dev/null 2>&1 || true
   qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/systemctl restart lightdm.service >/dev/null 2>&1 || true
@@ -391,9 +397,10 @@ EOF
     if qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/sh -c '
          systemctl is-active --quiet lightdm.service &&
          test -f /usr/lib/xorg/modules/drivers/qxl_drv.so &&
-         test -f /etc/cape-inetsim-gui-v4 &&
+         test -f /etc/cape-inetsim-gui-v5 &&
          test -S /tmp/.X11-unix/X0 &&
-         pgrep -x Xorg >/dev/null
+         pgrep -x Xorg >/dev/null &&
+         grep -Fxq "user-session=xfce" /etc/lightdm/lightdm.conf.d/99-cape-inetsim-console-login.conf
        ' >/dev/null 2>&1; then
       sleep 3
       if qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/sh -c '
@@ -415,10 +422,10 @@ EOF
       qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/systemctl status lightdm.service --no-pager -l || true
       echo "=== lightdm journal ==="
       qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/journalctl -u lightdm.service -n 160 --no-pager || true
-      echo "=== xorg log ==="
-      qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/sh -c 'tail -n 200 /var/log/Xorg.0.log 2>/dev/null || true' || true
-      echo "=== x11 socket ==="
-      qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/ls -la /tmp/.X11-unix || true
+      echo "=== xsession files ==="
+      qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/ls -la /usr/share/xsessions || true
+      echo "=== user session mappings ==="
+      qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/sh -c 'for f in /var/lib/AccountsService/users/*; do echo "--- $f"; cat "$f"; done' || true
     } >>"$guest_log" 2>&1
     fail "INetSim graphical login screen did not become stable; diagnostics captured at $guest_log"
     return 1
@@ -430,7 +437,7 @@ EOF
     fail "INetSim appliance has no active SPICE graphical display"
     return 1
   }
-  pass "INetSim Ubuntu graphical login is available through virt-manager"
+  pass "INetSim Ubuntu graphical login is available through virt-manager with stock XFCE selected for every interactive user"
 }
 
 inetsim_domain_macs() {
