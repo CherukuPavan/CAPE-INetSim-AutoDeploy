@@ -7,7 +7,7 @@ from pathlib import Path
 import sys
 from urllib.parse import urlsplit
 
-p=argparse.ArgumentParser(description="Validate controlled real CAPE route=none reports against Ubuntu-VM INetSim")
+p=argparse.ArgumentParser(description="Validate controlled real CAPE route=inetsim reports against Ubuntu-VM INetSim")
 p.add_argument("--cape-root",required=True)
 p.add_argument("--inetsim-ip",required=True)
 p.add_argument("--positive-task",required=True)
@@ -158,7 +158,7 @@ errors=[]
 positive_ok=bool(
     positive
     and positive["capture_path"]
-    and positive["route"]=="none"
+    and positive["route"]=="inetsim"
     and positive["uses_inetsim"]
     and positive["context_enabled"]
     and positive["marker_present"]
@@ -166,14 +166,14 @@ positive_ok=bool(
 negative_ok=bool(
     negative
     and negative["capture_path"]
-    and negative["route"]=="none"
+    and negative["route"]=="inetsim"
     and not negative["marker_present"]
 )
 
 if not positive_ok:
-    errors.append("explicit positive task is not a route=none INetSim report containing the required marker with a local pcap")
+    errors.append("explicit positive task is not a route=inetsim report containing the required marker with a local pcap")
 if not negative_ok:
-    errors.append("explicit negative task is not a route=none report without the required marker and a local pcap")
+    errors.append("explicit negative task is not a route=inetsim report without the required marker and a local pcap")
 
 result={
     "schema":2,
@@ -194,8 +194,8 @@ if errors:
         print(f"[FAIL] {e}",file=sys.stderr)
     raise SystemExit(20)
 
-print(f"[PASS] positive route=none task {positive['task_id']} contains marker {marker}; packet capture must prove marker-to-INetSim linkage")
+print(f"[PASS] positive route=inetsim task {positive['task_id']} contains marker {marker}; packet capture must prove marker-to-INetSim linkage")
 if negative["uses_inetsim"]:
-    print(f"[PASS] negative route=none task {negative['task_id']} lacks marker {marker}; background INetSim traffic is allowed")
+    print(f"[PASS] negative route=inetsim task {negative['task_id']} lacks marker {marker}; background INetSim traffic is allowed")
 else:
     print(f"[PASS] negative route=none task {negative['task_id']} lacks marker {marker} and has no INetSim traffic")
