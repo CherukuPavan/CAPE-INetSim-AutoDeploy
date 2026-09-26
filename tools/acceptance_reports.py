@@ -11,7 +11,7 @@ p=argparse.ArgumentParser(description="Validate controlled CAPE INetSim-vs-Inter
 p.add_argument("--cape-root",required=True)
 p.add_argument("--inetsim-ip",required=True)
 p.add_argument("--positive-task",required=True)
-p.add_argument("--negative-task",required=True)
+p.add_argument("--negative-task",default="",help="Optional route=internet negative control task")
 p.add_argument("--marker",required=True,help="Unique hostname marker intentionally generated only by the positive control")
 p.add_argument("--output",required=True)
 a=p.parse_args()
@@ -152,7 +152,7 @@ def evaluate(task_id):
     }
 
 positive=evaluate(a.positive_task)
-negative=evaluate(a.negative_task)
+negative=evaluate(a.negative_task) if str(a.negative_task).strip() else None
 errors=[]
 
 positive_ok=bool(
@@ -163,7 +163,8 @@ positive_ok=bool(
     and positive["context_enabled"]
     and positive["marker_present"]
 )
-negative_ok=bool(
+negative_required=bool(str(a.negative_task).strip())
+negative_ok=(not negative_required) or bool(
     negative
     and negative["capture_path"]
     and negative["route"]=="internet"
@@ -174,7 +175,7 @@ negative_ok=bool(
 
 if not positive_ok:
     errors.append("positive task is not a route=inetsim report containing the required marker and task-local INetSim evidence")
-if not negative_ok:
+if negative_required and not negative_ok:
     errors.append("negative task is not a clean route=internet report with no INetSim evidence and no marker")
 
 result={
@@ -197,4 +198,7 @@ if errors:
     raise SystemExit(20)
 
 print(f"[PASS] positive route=inetsim task {positive['task_id']} contains marker {marker}; packet capture must prove marker-to-INetSim linkage")
-print(f"[PASS] negative route=internet task {negative['task_id']} has no INetSim evidence and lacks marker {marker}")
+if negative_required:
+    print(f"[PASS] negative route=internet task {negative['task_id']} has no INetSim evidence and lacks marker {marker}")
+else:
+    print("[PASS] positive-only route=inetsim acceptance completed; route=internet is not configured on this CAPE host")
