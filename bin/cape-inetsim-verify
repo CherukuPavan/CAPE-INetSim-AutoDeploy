@@ -8,6 +8,8 @@ export AUTODEPLOY_ROOT
 source "$ROOT/lib/common.sh"
 source "$ROOT/lib/targets.sh"
 source "$ROOT/lib/state.sh"
+source "$ROOT/lib/cape.sh"
+source "$ROOT/lib/cape-runtime.sh"
 source "$ROOT/lib/qga.sh"
 source "$ROOT/lib/windows-management-dhcp.sh"
 source "$ROOT/lib/appliance.sh"
@@ -21,6 +23,10 @@ source "$ROOT/lib/validate.sh"
 
 require_root
 state_load || { fail "No deployment state exists"; exit 1; }
+if [[ -z "${CAPE_SCHEDULER_SERVICE:-}" || -z "${CAPE_ROOTER_EXECUTABLE:-}" ]]; then
+  discover_cape_services
+  discover_cape_runtime || true
+fi
 validate_deployment_structural
 validate_deployment_services
 pass "Deployment verification passed"
