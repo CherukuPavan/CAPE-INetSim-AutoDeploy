@@ -18,7 +18,8 @@ APT_OPTS=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::
 
 timeout 300 apt-get "${APT_OPTS[@]}" update
 timeout 1200 apt-get "${APT_OPTS[@]}" install -y --no-install-recommends \
-  xfce4 xfce4-terminal lightdm xserver-xorg dbus-x11 spice-vdagent
+  xfce4 xfce4-terminal lightdm lightdm-gtk-greeter accountsservice \
+  xserver-xorg xserver-xorg-video-qxl dbus-x11 spice-vdagent
 
 if ! id "$GUI_USER" >/dev/null 2>&1; then
   useradd -m -s /bin/bash "$GUI_USER"
