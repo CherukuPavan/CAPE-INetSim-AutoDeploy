@@ -33,7 +33,9 @@ PY
   }
 
   local status_failures=0
-  for ((i=0;i<180;i++)); do
+  local max_wait="${QGA_EXEC_WAIT_SECONDS:-180}"
+  [[ "$max_wait" =~ ^[0-9]+$ && "$max_wait" -ge 1 ]] || max_wait=180
+  for ((i=0;i<max_wait;i++)); do
     if ! status="$(virsh qemu-agent-command "$dom" "{\"execute\":\"guest-exec-status\",\"arguments\":{\"pid\":$pid}}" 2>&1)"; then
       status_failures=$((status_failures+1))
       if ((status_failures >= 15)); then
