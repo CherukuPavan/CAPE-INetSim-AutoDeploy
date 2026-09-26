@@ -30,6 +30,7 @@ rollback_cutover_resources_exist() {
   state_has_owned_kind management-dhcp-host && return 0
   state_has_owned_kind routing-sysctl-file && return 0
   state_has_owned_kind routing-sysctl-runtime && return 0
+  state_has_owned_kind systemd-unit && return 0
   return 1
 }
 
