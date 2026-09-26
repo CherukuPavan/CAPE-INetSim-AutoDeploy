@@ -53,6 +53,126 @@ print(ET.tostring(r,encoding="unicode"))
 '
 }
 
+
+INETSIM_GRAPHICS_CHANGED=no
+
+inetsim_ensure_graphics_console() {
+  local raw="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-inetsim-graphics.xml"
+  local current
+  INETSIM_GRAPHICS_CHANGED=no
+
+  current="$(virsh dumpxml --inactive "$INETSIM_DOMAIN_NAME" 2>/dev/null)" || {
+    fail "Could not read persistent INetSim domain XML for graphical-console setup"
+    return 1
+  }
+
+  if python3 - <<'PY' <<<"$current"
+import sys,xml.etree.ElementTree as ET
+r=ET.fromstring(sys.stdin.read())
+g=r.find("./devices/graphics")
+v=r.find("./devices/video/model")
+ok=(g is not None and g.get("type")=="spice" and v is not None and v.get("type")=="qxl")
+raise SystemExit(0 if ok else 1)
+PY
+  then
+    return 0
+  fi
+
+  python3 - "$raw" <<'PY' <<<"$current"
+import sys,xml.etree.ElementTree as ET
+out=sys.argv[1]
+r=ET.fromstring(sys.stdin.read())
+d=r.find("devices")
+if d is None:
+    raise SystemExit("domain XML has no devices")
+for x in list(d.findall("graphics")):
+    d.remove(x)
+for x in list(d.findall("video")):
+    d.remove(x)
+g=ET.SubElement(d,"graphics",{"type":"spice","autoport":"yes","listen":"127.0.0.1"})
+ET.SubElement(g,"listen",{"type":"address","address":"127.0.0.1"})
+v=ET.SubElement(d,"video")
+ET.SubElement(v,"model",{"type":"qxl","ram":"65536","vram":"65536","vgamem":"16384","heads":"1","primary":"yes"})
+ET.indent(r,space="  ")
+ET.ElementTree(r).write(out,encoding="unicode")
+PY
+
+  virsh define "$raw" >/dev/null || {
+    fail "Could not add persistent SPICE/QXL graphical console to INetSim appliance"
+    return 1
+  }
+
+  INETSIM_GRAPHICS_CHANGED=yes
+  state_record_resource domain-graphics "$INETSIM_DOMAIN_NAME" configured yes "type=spice video=qxl listen=127.0.0.1"
+  state_write_atomic
+  pass "Configured persistent SPICE/QXL graphical console for INetSim appliance"
+}
+
+inetsim_enable_gui_guest() {
+  local remote='/tmp/cape-inetsim-gui-enable'
+  local guest_log="$AD_LOG_ROOT/${DEPLOYMENT_ID}-inetsim-gui-enable.log"
+  local installed=no restart=no
+
+  inetsim_ensure_graphics_console
+  [[ "$INETSIM_GRAPHICS_CHANGED" == yes ]] && restart=yes
+
+  virsh start "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1 || true
+  qga_wait "$INETSIM_DOMAIN_NAME" 240 || {
+    fail "INetSim appliance QEMU Guest Agent did not come online for GUI setup"
+    return 1
+  }
+
+  if qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/test -f /etc/cape-inetsim-gui-v1 >/dev/null 2>&1; then
+    pass "INetSim Ubuntu graphical desktop already installed"
+  else
+    : >"$guest_log"
+    chmod 0600 "$guest_log"
+    qga_file_write "$INETSIM_DOMAIN_NAME" "$AUTODEPLOY_ROOT/appliance/gui-enable.sh" "$remote" >>"$guest_log" 2>&1 || {
+      fail "Could not upload GUI enable helper to INetSim appliance"
+      return 1
+    }
+
+    info "Installing lightweight Ubuntu XFCE desktop inside INetSim appliance; this may take several minutes"
+    if ! QGA_EXEC_WAIT_SECONDS=1500 qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/bash -c       "/bin/bash '$remote' >/var/log/cape-inetsim-gui-enable.log 2>&1" >>"$guest_log" 2>&1; then
+      qga_file_read "$INETSIM_DOMAIN_NAME" /var/log/cape-inetsim-gui-enable.log "$guest_log.guest" >/dev/null 2>&1 || true
+      fail "INetSim Ubuntu graphical desktop installation failed; log captured at $guest_log"
+      return 1
+    fi
+    qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/rm -f "$remote" >/dev/null 2>&1 || true
+    installed=yes
+    restart=yes
+    state_record_resource inetsim-gui "$INETSIM_DOMAIN_NAME" installed yes "desktop=xfce display=spice/qxl"
+    state_write_atomic
+    pass "Installed lightweight Ubuntu XFCE graphical desktop in INetSim appliance"
+  fi
+
+  if [[ "$restart" == yes ]]; then
+    info "Restarting INetSim appliance once to activate its graphical console"
+    virsh shutdown "$INETSIM_DOMAIN_NAME" --mode agent >/dev/null 2>&1 || true
+    local i state
+    for ((i=0;i<60;i++)); do
+      state="$(virsh domstate "$INETSIM_DOMAIN_NAME" 2>/dev/null | tr -d '\r' || true)"
+      [[ "$state" == "shut off" ]] && break
+      sleep 1
+    done
+    state="$(virsh domstate "$INETSIM_DOMAIN_NAME" 2>/dev/null | tr -d '\r' || true)"
+    if [[ "$state" != "shut off" ]]; then
+      virsh destroy "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1 || true
+    fi
+    virsh start "$INETSIM_DOMAIN_NAME" >/dev/null
+    qga_wait "$INETSIM_DOMAIN_NAME" 240 || {
+      fail "INetSim appliance did not return after graphical-console restart"
+      return 1
+    }
+  fi
+
+  qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/bin/test -f /etc/cape-inetsim-gui-v1 >/dev/null 2>&1 || {
+    fail "INetSim graphical desktop marker is missing after setup"
+    return 1
+  }
+  pass "INetSim Ubuntu graphical interface is available through virt-manager"
+}
+
 inetsim_domain_macs() {
   virsh dumpxml "$INETSIM_DOMAIN_NAME" | python3 -c '
 import sys,xml.etree.ElementTree as ET
@@ -171,7 +291,7 @@ inetsim_define_domain() {
 
   local raw="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-inetsim-domain.raw.xml"
   local xml="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-inetsim-domain.xml"
-  virt-install --connect qemu:///system --name "$INETSIM_DOMAIN_NAME" --memory "$INETSIM_MEMORY_MIB" --vcpus 2 --import     --disk "path=$INETSIM_DISK_PATH,format=qcow2,bus=virtio"     --network "network=$MANAGEMENT_NETWORK_NAME,model=virtio"     --network "network=$ISOLATED_NETWORK_NAME,model=virtio"     --os-variant generic --graphics none --noautoconsole --print-xml >"$raw"
+  virt-install --connect qemu:///system --name "$INETSIM_DOMAIN_NAME" --memory "$INETSIM_MEMORY_MIB" --vcpus 2 --import     --disk "path=$INETSIM_DISK_PATH,format=qcow2,bus=virtio"     --network "network=$MANAGEMENT_NETWORK_NAME,model=virtio"     --network "network=$ISOLATED_NETWORK_NAME,model=virtio"     --os-variant generic --graphics "spice,listen=127.0.0.1" --video qxl --noautoconsole --print-xml >"$raw"
   inject_qga_channel <"$raw" >"$xml"
 
   state_record_intent domain "$INETSIM_DOMAIN_NAME" defining "disk=$INETSIM_DISK_PATH"
