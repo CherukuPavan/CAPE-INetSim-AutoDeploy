@@ -76,9 +76,9 @@ else
     cat /home/capeinetsim/.cape-inetsim-xfce-session.log 2>/dev/null || true
     echo "=== lightdm logs ==="
     for f in /var/log/lightdm/*.log; do
-      [ -f "$f" ] || continue
-      echo "--- $f ---"
-      tail -n 250 "$f" || true
+      [ -f "\$f" ] || continue
+      echo "--- \$f ---"
+      tail -n 250 "\$f" || true
     done
   } > /var/log/cape-inetsim-gui-smoke.log 2>&1
 fi
