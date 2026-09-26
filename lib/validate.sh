@@ -68,7 +68,7 @@ validate_recovery_assets() {
 validate_windows_result_path() {
   local f="$1"
   [[ -f "$f" ]] || { fail "Windows verification record missing: $f"; return 1; }
-  python3 - "$f" "${WINDOWS_FAKE_IP:-}" "${INETSIM_IP:-}" <<'PY'
+  ad_python - "$f" "${WINDOWS_FAKE_IP:-}" "${INETSIM_IP:-}" <<'PY'
 import json,sys
 path,expected_fake,expected_dns=sys.argv[1:]
 with open(path,encoding="utf-8-sig") as h:
@@ -111,7 +111,7 @@ validate_windows_result_file() {
 validate_final_snapshot_hardware() {
   local xml
   xml="$(virsh snapshot-dumpxml "$DOMAIN" "$FINAL_SNAPSHOT")" || return 1
-  python3 -c '
+  ad_python -c '
 import sys,xml.etree.ElementTree as ET
 isolated_net,isolated_mac,mgmt_net,mgmt_mac,filter_name,mgmt_ip=sys.argv[1:]
 isolated_mac=isolated_mac.lower(); mgmt_mac=mgmt_mac.lower()
@@ -144,7 +144,7 @@ if not mgmt_guard: raise SystemExit("snapshot does not preserve the Windows mana
 }
 
 validate_cape_configuration() {
-  python3 - "$CAPE_ROOT" "$CAPE_MACHINE_SECTION" "$CAPE_MACHINE_LABEL" "${NORMAL_SNAPSHOT:-}" "$MANAGEMENT_BRIDGE_NAME" "$ISOLATED_BRIDGE_NAME" "$CAPE_MACHINE_IP" "$INETSIM_IP" <<'PY'
+  ad_python - "$CAPE_ROOT" "$CAPE_MACHINE_SECTION" "$CAPE_MACHINE_LABEL" "${NORMAL_SNAPSHOT:-}" "$MANAGEMENT_BRIDGE_NAME" "$ISOLATED_BRIDGE_NAME" "$CAPE_MACHINE_IP" "$INETSIM_IP" <<'PY'
 import configparser,sys
 root,section,label,snapshot,mgmt_iface,inetsim_iface,machine_ip,inetsim_ip=sys.argv[1:]
 def load(name):
@@ -206,7 +206,7 @@ validate_resultserver_host() {
       return 0
     fi
 
-    if systemctl is-failed --quiet cape.service 2>/dev/null; then
+    if [[ -n "${CAPE_SCHEDULER_SERVICE:-}" ]] && systemctl is-failed --quiet "$CAPE_SCHEDULER_SERVICE" 2>/dev/null; then
       [[ -n "$log" ]] && printf '%s machine=%s endpoint=%s:%s attempt=%s elapsed=%ss status=cape-failed\n' \
         "$(date -Is)" "$CAPE_MACHINE_SECTION" "$CAPE_RESULTSERVER_IP" "$CAPE_RESULTSERVER_PORT" "$attempt" "$elapsed" >>"$log"
       fail "CAPE scheduler failed while waiting for ResultServer readiness"
