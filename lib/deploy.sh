@@ -434,56 +434,45 @@ deploy_finish_windows_snapshots() {
 }
 
 deploy_windows_target_cutover() {
+  # Per-task route separation: AutoDeploy no longer rewrites Windows networking,
+  # attaches a fake-Internet NIC, or manufactures a replacement CAPE snapshot.
+  # The existing CAPE analysis baseline remains authoritative. CAPE's rooter
+  # selects Internet vs INetSim vs drop for each task on the host.
   case "${TARGET_PHASE:-discovered}" in
     discovered)
-      info "Preparing CAPE analysis VM $CAPE_MACHINE_SECTION ($DOMAIN)"
-      windows_stop_for_cutover
-      windows_create_safety_snapshot
-      windows_management_dhcp_align_if_needed
-      # A CAPE-configured running-memory snapshot is the strongest known-good
-      # guest-control baseline. Restore it PAUSED so no guest code executes
-      # before anti-spoofing, the isolated NIC and host egress guard exist.
-      if windows_configured_snapshot_is_running_baseline; then
-        windows_restore_configured_snapshot_paused
+      info "Preserving original CAPE analysis VM/network baseline for $CAPE_MACHINE_SECTION ($DOMAIN)"
+      FINAL_SNAPSHOT="${CAPE_MACHINE_SNAPSHOT:-}"
+      WORKING_SNAPSHOT=""
+      SAFETY_SNAPSHOT=""
+      WINDOWS_ISOLATED_MAC=""
+      WINDOWS_ISOLATED_NIC_MODEL=""
+      WINDOWS_BACKEND_USED=""
+      WINDOWS_ORIGINAL_DOMAIN_STATE="${DOMAIN_STATE:-unknown}"
+
+      if [[ -n "$FINAL_SNAPSHOT" ]]; then
+        virsh snapshot-info "$DOMAIN" "$FINAL_SNAPSHOT" >/dev/null 2>&1 || {
+          fail "Configured CAPE snapshot is missing for $CAPE_MACHINE_SECTION: $FINAL_SNAPSHOT"
+          return 1
+        }
       fi
-      windows_management_guard_apply
-      windows_attach_isolated_nic
-      target_state_set_phase nic-attached
-      # Re-render the shared host guard with every target whose management
-      # anti-spoof protection is now active. This preserves previously protected
-      # machines while adding the current one.
-      firewall_enable_windows_management_guard
+
+      target_state_set_phase snapshots-ready
       ;;
-    nic-attached|configured|snapshots-ready|cape-configured)
-      deploy_verify_safety_snapshot
-      windows_management_guard_verify
-      deploy_verify_windows_nic
-      firewall_apply
+    snapshots-ready|cape-configured)
+      if [[ -n "${FINAL_SNAPSHOT:-}" ]]; then
+        virsh snapshot-info "$DOMAIN" "$FINAL_SNAPSHOT" >/dev/null 2>&1 || {
+          fail "Preserved CAPE snapshot disappeared for $CAPE_MACHINE_SECTION: $FINAL_SNAPSHOT"
+          return 1
+        }
+      fi
       ;;
     *)
-      fail "Unknown per-target deployment phase for $CAPE_MACHINE_SECTION: ${TARGET_PHASE:-missing}"
+      fail "Unexpected legacy Windows-mutating deployment phase for $CAPE_MACHINE_SECTION: ${TARGET_PHASE:-missing}; rollback the older deployment before route-separated upgrade"
       return 1
       ;;
   esac
 
-  if [[ "${TARGET_PHASE:-}" == nic-attached ]]; then
-    windows_start_for_cutover
-    windows_select_live_backend
-    windows_configure_selected_backend
-    windows_verify_selected_backend
-    target_state_set_phase configured
-  elif [[ "${TARGET_PHASE:-}" == configured || "${TARGET_PHASE:-}" == snapshots-ready || "${TARGET_PHASE:-}" == cape-configured ]]; then
-    validate_windows_result_file
-  fi
-
-  if [[ "${TARGET_PHASE:-}" == configured ]]; then
-    deploy_finish_windows_snapshots
-  elif [[ "${TARGET_PHASE:-}" == snapshots-ready || "${TARGET_PHASE:-}" == cape-configured ]]; then
-    [[ "$(snapshot_state_memory "$WORKING_SNAPSHOT")" == "shutoff|no" ]]
-    snapshot_is_running_analysis_baseline "$FINAL_SNAPSHOT"
-  fi
-
-  pass "CAPE analysis VM prepared: $CAPE_MACHINE_SECTION -> $DOMAIN"
+  pass "CAPE analysis VM preserved unchanged: $CAPE_MACHINE_SECTION -> $DOMAIN"
 }
 
 deploy_windows_cutover() {
