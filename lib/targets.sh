@@ -228,7 +228,6 @@ targets_discover_all() {
     DISCOVERY_ERRORS=()
     match_selected_domain
     discover_domain_details
-    discover_windows_snapshot_capability
     discover_management_network
     discover_management_network_details
     discover_resultserver
@@ -255,7 +254,7 @@ PY
 }
 
 targets_prepare_after_network_plan() {
-  targets_assign_fake_ips
+  # Route-scoped mode does not assign a persistent fake IP to Windows.
   CAPE_TARGETS_COUNT="$(targets_count)"
   if ((CAPE_TARGETS_COUNT > 0)); then
     targets_bind 0
