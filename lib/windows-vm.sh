@@ -2,7 +2,10 @@
 
 windows_existing_network_interfaces() {
   local dom="$1"
-  virsh dumpxml "$dom" | python3 -c '
+  local mode="${2:-current}"
+  local -a args=(dumpxml "$dom")
+  [[ "$mode" == inactive ]] && args+=(--inactive)
+  virsh "${args[@]}" | python3 -c '
 import sys,xml.etree.ElementTree as ET
 root=ET.fromstring(sys.stdin.read())
 for i in root.findall("./devices/interface"):
@@ -23,7 +26,8 @@ windows_choose_nic_model() {
 }
 
 windows_find_isolated_mac() {
-  windows_existing_network_interfaces "$DOMAIN" | awk -F '|' -v n="$ISOLATED_NETWORK_NAME" '$1==n {print $3}'
+  local mode="${1:-current}"
+  windows_existing_network_interfaces "$DOMAIN" "$mode" | awk -F '|' -v n="$ISOLATED_NETWORK_NAME" '$1==n {print $3}'
 }
 
 windows_isolated_mac_present() {
@@ -63,12 +67,19 @@ PY
 }
 
 windows_attach_isolated_nic() {
-  [[ "$(virsh domstate "$DOMAIN" | xargs)" == "shut off" ]] || { fail "Windows domain must be shut off before persistent NIC attachment"; return 1; }
+  local state
+  state="$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)"
+  case "$state" in
+    "shut off"|paused) ;;
+    *) fail "Windows domain must be shut off or paused before isolated NIC attachment"; return 1 ;;
+  esac
   isolated_network_defaults
   windows_choose_nic_model
   windows_choose_isolated_mac
 
   local -a macs=()
+  local -a attach_args=(--config)
+  [[ "$state" == paused ]] && attach_args+=(--live)
   mapfile -t macs < <(windows_find_isolated_mac | sed '/^$/d')
   if ((${#macs[@]} > 0)); then
     if ((${#macs[@]} == 1)) && [[ "${macs[0],,}" == "${WINDOWS_ISOLATED_MAC,,}" ]]; then
@@ -88,15 +99,22 @@ windows_attach_isolated_nic() {
   fi
 
   state_record_intent domain-interface "$DOMAIN:$WINDOWS_ISOLATED_MAC" attaching "network=$ISOLATED_NETWORK_NAME model=$WINDOWS_ISOLATED_NIC_MODEL"
-  if ! virsh attach-interface --domain "$DOMAIN" --type network --source "$ISOLATED_NETWORK_NAME" --model "$WINDOWS_ISOLATED_NIC_MODEL" --mac "$WINDOWS_ISOLATED_MAC" --config >/dev/null; then
+  if ! virsh attach-interface --domain "$DOMAIN" --type network --source "$ISOLATED_NETWORK_NAME" --model "$WINDOWS_ISOLATED_NIC_MODEL" --mac "$WINDOWS_ISOLATED_MAC" "${attach_args[@]}" >/dev/null; then
     return 1
   fi
 
   mapfile -t macs < <(windows_find_isolated_mac | sed '/^$/d')
   ((${#macs[@]} == 1)) && [[ "${macs[0],,}" == "${WINDOWS_ISOLATED_MAC,,}" ]] || {
-    fail "Could not verify newly attached isolated NIC"
+    fail "Could not verify newly attached isolated NIC in the active domain"
     return 1
   }
+  if [[ "$state" == paused ]]; then
+    mapfile -t macs < <(windows_find_isolated_mac inactive | sed '/^$/d')
+    ((${#macs[@]} == 1)) && [[ "${macs[0],,}" == "${WINDOWS_ISOLATED_MAC,,}" ]] || {
+      fail "Could not verify newly attached isolated NIC in persistent domain XML"
+      return 1
+    }
+  fi
   state_record_resource domain-interface "$DOMAIN:$WINDOWS_ISOLATED_MAC" attached yes "network=$ISOLATED_NETWORK_NAME model=$WINDOWS_ISOLATED_NIC_MODEL"
   state_write_atomic
   pass "Attached isolated NIC $WINDOWS_ISOLATED_MAC using model $WINDOWS_ISOLATED_NIC_MODEL"
@@ -189,6 +207,34 @@ snapshot_is_running_analysis_baseline() {
   local facts
   facts="$(snapshot_state_memory "$1")" || return 1
   [[ "$facts" == "running|internal" || "$facts" == "running|external" ]]
+}
+windows_configured_snapshot_is_running_baseline() {
+  [[ -n "${CAPE_MACHINE_SNAPSHOT:-}" ]] || return 1
+  windows_snapshot_exists "$CAPE_MACHINE_SNAPSHOT" || return 1
+  snapshot_is_running_analysis_baseline "$CAPE_MACHINE_SNAPSHOT"
+}
+
+windows_restore_configured_snapshot_paused() {
+  windows_configured_snapshot_is_running_baseline || {
+    fail "Configured CAPE snapshot is not a valid running-memory analysis baseline: ${CAPE_MACHINE_SNAPSHOT:-<none>}"
+    return 1
+  }
+
+  # Restore the known-good CAPE analysis memory state without allowing guest
+  # code to execute until hypervisor anti-spoofing, the isolated NIC and host
+  # egress guard have all been installed.
+  virsh snapshot-revert "$DOMAIN" "$CAPE_MACHINE_SNAPSHOT" --force --paused >/dev/null || {
+    fail "Could not restore configured CAPE snapshot '$CAPE_MACHINE_SNAPSHOT' in paused state"
+    return 1
+  }
+
+  local state
+  state="$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)"
+  [[ "$state" == paused ]] || {
+    fail "Configured CAPE snapshot restore did not leave '$DOMAIN' paused (state=${state:-unknown})"
+    return 1
+  }
+  pass "Restored configured CAPE running snapshot '$CAPE_MACHINE_SNAPSHOT' in paused state"
 }
 
 windows_create_working_snapshot() {
@@ -373,6 +419,13 @@ windows_rollback_to_safety() {
   fi
 
   state="$(virsh domstate "$DOMAIN" 2>/dev/null | xargs || true)"
+  if [[ "$state" == paused || "$state" == blocked ]]; then
+    # A paused/blocked guest cannot complete an ACPI shutdown. It has not been
+    # allowed to execute past the guarded cutover boundary, so destroy only the
+    # transient runtime before restoring the deployment-owned safety snapshot.
+    virsh destroy "$DOMAIN" >/dev/null 2>&1 || true
+    state="shut off"
+  fi
   if [[ "$state" == running ]]; then
     virsh shutdown "$DOMAIN" >/dev/null 2>&1 || true
     local i

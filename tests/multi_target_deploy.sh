@@ -27,6 +27,8 @@ deploy_ensure_maintenance(){ :; }
 windows_stop_for_cutover(){ echo "stop:$DOMAIN" >>"$LOG"; WINDOWS_ORIGINAL_DOMAIN_STATE="shut off"; }
 windows_create_safety_snapshot(){ SAFETY_SNAPSHOT="pre-$DOMAIN"; echo "safety:$DOMAIN" >>"$LOG"; }
 windows_management_dhcp_align_if_needed(){ echo "dhcp:$DOMAIN" >>"$LOG"; }
+windows_configured_snapshot_is_running_baseline(){ return 0; }
+windows_restore_configured_snapshot_paused(){ echo "restore:$DOMAIN" >>"$LOG"; }
 windows_management_guard_apply(){ echo "guard:$DOMAIN" >>"$LOG"; }
 windows_attach_isolated_nic(){ WINDOWS_ISOLATED_MAC="52:54:00:aa:00:$(printf '%02d' $((TARGET_INDEX+1)))"; echo "nic:$DOMAIN" >>"$LOG"; }
 firewall_enable_windows_management_guard(){ echo "firewall:$DOMAIN" >>"$LOG"; }
@@ -55,6 +57,7 @@ for d in vm-a vm-b vm-c; do
   grep -Fxq "stop:$d" "$LOG"
   grep -Fxq "safety:$d" "$LOG"
   grep -Fxq "dhcp:$d" "$LOG"
+  grep -Fxq "restore:$d" "$LOG"
   grep -Fxq "guard:$d" "$LOG"
   grep -Fxq "nic:$d" "$LOG"
   grep -Fxq "firewall:$d" "$LOG"
@@ -63,6 +66,14 @@ for d in vm-a vm-b vm-c; do
   grep -Fxq "verify:$d" "$LOG"
   grep -Fxq "snapshots:$d" "$LOG"
 done
+
+python3 - "$LOG" <<'PY'
+import sys
+lines=open(sys.argv[1],encoding="utf-8").read().splitlines()
+for domain in ("vm-a","vm-b","vm-c"):
+    pos={name:lines.index(f"{name}:{domain}") for name in ("stop","safety","dhcp","restore","guard","nic","firewall","start","backend","verify","snapshots")}
+    assert pos["stop"] < pos["safety"] < pos["dhcp"] < pos["restore"] < pos["guard"] < pos["nic"] < pos["firewall"] < pos["start"] < pos["backend"]
+PY
 
 [[ "$(grep -c '^configure:' "$LOG")" -eq 3 ]]
 grep -Fxq 'configure:vm-a:198.51.100.10' "$LOG"

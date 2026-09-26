@@ -60,6 +60,16 @@ assert 'cape_agent_wait "$CAPE_MACHINE_IP" 15' in stop
 assert 'windows_poweroff_via_cape_agent "$CAPE_MACHINE_IP"' in stop
 assert 'virsh shutdown "$DOMAIN"' in stop
 assert 'refusing forced cutover' in stop
+restore=s[s.index("windows_restore_configured_snapshot_paused()"):s.index("windows_create_working_snapshot()")]
+assert 'snapshot-revert "$DOMAIN" "$CAPE_MACHINE_SNAPSHOT" --force --paused' in restore
+assert "configured CAPE running snapshot" in restore
+attach=s[s.index("windows_attach_isolated_nic()"):s.index("windows_detach_isolated_nic()")]
+assert '"shut off"|paused' in attach
+assert 'attach_args+=(--live)' in attach
+assert 'windows_find_isolated_mac inactive' in attach
+rollback=s[s.index("windows_rollback_to_safety()"):]
+assert '"$state" == paused || "$state" == blocked' in rollback
+assert 'virsh destroy "$DOMAIN"' in rollback
 PY
 
 
@@ -95,3 +105,32 @@ grep -Fq "windows-config|$DOMAIN|restored-by-safety-snapshot|yes" "$TMP_ROLLBACK
 rm -rf "$TMP_ROLLBACK"
 
 echo '[PASS] safety-snapshot rollback reconciles Windows config/interface ownership'
+
+# SSL-44 regression: a configured CAPE running-memory snapshot must be restored
+# paused so its already-running guest control plane can be reused without an
+# unguarded execution window.
+CAPE_MACHINE_SNAPSHOT=snapshot1
+VM_STATE="shut off"
+SNAP_REVERT_ARGS=""
+virsh() {
+  case "$1" in
+    snapshot-info) return 0 ;;
+    snapshot-dumpxml)
+      cat <<'XML'
+<domainsnapshot><name>snapshot1</name><state>running</state><memory snapshot='internal'/></domainsnapshot>
+XML
+      ;;
+    snapshot-revert)
+      SNAP_REVERT_ARGS="$*"
+      VM_STATE=paused
+      ;;
+    domstate) echo "$VM_STATE" ;;
+    *) return 0 ;;
+  esac
+}
+windows_configured_snapshot_is_running_baseline
+windows_restore_configured_snapshot_paused
+[[ "$VM_STATE" == paused ]]
+grep -Fq 'snapshot-revert testvm snapshot1 --force --paused' <<<"$SNAP_REVERT_ARGS"
+
+echo '[PASS] configured CAPE running snapshot is restored paused for safe control bootstrap'

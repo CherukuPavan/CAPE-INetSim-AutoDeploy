@@ -13,6 +13,10 @@ assert 'parameter",{"name":"IP","value":ip}' in s
 assert "refusing to overwrite operator policy" in s
 assert "state_record_intent domain-interface-filter" in s
 assert "windows_management_guard_restore_if_owned" in s
+assert '"shut off"|paused' in s
+assert 'update_args+=(--live)' in s
+assert 'windows_management_guard_exact current' in s
+assert '"$state" == running || "$state" == paused' in s
 PY
 
 grep -q 'windows_management_guard_apply' "$ROOT/lib/deploy.sh"
