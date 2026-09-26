@@ -114,7 +114,7 @@ def inetsim_vm_active(network):
 @register.filter(name="inetsim_vm_context")
 def inetsim_vm_context(network):
     try:
-        return build_route_none_inetsim_context(network or {{}}, INETSIM_VM_IP)
+        return build_inetsim_route_context(network or {{}}, INETSIM_VM_IP)
     except Exception:
         return {{
             "enabled": False,
