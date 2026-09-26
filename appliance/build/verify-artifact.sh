@@ -43,9 +43,6 @@ grep -Fq 'loop_once(10)' <<<"$dns_pm"
 
 virt-cat -a "$IMAGE" /etc/cloud/cloud-init.disabled >/dev/null
 
-# A sealed release image must not contain deployment-owned or baked static
-# networking. The real target management/fake-Internet addresses are assigned
-# only after deployment identifies both NICs by MAC.
 if virt-cat -a "$IMAGE" /etc/netplan/90-cape-inetsim.yaml >/dev/null 2>&1; then
   echo "[FAIL] candidate already contains deployment-owned netplan state" >&2
   exit 5
@@ -82,14 +79,12 @@ if grep -Eq '^ssh_host_.*_key$' <<<"$ssh_listing"; then
 fi
 
 dpkg_status="$(virt-cat -a "$IMAGE" /var/lib/dpkg/status)"
-# Keep the package checks in shell so package names are visible in logs.
-grep -Eq '^Package: inetsim$' <<<"$dpkg_status"
-grep -Eq '^Package: qemu-guest-agent$' <<<"$dpkg_status"
-grep -Eq '^Package: xfce4$' <<<"$dpkg_status"
-grep -Eq '^Package: lightdm$' <<<"$dpkg_status"
-grep -Eq '^Package: lightdm-gtk-greeter$' <<<"$dpkg_status"
-grep -Eq '^Package: accountsservice$' <<<"$dpkg_status"
-grep -Eq '^Package: xserver-xorg-video-qxl
+for pkg in   inetsim qemu-guest-agent xfce4 xfce4-session xfce4-panel xfdesktop4 xfwm4   lightdm lightdm-gtk-greeter accountsservice xserver-xorg-video-qxl   dbus-user-session libglib2.0-bin upower; do
+  grep -Eq "^Package: ${pkg}$" <<<"$dpkg_status" || {
+    echo "[FAIL] candidate is missing required package: $pkg" >&2
+    exit 6
+  }
+done
 
 xorg_drivers="$(virt-ls -a "$IMAGE" /usr/lib/xorg/modules/drivers 2>/dev/null || true)"
 grep -Fxq 'qxl_drv.so' <<<"$xorg_drivers" || {
@@ -98,12 +93,12 @@ grep -Fxq 'qxl_drv.so' <<<"$xorg_drivers" || {
 }
 
 virt-cat -a "$IMAGE" /etc/cape-inetsim-gui-v3 >/dev/null
-virt-cat -a "$IMAGE" /usr/local/bin/cape-inetsim-xfce-session >/dev/null
+session_wrapper="$(virt-cat -a "$IMAGE" /usr/local/bin/cape-inetsim-xfce-session)"
+grep -Fq 'dbus-run-session -- /usr/bin/xfce4-session' <<<"$session_wrapper"
+
 session_desktop="$(virt-cat -a "$IMAGE" /usr/share/xsessions/cape-inetsim-xfce.desktop)"
 grep -Fxq 'Exec=/usr/local/bin/cape-inetsim-xfce-session' <<<"$session_desktop"
 grep -Fxq 'TryExec=/usr/local/bin/cape-inetsim-xfce-session' <<<"$session_desktop"
-session_wrapper="$(virt-cat -a "$IMAGE" /usr/local/bin/cape-inetsim-xfce-session)"
-grep -Fq 'dbus-run-session -- /usr/bin/xfce4-session' <<<"$session_wrapper"
 
 lightdm_policy="$(virt-cat -a "$IMAGE" /etc/lightdm/lightdm.conf.d/99-cape-inetsim-autologin.conf)"
 for required in   'autologin-user=capeinetsim'   'autologin-user-timeout=0'   'autologin-session=cape-inetsim-xfce'   'user-session=cape-inetsim-xfce'   'pam-autologin-service=lightdm-autologin'   'allow-user-switching=false'   'allow-guest=false'   'greeter-hide-users=true'   'greeter-show-manual-login=false'; do
@@ -118,6 +113,7 @@ grep -Fxq 'Session=cape-inetsim-xfce' <<<"$dmrc"
 
 accounts_user="$(virt-cat -a "$IMAGE" /var/lib/AccountsService/users/capeinetsim)"
 grep -Fxq 'Session=cape-inetsim-xfce' <<<"$accounts_user"
+grep -Fxq 'XSession=cape-inetsim-xfce' <<<"$accounts_user"
 grep -Fxq 'SystemAccount=false' <<<"$accounts_user"
 
 group_file="$(virt-cat -a "$IMAGE" /etc/group)"
@@ -135,7 +131,7 @@ PY
 
 pam_autologin="$(virt-cat -a "$IMAGE" /etc/pam.d/lightdm-autologin)"
 grep -Fq 'pam_permit.so' <<<"$pam_autologin" || {
-  echo "[FAIL] stock LightDM autologin PAM service does not permit passwordless auth" >&2
+  echo "[FAIL] stock LightDM autologin PAM service does not permit autologin" >&2
   exit 7
 }
 
@@ -143,333 +139,24 @@ passwd_db="$(virt-cat -a "$IMAGE" /etc/passwd)"
 shadow_db="$(virt-cat -a "$IMAGE" /etc/shadow)"
 python3 - "$passwd_db" "$shadow_db" <<'PY'
 import sys
-pw = {}
-for line in sys.argv[1].splitlines():
-    parts=line.split(":")
-    if len(parts)>=7:
-        try: uid=int(parts[2])
-        except ValueError: continue
-        pw[parts[0]]=uid
-sh = {}
-for line in sys.argv[2].splitlines():
-    parts=line.split(":")
-    if len(parts)>=2:
-        sh[parts[0]]=parts[1]
-bad=[]
-for user,uid in pw.items():
-    if uid==0 or uid>=1000:
-        token=sh.get(user,"")
-        if not token or token[0] not in ("!","*"):
-            bad.append(user)
-if bad:
-    raise SystemExit("interactive accounts with usable password hashes: "+",".join(sorted(bad)))
-PY
-
-cloud_instances="$(virt-ls -R -a "$IMAGE" /var/lib/cloud/instances 2>/dev/null || true)"
-[[ -z "${cloud_instances//[[:space:]]/}" ]] || {
-  echo "[FAIL] candidate still contains cloud-init instance state" >&2
-  exit 4
-}
-
-echo "[PASS] generalized INetSim appliance artifact verification"
- <<<"$dpkg_status"
-grep -Eq '^Package: dbus-user-session
-
-xorg_drivers="$(virt-ls -a "$IMAGE" /usr/lib/xorg/modules/drivers 2>/dev/null || true)"
-grep -Fxq 'qxl_drv.so' <<<"$xorg_drivers" || {
-  echo "[FAIL] candidate is missing the QXL Xorg driver required by the libvirt SPICE/QXL console" >&2
-  exit 6
-}
-
-virt-cat -a "$IMAGE" /etc/cape-inetsim-gui-v2 >/dev/null
-
-lightdm_policy="$(virt-cat -a "$IMAGE" /etc/lightdm/lightdm.conf.d/99-cape-inetsim-autologin.conf)"
-for required in   'autologin-user=capeinetsim'   'autologin-user-timeout=0'   'autologin-session=xfce'   'user-session=xfce'   'pam-autologin-service=lightdm-autologin'   'allow-user-switching=false'   'allow-guest=false'   'greeter-hide-users=true'   'greeter-show-manual-login=false'; do
-  grep -Fxq "$required" <<<"$lightdm_policy" || {
-    echo "[FAIL] candidate is missing LightDM policy: $required" >&2
-    exit 7
-  }
-done
-
-dmrc="$(virt-cat -a "$IMAGE" /home/capeinetsim/.dmrc)"
-grep -Fxq 'Session=xfce' <<<"$dmrc"
-
-accounts_user="$(virt-cat -a "$IMAGE" /var/lib/AccountsService/users/capeinetsim)"
-grep -Fxq 'Session=xfce' <<<"$accounts_user"
-grep -Fxq 'SystemAccount=false' <<<"$accounts_user"
-
-group_file="$(virt-cat -a "$IMAGE" /etc/group)"
-python3 - "$group_file" <<'PY'
-import sys
-groups={}
+pw={}
 for line in sys.argv[1].splitlines():
     p=line.split(":")
-    if len(p)>=4:
-        groups[p[0]]=[x for x in p[3].split(",") if x]
-for name in ("autologin","nopasswdlogin"):
-    if "capeinetsim" not in groups.get(name,[]):
-        raise SystemExit(f"capeinetsim is not a member of {name}")
-PY
-
-pam_autologin="$(virt-cat -a "$IMAGE" /etc/pam.d/lightdm-autologin)"
-grep -Fq 'pam_permit.so' <<<"$pam_autologin" || {
-  echo "[FAIL] stock LightDM autologin PAM service does not permit passwordless auth" >&2
-  exit 7
-}
-
-passwd_db="$(virt-cat -a "$IMAGE" /etc/passwd)"
-shadow_db="$(virt-cat -a "$IMAGE" /etc/shadow)"
-python3 - "$passwd_db" "$shadow_db" <<'PY'
-import sys
-pw = {}
-for line in sys.argv[1].splitlines():
-    parts=line.split(":")
-    if len(parts)>=7:
-        try: uid=int(parts[2])
-        except ValueError: continue
-        pw[parts[0]]=uid
-sh = {}
+    if len(p)>=7:
+        try:
+            uid=int(p[2])
+        except ValueError:
+            continue
+        pw[p[0]]=uid
+shadow={}
 for line in sys.argv[2].splitlines():
-    parts=line.split(":")
-    if len(parts)>=2:
-        sh[parts[0]]=parts[1]
-bad=[]
-for user,uid in pw.items():
-    if uid==0 or uid>=1000:
-        token=sh.get(user,"")
-        if not token or token[0] not in ("!","*"):
-            bad.append(user)
-if bad:
-    raise SystemExit("interactive accounts with usable password hashes: "+",".join(sorted(bad)))
-PY
-
-cloud_instances="$(virt-ls -R -a "$IMAGE" /var/lib/cloud/instances 2>/dev/null || true)"
-[[ -z "${cloud_instances//[[:space:]]/}" ]] || {
-  echo "[FAIL] candidate still contains cloud-init instance state" >&2
-  exit 4
-}
-
-echo "[PASS] generalized INetSim appliance artifact verification"
- <<<"$dpkg_status"
-grep -Eq '^Package: libglib2.0-bin
-
-xorg_drivers="$(virt-ls -a "$IMAGE" /usr/lib/xorg/modules/drivers 2>/dev/null || true)"
-grep -Fxq 'qxl_drv.so' <<<"$xorg_drivers" || {
-  echo "[FAIL] candidate is missing the QXL Xorg driver required by the libvirt SPICE/QXL console" >&2
-  exit 6
-}
-
-virt-cat -a "$IMAGE" /etc/cape-inetsim-gui-v2 >/dev/null
-
-lightdm_policy="$(virt-cat -a "$IMAGE" /etc/lightdm/lightdm.conf.d/99-cape-inetsim-autologin.conf)"
-for required in   'autologin-user=capeinetsim'   'autologin-user-timeout=0'   'autologin-session=xfce'   'user-session=xfce'   'pam-autologin-service=lightdm-autologin'   'allow-user-switching=false'   'allow-guest=false'   'greeter-hide-users=true'   'greeter-show-manual-login=false'; do
-  grep -Fxq "$required" <<<"$lightdm_policy" || {
-    echo "[FAIL] candidate is missing LightDM policy: $required" >&2
-    exit 7
-  }
-done
-
-dmrc="$(virt-cat -a "$IMAGE" /home/capeinetsim/.dmrc)"
-grep -Fxq 'Session=xfce' <<<"$dmrc"
-
-accounts_user="$(virt-cat -a "$IMAGE" /var/lib/AccountsService/users/capeinetsim)"
-grep -Fxq 'Session=xfce' <<<"$accounts_user"
-grep -Fxq 'SystemAccount=false' <<<"$accounts_user"
-
-group_file="$(virt-cat -a "$IMAGE" /etc/group)"
-python3 - "$group_file" <<'PY'
-import sys
-groups={}
-for line in sys.argv[1].splitlines():
     p=line.split(":")
-    if len(p)>=4:
-        groups[p[0]]=[x for x in p[3].split(",") if x]
-for name in ("autologin","nopasswdlogin"):
-    if "capeinetsim" not in groups.get(name,[]):
-        raise SystemExit(f"capeinetsim is not a member of {name}")
-PY
-
-pam_autologin="$(virt-cat -a "$IMAGE" /etc/pam.d/lightdm-autologin)"
-grep -Fq 'pam_permit.so' <<<"$pam_autologin" || {
-  echo "[FAIL] stock LightDM autologin PAM service does not permit passwordless auth" >&2
-  exit 7
-}
-
-passwd_db="$(virt-cat -a "$IMAGE" /etc/passwd)"
-shadow_db="$(virt-cat -a "$IMAGE" /etc/shadow)"
-python3 - "$passwd_db" "$shadow_db" <<'PY'
-import sys
-pw = {}
-for line in sys.argv[1].splitlines():
-    parts=line.split(":")
-    if len(parts)>=7:
-        try: uid=int(parts[2])
-        except ValueError: continue
-        pw[parts[0]]=uid
-sh = {}
-for line in sys.argv[2].splitlines():
-    parts=line.split(":")
-    if len(parts)>=2:
-        sh[parts[0]]=parts[1]
+    if len(p)>=2:
+        shadow[p[0]]=p[1]
 bad=[]
 for user,uid in pw.items():
     if uid==0 or uid>=1000:
-        token=sh.get(user,"")
-        if not token or token[0] not in ("!","*"):
-            bad.append(user)
-if bad:
-    raise SystemExit("interactive accounts with usable password hashes: "+",".join(sorted(bad)))
-PY
-
-cloud_instances="$(virt-ls -R -a "$IMAGE" /var/lib/cloud/instances 2>/dev/null || true)"
-[[ -z "${cloud_instances//[[:space:]]/}" ]] || {
-  echo "[FAIL] candidate still contains cloud-init instance state" >&2
-  exit 4
-}
-
-echo "[PASS] generalized INetSim appliance artifact verification"
- <<<"$dpkg_status"
-grep -Eq '^Package: upower
-
-xorg_drivers="$(virt-ls -a "$IMAGE" /usr/lib/xorg/modules/drivers 2>/dev/null || true)"
-grep -Fxq 'qxl_drv.so' <<<"$xorg_drivers" || {
-  echo "[FAIL] candidate is missing the QXL Xorg driver required by the libvirt SPICE/QXL console" >&2
-  exit 6
-}
-
-virt-cat -a "$IMAGE" /etc/cape-inetsim-gui-v2 >/dev/null
-
-lightdm_policy="$(virt-cat -a "$IMAGE" /etc/lightdm/lightdm.conf.d/99-cape-inetsim-autologin.conf)"
-for required in   'autologin-user=capeinetsim'   'autologin-user-timeout=0'   'autologin-session=xfce'   'user-session=xfce'   'pam-autologin-service=lightdm-autologin'   'allow-user-switching=false'   'allow-guest=false'   'greeter-hide-users=true'   'greeter-show-manual-login=false'; do
-  grep -Fxq "$required" <<<"$lightdm_policy" || {
-    echo "[FAIL] candidate is missing LightDM policy: $required" >&2
-    exit 7
-  }
-done
-
-dmrc="$(virt-cat -a "$IMAGE" /home/capeinetsim/.dmrc)"
-grep -Fxq 'Session=xfce' <<<"$dmrc"
-
-accounts_user="$(virt-cat -a "$IMAGE" /var/lib/AccountsService/users/capeinetsim)"
-grep -Fxq 'Session=xfce' <<<"$accounts_user"
-grep -Fxq 'SystemAccount=false' <<<"$accounts_user"
-
-group_file="$(virt-cat -a "$IMAGE" /etc/group)"
-python3 - "$group_file" <<'PY'
-import sys
-groups={}
-for line in sys.argv[1].splitlines():
-    p=line.split(":")
-    if len(p)>=4:
-        groups[p[0]]=[x for x in p[3].split(",") if x]
-for name in ("autologin","nopasswdlogin"):
-    if "capeinetsim" not in groups.get(name,[]):
-        raise SystemExit(f"capeinetsim is not a member of {name}")
-PY
-
-pam_autologin="$(virt-cat -a "$IMAGE" /etc/pam.d/lightdm-autologin)"
-grep -Fq 'pam_permit.so' <<<"$pam_autologin" || {
-  echo "[FAIL] stock LightDM autologin PAM service does not permit passwordless auth" >&2
-  exit 7
-}
-
-passwd_db="$(virt-cat -a "$IMAGE" /etc/passwd)"
-shadow_db="$(virt-cat -a "$IMAGE" /etc/shadow)"
-python3 - "$passwd_db" "$shadow_db" <<'PY'
-import sys
-pw = {}
-for line in sys.argv[1].splitlines():
-    parts=line.split(":")
-    if len(parts)>=7:
-        try: uid=int(parts[2])
-        except ValueError: continue
-        pw[parts[0]]=uid
-sh = {}
-for line in sys.argv[2].splitlines():
-    parts=line.split(":")
-    if len(parts)>=2:
-        sh[parts[0]]=parts[1]
-bad=[]
-for user,uid in pw.items():
-    if uid==0 or uid>=1000:
-        token=sh.get(user,"")
-        if not token or token[0] not in ("!","*"):
-            bad.append(user)
-if bad:
-    raise SystemExit("interactive accounts with usable password hashes: "+",".join(sorted(bad)))
-PY
-
-cloud_instances="$(virt-ls -R -a "$IMAGE" /var/lib/cloud/instances 2>/dev/null || true)"
-[[ -z "${cloud_instances//[[:space:]]/}" ]] || {
-  echo "[FAIL] candidate still contains cloud-init instance state" >&2
-  exit 4
-}
-
-echo "[PASS] generalized INetSim appliance artifact verification"
- <<<"$dpkg_status"
-
-xorg_drivers="$(virt-ls -a "$IMAGE" /usr/lib/xorg/modules/drivers 2>/dev/null || true)"
-grep -Fxq 'qxl_drv.so' <<<"$xorg_drivers" || {
-  echo "[FAIL] candidate is missing the QXL Xorg driver required by the libvirt SPICE/QXL console" >&2
-  exit 6
-}
-
-virt-cat -a "$IMAGE" /etc/cape-inetsim-gui-v2 >/dev/null
-
-lightdm_policy="$(virt-cat -a "$IMAGE" /etc/lightdm/lightdm.conf.d/99-cape-inetsim-autologin.conf)"
-for required in   'autologin-user=capeinetsim'   'autologin-user-timeout=0'   'autologin-session=xfce'   'user-session=xfce'   'pam-autologin-service=lightdm-autologin'   'allow-user-switching=false'   'allow-guest=false'   'greeter-hide-users=true'   'greeter-show-manual-login=false'; do
-  grep -Fxq "$required" <<<"$lightdm_policy" || {
-    echo "[FAIL] candidate is missing LightDM policy: $required" >&2
-    exit 7
-  }
-done
-
-dmrc="$(virt-cat -a "$IMAGE" /home/capeinetsim/.dmrc)"
-grep -Fxq 'Session=xfce' <<<"$dmrc"
-
-accounts_user="$(virt-cat -a "$IMAGE" /var/lib/AccountsService/users/capeinetsim)"
-grep -Fxq 'Session=xfce' <<<"$accounts_user"
-grep -Fxq 'SystemAccount=false' <<<"$accounts_user"
-
-group_file="$(virt-cat -a "$IMAGE" /etc/group)"
-python3 - "$group_file" <<'PY'
-import sys
-groups={}
-for line in sys.argv[1].splitlines():
-    p=line.split(":")
-    if len(p)>=4:
-        groups[p[0]]=[x for x in p[3].split(",") if x]
-for name in ("autologin","nopasswdlogin"):
-    if "capeinetsim" not in groups.get(name,[]):
-        raise SystemExit(f"capeinetsim is not a member of {name}")
-PY
-
-pam_autologin="$(virt-cat -a "$IMAGE" /etc/pam.d/lightdm-autologin)"
-grep -Fq 'pam_permit.so' <<<"$pam_autologin" || {
-  echo "[FAIL] stock LightDM autologin PAM service does not permit passwordless auth" >&2
-  exit 7
-}
-
-passwd_db="$(virt-cat -a "$IMAGE" /etc/passwd)"
-shadow_db="$(virt-cat -a "$IMAGE" /etc/shadow)"
-python3 - "$passwd_db" "$shadow_db" <<'PY'
-import sys
-pw = {}
-for line in sys.argv[1].splitlines():
-    parts=line.split(":")
-    if len(parts)>=7:
-        try: uid=int(parts[2])
-        except ValueError: continue
-        pw[parts[0]]=uid
-sh = {}
-for line in sys.argv[2].splitlines():
-    parts=line.split(":")
-    if len(parts)>=2:
-        sh[parts[0]]=parts[1]
-bad=[]
-for user,uid in pw.items():
-    if uid==0 or uid>=1000:
-        token=sh.get(user,"")
+        token=shadow.get(user,"")
         if not token or token[0] not in ("!","*"):
             bad.append(user)
 if bad:
