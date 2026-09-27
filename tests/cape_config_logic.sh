@@ -93,6 +93,7 @@ check_cape_layout
 grep -Fq 'inetsim enabled yes' "$ROOT/lib/cape-configure.sh"
 grep -Fq 'inetsim server "$INETSIM_IP"' "$ROOT/lib/cape-configure.sh"
 grep -Fq 'inetsim interface "$ISOLATED_BRIDGE_NAME"' "$ROOT/lib/cape-configure.sh"
+grep -Fq 'routing route none' "$ROOT/lib/cape-configure.sh"
 grep -Fq 'CAPE_INETSIM_AUTODEPLOY_CAPTURE_V2' "$ROOT/lib/validate.sh"
 grep -Fq 'inetsim_capture_host_${CAPE_MACHINE_LABEL}" "$CAPE_MACHINE_IP"' "$ROOT/lib/cape-configure.sh"
 grep -Fq 'cape_probe_inetsim_rooter_all' "$ROOT/lib/validate.sh"

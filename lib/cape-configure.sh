@@ -145,6 +145,9 @@ cape_configure_inetsim() {
   python3 "$edit" "$CAPE_ROOT/conf/processing.conf" network dnswhitelist no
   python3 "$edit" "$CAPE_ROOT/conf/processing.conf" network ipwhitelist no
   python3 "$edit" "$CAPE_ROOT/conf/routing.conf" routing enable_pcap yes
+  # Safe global fallback: an analysis task must explicitly select internet or inetsim.
+  # This prevents an omitted route from inheriting real external Internet access.
+  python3 "$edit" "$CAPE_ROOT/conf/routing.conf" routing route none
   python3 "$edit" "$CAPE_ROOT/conf/routing.conf" inetsim enabled yes
   python3 "$edit" "$CAPE_ROOT/conf/routing.conf" inetsim server "$INETSIM_IP"
   python3 "$edit" "$CAPE_ROOT/conf/routing.conf" inetsim dnsport 53
