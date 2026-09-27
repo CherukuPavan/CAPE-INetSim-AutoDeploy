@@ -96,7 +96,7 @@ grep -Fq 'status=ready' "$LOG"
 
 # Static guards for the production path.
 grep -Fq 'CAPE_RESULTSERVER_READY_TIMEOUT:-90' "$ROOT/lib/validate.sh"
-grep -Fq 'systemctl is-failed --quiet cape.service' "$ROOT/lib/validate.sh"
+grep -Fq 'systemctl is-failed --quiet "$CAPE_SCHEDULER_SERVICE"' "$ROOT/lib/validate.sh"
 grep -Fq 'Timed out waiting ${ready_timeout}s for CAPE ResultServer readiness' "$ROOT/lib/validate.sh"
 grep -Fq 'services_wait_expected_active' "$ROOT/lib/services.sh"
 
@@ -115,8 +115,10 @@ fi
 grep -Fq 'services_wait_expected_active' "$ROOT/lib/services.sh"
 grep -Fq 'CAPE_SERVICE_READY_TIMEOUT' "$ROOT/lib/services.sh"
 grep -Fq 'net.ipv4.ip_forward = 1' "$ROOT/lib/services.sh"
-grep -Fq 'systemctl enable cape-rooter.service' "$ROOT/lib/services.sh"
-grep -Fq 'systemctl restart cape-rooter.service' "$ROOT/lib/services.sh"
+grep -Fq 'systemctl enable "$CAPE_ROOTER_SERVICE"' "$ROOT/lib/services.sh"
+grep -Fq 'systemctl restart "$CAPE_ROOTER_SERVICE"' "$ROOT/lib/services.sh"
+grep -Fq 'services_ensure_rooter_service' "$ROOT/lib/services.sh"
+grep -Fq 'services_rooter_socket_probe' "$ROOT/lib/services.sh"
 grep -Fq 'services_activate_deployment_state' "$ROOT/lib/deploy.sh"
 grep -Fq 'services_validate_deployment_state' "$ROOT/lib/validate.sh"
 grep -Fq 'routing_forwarding_apply' "$ROOT/bin/cape-inetsim-repair"
@@ -198,6 +200,11 @@ CAPE_SERVICE_READY_TIMEOUT=5
 CAPE_SERVICE_READY_POLL=1
 AD_LOG_ROOT="$TMP"
 DEPLOYMENT_ID="rc64-rooter-readiness"
+CAPE_SCHEDULER_SERVICE="test-scheduler.service"
+CAPE_ROOTER_SERVICE="test-rooter.service"
+CAPE_ROOTER_EXECUTABLE="$CAPE_ROOT/utils/rooter.py"
+mkdir -p "$CAPE_ROOT/utils"
+: >"$CAPE_ROOTER_EXECUTABLE"
 services_prepare_route_control_plane
 wait "$ROOTER_PID"
 ROOTER_PID=""
@@ -213,7 +220,7 @@ routing_forwarding_rollback
 grep -Fq 'services_prepare_route_control_plane' "$ROOT/lib/deploy.sh"
 grep -Fq 'services_activate_deployment_state' "$ROOT/lib/deploy.sh"
 grep -Fq 'routing_forwarding_apply' "$ROOT/bin/cape-inetsim-repair"
-grep -Fq 'systemctl enable cape-rooter.service' "$ROOT/bin/cape-inetsim-repair"
+grep -Fq 'services_prepare_route_control_plane' "$ROOT/bin/cape-inetsim-repair"
 grep -Fq 'routing_forwarding_rollback' "$ROOT/lib/rollback.sh"
 grep -Fq 'cape_probe_inetsim_rooter_all' "$ROOT/lib/validate.sh"
 
