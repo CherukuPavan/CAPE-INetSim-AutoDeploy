@@ -158,5 +158,6 @@ grep -Fq 'CAPE_INETSIM_RUNTIME_DISCOVERY_V3' "$EXTENSION_BUNDLED_ROOT/scripts/in
 grep -Fq 'systemctl show "$CAPE_WEB_SERVICE"' "$EXTENSION_BUNDLED_ROOT/scripts/install_production.sh"
 grep -Fq 'env info --executable' "$EXTENSION_BUNDLED_ROOT/scripts/install_production.sh"
 grep -Fq '/proc/$CAPE_WEB_PID/cmdline' "$EXTENSION_BUNDLED_ROOT/scripts/install_production.sh"
+grep -Fq 'cd "$CAPE_ROOT"' "$EXTENSION_BUNDLED_ROOT/scripts/install_production.sh"
 
 echo '[PASS] vendored extension v1.0.2 supports modern CAPE, managed preflight, stale-runtime refresh, and protected RC44 upgrade'
