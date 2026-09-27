@@ -45,7 +45,7 @@ cape_agent_curl() {
 cape_agent_probe() {
   local ip="$1" body
   body="$(cape_agent_curl "$ip" -fsS --connect-timeout "$CAPE_AGENT_TIMEOUT" --max-time "$CAPE_AGENT_TIMEOUT" "$(cape_agent_url "$ip")/" 2>/dev/null)" || return 1
-  python3 - "$body" <<'PY'
+  ad_python - "$body" <<'PY'
 import json,sys
 try:
     d=json.loads(sys.argv[1])
@@ -101,7 +101,7 @@ cape_agent_remove() {
 cape_agent_write_runner_config() {
   local out="$1" remote_ps="$2"
   shift 2
-  python3 - "$out" "$remote_ps" "$CAPE_AGENT_GUEST_TIMEOUT" "$@" <<'PY'
+  ad_python - "$out" "$remote_ps" "$CAPE_AGENT_GUEST_TIMEOUT" "$@" <<'PY'
 import json,pathlib,sys
 out,script,timeout,*args=sys.argv[1:]
 doc={"schema":1,"script":script,"arguments":args,"timeout":int(timeout)}
@@ -112,7 +112,7 @@ PY
 
 cape_agent_decode_execpy_log() {
   local json_log="$1" text_log="$2"
-  python3 - "$json_log" "$text_log" <<'PY'
+  ad_python - "$json_log" "$text_log" <<'PY'
 import base64,json,pathlib,sys
 src,dst=sys.argv[1:]
 lines=[]
@@ -143,7 +143,7 @@ PY
 
 cape_agent_extract_runner_envelope() {
   local json_log="$1" local_result="$2" text_log="$3"
-  python3 - "$json_log" "$local_result" "$text_log" <<'PY'
+  ad_python - "$json_log" "$local_result" "$text_log" <<'PY'
 import base64,json,pathlib,sys
 src,result_path,text_path=sys.argv[1:]
 prefix="CAPE_INETSIM_RUNNER_V1:"
@@ -269,7 +269,7 @@ cape_agent_reap_async_state() {
   local ip="$1" timeout="${2:-30}" elapsed=0 body="" status=""
   while ((elapsed < timeout)); do
     if body="$(cape_agent_status "$ip" 5 2>/dev/null)"; then
-      status="$(python3 - "$body" <<'PY'
+      status="$(ad_python - "$body" <<'PY'
 import json,sys
 try:
     d=json.loads(sys.argv[1])
@@ -298,7 +298,7 @@ cape_agent_wait_async_success() {
   local ip="$1" timeout="${2:-30}" elapsed=0 body="" status=""
   while ((elapsed < timeout)); do
     if body="$(cape_agent_status "$ip" 5 2>/dev/null)"; then
-      status="$(python3 - "$body" <<'PY'
+      status="$(ad_python - "$body" <<'PY'
 import json,sys
 try:
     d=json.loads(sys.argv[1])
@@ -346,7 +346,7 @@ cape_agent_execpy_async_detached() {
   ((curl_rc == 0)) || return 1
   [[ "$http" == 200 ]] || return 1
 
-  python3 - "$log_file" <<'PY'
+  ad_python - "$log_file" <<'PY'
 import json,sys
 try:
     d=json.load(open(sys.argv[1],encoding="utf-8"))
@@ -369,7 +369,7 @@ cape_agent_finalize_isolated_control() {
   local cfg="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-$(ad_safe_token "$DOMAIN")-${stem}.json"
   local log="$AD_LOG_ROOT/${DEPLOYMENT_ID}-$(ad_safe_token "$DOMAIN")-${stem}-cape-agent-execpy.json"
 
-  python3 - "$cfg" "$CAPE_AGENT_CLIENT_IP" <<'PY'
+  ad_python - "$cfg" "$CAPE_AGENT_CLIENT_IP" <<'PY'
 import json,pathlib,sys
 path,client=sys.argv[1:]
 pathlib.Path(path).write_text(json.dumps({
@@ -533,7 +533,7 @@ cape_agent_run_powershell_sync() {
 
 validate_cape_agent_stage_result_path() {
   local path="$1" fake_ip="$2" isolated_mac="$3" client_ip="$4" gateway_ip="$5"
-  python3 - "$path" "$fake_ip" "$isolated_mac" "$client_ip" "$gateway_ip" "$CAPE_AGENT_PORT" <<'PY'
+  ad_python - "$path" "$fake_ip" "$isolated_mac" "$client_ip" "$gateway_ip" "$CAPE_AGENT_PORT" <<'PY'
 import json,re,sys
 path,fake_ip,want_mac,client_ip,gateway_ip,port=sys.argv[1:]
 d=json.load(open(path,encoding="utf-8-sig"))
