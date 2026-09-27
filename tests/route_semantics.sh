@@ -15,6 +15,9 @@ grep -Fq 'CAPE_INETSIM_AUTODEPLOY_TASK_NETWORK_V2' "$ROOT/tools/patch_cape_runti
 # protection without modifying a real CAPE tree.
 mkdir -p "$TMP/cape/lib/cuckoo/core" "$TMP/cape/utils" "$TMP/cape/modules/processing" "$TMP/cape/web/templates/submission"
 cat >"$TMP/cape/utils/rooter.py" <<'PY'
+class ServicePaths:
+    iptables = "/sbin/iptables"
+
 def drop_enable(ipaddr, resultserver_port):
     pass
 
