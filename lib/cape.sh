@@ -220,16 +220,6 @@ PY
 )"
 }
 
-discover_cape_services() {
-  CAPE_SERVICES=()
-  local s
-  for s in cape cape-web cape-processor cape-rooter; do
-    if systemctl cat "$s" >/dev/null 2>&1; then
-      CAPE_SERVICES+=("$s:$(systemctl is-active "$s" 2>/dev/null || true)")
-    fi
-  done
-}
-
 discover_cape_machine_records() {
   CAPE_MACHINE_RECORDS=()
   [[ -n "${CAPE_ROOT:-}" ]] || return 0
