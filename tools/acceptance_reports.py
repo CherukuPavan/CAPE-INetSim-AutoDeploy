@@ -184,6 +184,7 @@ positive_ok=bool(
     and positive["uses_inetsim"]
     and positive["context_enabled"]
     and positive["marker_present"]
+    and positive["marker_reached_inetsim"]
 )
 negative_ok=bool(
     negative
