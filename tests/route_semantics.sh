@@ -134,7 +134,9 @@ calls=[]
 
 def run(*args):
     calls.append(("run",args))
-    if len(args)>=2 and args[-2:] == ("-D", "unused"):
+    if len(args) >= 3 and args[-2:] == ("-F", args[-1]):
+        return "", ""
+    if "-N" in args or "-X" in args:
         return "", ""
     return "", "not found"
 
