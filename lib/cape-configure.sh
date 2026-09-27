@@ -161,8 +161,8 @@ cape_configure_inetsim() {
   "$py" -m py_compile "$CAPE_ROOT/utils/rooter.py" "$CAPE_ROOT/lib/cuckoo/core/analysis_manager.py" "$CAPE_ROOT/modules/processing/network.py" "$CAPE_ROOT/modules/processing/autodeploy_task_network.py"
 
   state_record_resource cape-file "$CAPE_ROOT/modules/auxiliary/sniffer.py" modified yes "route-aware-capture-override"
-  state_record_resource cape-file "$CAPE_ROOT/utils/rooter.py" modified yes "strict-drop-route-policy"
-  state_record_resource cape-file "$CAPE_ROOT/lib/cuckoo/core/analysis_manager.py" modified yes "stale-strict-drop-reset"
+  state_record_resource cape-file "$CAPE_ROOT/utils/rooter.py" modified yes "per-task-route-policy"
+  state_record_resource cape-file "$CAPE_ROOT/lib/cuckoo/core/analysis_manager.py" modified yes "stale-route-policy-reset"
   state_record_resource cape-file "$CAPE_ROOT/modules/processing/network.py" modified yes "task-attributed-network-view"
   state_record_resource cape-file "$CAPE_ROOT/modules/processing/autodeploy_task_network.py" modified yes "task-network-filter"
   state_record_resource cape-file "$CAPE_ROOT/web/templates/submission/index.html" modified yes "route-semantics-ui"
