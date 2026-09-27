@@ -14,6 +14,22 @@ grep -Fq 'CAPE_INETSIM_AUTODEPLOY_TASK_NETWORK_V2' "$ROOT/tools/patch_cape_runti
 # exercise the same patcher twice. The second pass proves marker/idempotency
 # protection without modifying a real CAPE tree.
 mkdir -p "$TMP/cape/lib/cuckoo/core" "$TMP/cape/utils" "$TMP/cape/modules/processing" "$TMP/cape/web/templates/submission"
+cat >"$TMP/cape/lib/cuckoo/core/startup.py" <<'PY'
+def init_routing():
+    if routing.inetsim.enabled and routing.inetsim.interface and not _skip_rooter:
+        is_nic_available = rooter("nic_available", routing.inetsim.interface)["output"]
+        if not is_nic_available:
+            raise CuckooStartupError("The network interface that has been configured as inetsim line is not available")
+
+        # Disable & enable NAT on this network interface. Disable it just
+        # in case we still had the same rule from a previous run.
+        rooter("disable_nat", routing.inetsim.interface)
+        rooter("enable_nat", routing.inetsim.interface)
+
+        if routing.routing.auto_rt:
+            rooter("flush_rttable", routing.routing.rt_table)
+            rooter("init_rttable", routing.routing.rt_table, routing.routing.internet)
+PY
 cat >"$TMP/cape/utils/rooter.py" <<'PY'
 class ServicePaths:
     iptables = "/sbin/iptables"
@@ -114,6 +130,7 @@ checks={
     "lib/cuckoo/core/analysis_manager.py":"CAPE_INETSIM_AUTODEPLOY_ROUTE_V4",
     "modules/processing/network.py":"CAPE_INETSIM_AUTODEPLOY_TASK_NETWORK_V2",
     "web/templates/submission/index.html":"CAPE_INETSIM_AUTODEPLOY_ROUTE_UI_V2",
+    "lib/cuckoo/core/startup.py":"CAPE_INETSIM_AUTODEPLOY_INETSIM_NO_NAT_V1",
 }
 for rel,marker in checks.items():
     text=(root/rel).read_text()
@@ -132,6 +149,10 @@ expected_internet = """            self.rooter_response = rooter(
                 str(self.machine.resultserver_port),
             )"""
 assert expected_internet in analysis
+startup=(root/"lib/cuckoo/core/startup.py").read_text()
+assert "CAPE_INETSIM_AUTODEPLOY_INETSIM_NO_NAT_V1" in startup
+assert 'rooter("disable_nat", routing.inetsim.interface)' in startup
+assert 'rooter("enable_nat", routing.inetsim.interface)' not in startup
 print("RC66 patcher idempotency/marker checks passed")
 PY
 

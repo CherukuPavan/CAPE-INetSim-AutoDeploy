@@ -250,6 +250,12 @@ print("RC66 CAPE route policy configuration PASS")
 PY
 
   grep -Fq 'CAPE_INETSIM_AUTODEPLOY_ROUTE_V4' "$CAPE_ROOT/utils/rooter.py"
+  grep -Fq 'CAPE_INETSIM_AUTODEPLOY_INETSIM_NO_NAT_V1' "$CAPE_ROOT/lib/cuckoo/core/startup.py"
+  if iptables-save -t nat 2>/dev/null |
+      grep -Eq -- "-A POSTROUTING .* -o ${ISOLATED_BRIDGE_NAME} .* -j MASQUERADE"; then
+    fail "Isolated INetSim bridge ${ISOLATED_BRIDGE_NAME} has a CAPE-rooter MASQUERADE rule"
+    return 1
+  fi
   grep -Fq '"autodeploy_route_policy_set": autodeploy_route_policy_set' "$CAPE_ROOT/utils/rooter.py"
   grep -Fq '"autodeploy_route_policy_reset": autodeploy_route_policy_reset' "$CAPE_ROOT/utils/rooter.py"
   grep -Fq 'CAPE_INETSIM_AUTODEPLOY_ROUTE_V3' "$CAPE_ROOT/lib/cuckoo/core/analysis_manager.py"

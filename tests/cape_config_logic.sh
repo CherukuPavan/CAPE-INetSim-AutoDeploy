@@ -30,6 +30,14 @@ echo '[PASS] route-aware CAPE sniffer patch logic'
 source "$ROOT/lib/compat.sh"
 CAPE_ROOT="$TMP/cape"
 mkdir -p "$CAPE_ROOT/conf" "$CAPE_ROOT/modules/auxiliary" "$CAPE_ROOT/web/analysis" "$CAPE_ROOT/lib/cuckoo/core/data"
+cat >"$CAPE_ROOT/lib/cuckoo/core/startup.py" <<'PY'
+def init_routing():
+    if routing.inetsim.enabled and routing.inetsim.interface and not _skip_rooter:
+        is_nic_available = rooter("nic_available", routing.inetsim.interface)["output"]
+        if routing.routing.auto_rt:
+            rooter("flush_rttable", routing.routing.rt_table)
+            rooter("init_rttable", routing.routing.rt_table, routing.routing.internet)
+PY
 
 cat >"$CAPE_ROOT/lib/cuckoo/core/data/machines.py" <<'PY'
 class Machine(Base):
