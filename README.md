@@ -1,61 +1,36 @@
 # CAPE-INetSim-AutoDeploy
 
-Universal, reusable deployment automation for integrating a dedicated Ubuntu-VM INetSim appliance with an existing CAPEv2 + Windows analysis environment.
+Universal deployment automation for integrating a dedicated Ubuntu/XFCE INetSim appliance with an existing CAPEv2 + KVM/libvirt + Windows analysis environment.
 
-## Product goal
+## Goal
 
-On a supported CAPE host that already has KVM/libvirt, a working CAPEv2 installation, and at least one working Windows analysis VM, the finished v1.0.0 product should support a one-command deployment experience with minimal operator interaction.
+Unknown CAPE host. Unknown CAPE path. Unknown Linux user. Unknown Windows VM names. Unknown libvirt/network layout. One deployment command with transactional rollback and no manual file editing.
 
-The installer must discover machine-specific values rather than hard-code hostnames, CAPE machine names, MAC addresses, management IPs, interface names, or snapshot names.
+The installer discovers the environment, writes a complete pre-change inventory, classifies fresh/existing/broken AutoDeploy state, validates CAPE Python and rooter readiness, chooses non-conflicting network resources, deploys the checksum-pinned appliance, preserves CAPE management connectivity, and commits only after validation.
 
-## Current milestone: read-only universal planner
-
-The repository currently implements the first production layer only:
+## Commands
 
 ```bash
 sudo ./install --plan
+sudo ./install
+sudo ./install --status
+sudo ./install --verify
+sudo ./install --repair
+sudo ./install --rollback
+sudo ./install --rollback --apply
 ```
 
-This discovers CAPE, libvirt, enabled analysis machines, the matching domain, current snapshot/control IP, Windows management options, busy state, used networks, and a safe candidate isolated subnet.
+## Production properties
 
-It **does not modify configuration**. Deployment mode is intentionally disabled until discovery/compatibility behavior is validated on multiple independent CAPE systems.
+- No fixed `/opt/CAPEv2`, `/home/cape`, `virbr0`, Windows domain name, bridge, isolated subnet, INetSim IP, CAPE Python path, rooter unit, or rooter socket.
+- Pre-change inventory: `/var/lib/cape-inetsim-autodeploy/autodeploy-inventory.json`.
+- Fresh/existing/broken decision engine with ownership-aware recovery.
+- CAPE Python discovery from running services, ExecStart, virtualenv, Poetry, and host fallback with import validation.
+- Rooter service/socket discovery and a structured CAPE rooter command probe.
+- Dynamic libvirt network/subnet/bridge selection.
+- Separate SHA-256 validation for compressed appliance transport and decompressed QCOW2.
+- Deterministic appliance GUI: XFCE + LightDM + SPICE/Virtio; lab user `capeinetsim`, password `123`.
+- INetSim validation for DNS, HTTP, HTTPS, SMTP, and FTP.
+- Transaction state, backup ledger, safe repair, and rollback.
 
-If more than one enabled CAPE analysis machine is present, select one explicitly for planning:
-
-```bash
-sudo ./install --plan --machine <cape-machine-or-label>
-```
-
-## Non-negotiable design rules
-
-- No SSL43/SSL44/SSL45-specific logic.
-- No hard-coded Windows VM names.
-- Prefer `192.168.200.0/24` only when unused; otherwise choose a non-overlapping private subnet.
-- Idempotent, transactional, version-aware and recoverable deployment.
-- Never modify an unknown CAPE source layout blindly.
-- Busy CAPE systems must be staged safely and cut over only at an idle point.
-- A future deployment must provide status, verify, repair and rollback operations.
-- The generalized INetSim appliance will be versioned separately and verified with SHA-256.
-
-## Planned architecture
-
-```text
-install/bootstrap
-  -> discover
-  -> compatibility gate
-  -> plan
-  -> transaction + backup engine
-  -> isolated libvirt network
-  -> generalized Ubuntu INetSim appliance
-  -> Windows secondary-NIC configuration
-  -> running-state CAPE snapshot
-  -> CAPE isolated capture integration
-  -> Network Analysis visibility
-  -> CAPE-INetSim-VM-Extension
-  -> validation
-  -> commit or rollback
-```
-
-## Safety
-
-`--plan` is intentionally read-only with respect to machine configuration. It may read systemd/libvirt/CAPE files and create only ephemeral process-local temporary files.
+See `INSTALL.md`, `ARCHITECTURE.md`, `TROUBLESHOOTING.md`, and `RECOVERY.md`.
