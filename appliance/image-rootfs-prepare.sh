@@ -45,7 +45,7 @@ elif ! grep -q 'loop_once(10)' "$DNS_PM"; then
   exit 22
 fi
 
-echo 'net.ipv4.ip_unprivileged_port_start=53' >/etc/sysctl.d/99-inetsim-lowports.conf
+echo 'net.ipv4.ip_unprivileged_port_start=21' >/etc/sysctl.d/99-inetsim-lowports.conf
 cat >/etc/sysctl.d/99-cape-inetsim-isolation.conf <<'EOF_SYSCTL'
 # Runtime simulator VM must never route the isolated analysis network through
 # its separate management NIC.
