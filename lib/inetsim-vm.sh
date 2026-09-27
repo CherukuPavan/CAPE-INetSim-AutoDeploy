@@ -55,30 +55,114 @@ print(ET.tostring(r,encoding="unicode"))
 
 
 INETSIM_GRAPHICS_CHANGED=no
+INETSIM_REFRESH_PENDING="${INETSIM_REFRESH_PENDING:-no}"
+INETSIM_REFRESH_BACKUP_DISK="${INETSIM_REFRESH_BACKUP_DISK:-}"
+
+inetsim_refresh_clear_pending() {
+  INETSIM_REFRESH_PENDING=no
+  INETSIM_REFRESH_BACKUP_DISK=""
+  state_write_atomic
+}
+
+inetsim_refresh_rollback() {
+  [[ "${INETSIM_REFRESH_PENDING:-no}" == yes ]] || return 0
+  local backup="${INETSIM_REFRESH_BACKUP_DISK:-}"
+  [[ -n "$backup" && -f "$backup" ]] || {
+    fail "Pending INetSim appliance refresh has no recoverable backup disk"
+    return 1
+  }
+  qemu-img check "$backup" >/dev/null || {
+    fail "Pending INetSim appliance refresh backup failed qcow2 integrity"
+    return 1
+  }
+
+  virsh destroy "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1 || true
+  rm -f "$INETSIM_DISK_PATH"
+  mv "$backup" "$INETSIM_DISK_PATH" || {
+    fail "Could not restore the pre-refresh INetSim appliance disk"
+    return 1
+  }
+  virsh start "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1 || true
+  qga_wait "$INETSIM_DOMAIN_NAME" 120 >/dev/null 2>&1 || true
+  state_record_resource inetsim-release-refresh "$INETSIM_DOMAIN_NAME" restored yes "pre-refresh-appliance-restored"
+  inetsim_refresh_clear_pending
+  pass "Restored the pre-refresh INetSim appliance after an incomplete repair/upgrade"
+}
+
+inetsim_refresh_commit() {
+  [[ "${INETSIM_REFRESH_PENDING:-no}" == yes ]] || return 0
+  local backup="${INETSIM_REFRESH_BACKUP_DISK:-}"
+  [[ -n "$backup" && -f "$backup" ]] || {
+    fail "Cannot commit INetSim appliance refresh because its rollback disk is missing"
+    return 1
+  }
+  rm -f "$backup" || {
+    fail "Could not retire the pre-refresh INetSim appliance rollback disk"
+    return 1
+  }
+  state_record_resource inetsim-release-refresh "$INETSIM_DOMAIN_NAME" committed yes "verified-release-appliance"
+  inetsim_refresh_clear_pending
+  pass "Committed verified INetSim release-appliance refresh"
+}
 
 inetsim_refresh_baked_gui_appliance() {
   local artifact new_disk old_disk state i
   state_resource_owned domain "$INETSIM_DOMAIN_NAME" || {
-    fail "Refusing GUI appliance refresh because INetSim domain is not AutoDeploy-owned"
+    fail "Refusing appliance refresh because INetSim domain is not AutoDeploy-owned"
     return 1
   }
   state_resource_owned disk "$INETSIM_DISK_PATH" || {
-    fail "Refusing GUI appliance refresh because INetSim disk is not AutoDeploy-owned"
+    fail "Refusing appliance refresh because INetSim disk is not AutoDeploy-owned"
     return 1
   }
 
-  artifact="$(appliance_fetch "$APPLIANCE_MANIFEST")" || return 1
-  new_disk="$INETSIM_DISK_PATH.gui-refresh-new"
-  old_disk="$INETSIM_DISK_PATH.gui-refresh-old"
+  new_disk="$INETSIM_DISK_PATH.release-refresh-new"
+  old_disk="${INETSIM_REFRESH_BACKUP_DISK:-$INETSIM_DISK_PATH.release-refresh-old}"
 
-  rm -f "$new_disk" "$old_disk"
-  info "Preparing verified GUI-ready INetSim appliance replacement"
+  # Recover a process/power interruption around the atomic disk swap without
+  # deleting the only known-good disk.
+  if [[ "${INETSIM_REFRESH_PENDING:-no}" == yes ]]; then
+    if [[ -f "$old_disk" && -f "$INETSIM_DISK_PATH" ]]; then
+      qemu-img check "$old_disk" >/dev/null && qemu-img check "$INETSIM_DISK_PATH" >/dev/null || {
+        fail "Pending INetSim appliance refresh contains a corrupt current/backup disk"
+        return 1
+      }
+      INETSIM_REFRESH_BACKUP_DISK="$old_disk"
+      pass "Resuming previously activated INetSim appliance refresh with rollback disk preserved"
+      return 0
+    fi
+    if [[ -f "$old_disk" && ! -e "$INETSIM_DISK_PATH" ]]; then
+      mv "$old_disk" "$INETSIM_DISK_PATH" || return 1
+      inetsim_refresh_clear_pending
+    elif [[ ! -e "$old_disk" && -f "$INETSIM_DISK_PATH" ]]; then
+      inetsim_refresh_clear_pending
+    else
+      fail "Pending INetSim appliance refresh cannot be reconciled safely"
+      return 1
+    fi
+    old_disk="$INETSIM_DISK_PATH.release-refresh-old"
+  fi
+
+  [[ ! -e "$old_disk" ]] || {
+    fail "Untracked INetSim refresh backup exists; refusing to overwrite recovery evidence: $old_disk"
+    return 1
+  }
+  rm -f "$new_disk"
+
+  artifact="$(appliance_fetch "$APPLIANCE_MANIFEST")" || return 1
+  info "Preparing checksum-verified INetSim release appliance replacement"
   qemu-img convert -p -O qcow2 "$artifact" "$new_disk"
   qemu-img check "$new_disk" >/dev/null || {
     rm -f "$new_disk"
-    fail "Prepared GUI-ready INetSim appliance disk failed qcow2 integrity check"
+    fail "Prepared INetSim release appliance disk failed qcow2 integrity check"
     return 1
   }
+
+  # Persist swap intent before touching the live disk so an interrupted repair
+  # can always distinguish the pre-refresh disk from the candidate disk.
+  INETSIM_REFRESH_PENDING=yes
+  INETSIM_REFRESH_BACKUP_DISK="$old_disk"
+  state_write_atomic
 
   virsh shutdown "$INETSIM_DOMAIN_NAME" --mode agent >/dev/null 2>&1 || true
   for ((i=0;i<60;i++)); do
@@ -89,10 +173,16 @@ inetsim_refresh_baked_gui_appliance() {
   state="$(virsh domstate "$INETSIM_DOMAIN_NAME" 2>/dev/null | tr -d '\r' || true)"
   [[ "$state" == "shut off" ]] || virsh destroy "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1 || true
 
-  mv "$INETSIM_DISK_PATH" "$old_disk"
+  if ! mv "$INETSIM_DISK_PATH" "$old_disk"; then
+    rm -f "$new_disk"
+    inetsim_refresh_clear_pending
+    fail "Could not preserve the pre-refresh INetSim appliance disk"
+    return 1
+  fi
   if ! mv "$new_disk" "$INETSIM_DISK_PATH"; then
     mv "$old_disk" "$INETSIM_DISK_PATH" 2>/dev/null || true
-    fail "Could not activate GUI-ready INetSim appliance disk"
+    inetsim_refresh_clear_pending
+    fail "Could not activate verified INetSim release appliance disk"
     return 1
   fi
 
@@ -106,6 +196,7 @@ inetsim_refresh_baked_gui_appliance() {
         test -f /usr/lib/xorg/modules/drivers/modesetting_drv.so
         test -f /usr/share/xsessions/xubuntu.desktop
         test "$(dpkg-query -W -f="\${Status}" xubuntu-desktop-minimal 2>/dev/null)" = "install ok installed"
+        test "$(cat /etc/sysctl.d/99-inetsim-lowports.conf)" = "net.ipv4.ip_unprivileged_port_start=21"
         id capeinetsim >/dev/null 2>&1
         systemctl list-unit-files lightdm.service >/dev/null 2>&1
       ' >/dev/null 2>&1; then
@@ -117,7 +208,7 @@ inetsim_refresh_baked_gui_appliance() {
   fi
 
   if [[ "$refresh_ready" != yes ]]; then
-    local refresh_log="$AD_LOG_ROOT/${DEPLOYMENT_ID}-inetsim-gui-refresh-validation.log"
+    local refresh_log="$AD_LOG_ROOT/${DEPLOYMENT_ID}-inetsim-release-refresh-validation.log"
     {
       echo "=== GUI marker ==="
       qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/ls -l /etc/cape-inetsim-gui-v6 || true
@@ -125,6 +216,8 @@ inetsim_refresh_baked_gui_appliance() {
       qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/ls -l /usr/lib/xorg/modules/drivers/modesetting_drv.so || true
       echo "=== xubuntu session ==="
       qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/ls -l /usr/share/xsessions/xubuntu.desktop || true
+      echo "=== low-port contract ==="
+      qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/cat /etc/sysctl.d/99-inetsim-lowports.conf || true
       echo "=== xubuntu package status ==="
       qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/bash -c 'dpkg-query -W -f="\${Status}\n" xubuntu-desktop-minimal 2>&1 || true' || true
       echo "=== capeinetsim identity ==="
@@ -133,19 +226,14 @@ inetsim_refresh_baked_gui_appliance() {
       qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/bash -c 'systemctl list-unit-files lightdm.service 2>&1 || true' || true
     } >"$refresh_log" 2>&1
 
-    virsh destroy "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1 || true
-    rm -f "$INETSIM_DISK_PATH"
-    mv "$old_disk" "$INETSIM_DISK_PATH"
-    virsh start "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1 || true
-    qga_wait "$INETSIM_DOMAIN_NAME" 120 >/dev/null 2>&1 || true
-    fail "GUI-ready appliance refresh failed validation; original INetSim disk was restored; diagnostics captured at $refresh_log"
+    inetsim_refresh_rollback >/dev/null 2>&1 || true
+    fail "Release appliance refresh failed validation; pre-refresh disk restoration was attempted; diagnostics captured at $refresh_log"
     return 1
   fi
 
-  rm -f "$old_disk"
-  state_record_resource inetsim-gui-refresh "$INETSIM_DOMAIN_NAME" replaced yes "verified-release-appliance"
+  state_record_resource inetsim-release-refresh "$INETSIM_DOMAIN_NAME" pending yes "verified-release-appliance rollback=$old_disk"
   state_write_atomic
-  pass "Refreshed INetSim appliance to verified GUI-ready release image"
+  pass "Activated verified INetSim release appliance with rollback disk preserved until transaction commit"
 }
 
 inetsim_ensure_graphics_console() {
