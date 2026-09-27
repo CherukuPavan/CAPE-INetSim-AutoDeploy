@@ -125,10 +125,26 @@ with open(path, encoding="utf-8", errors="replace") as fh:
     text = fh.read()
 
 def set_one(text, key, value):
-    pattern = re.compile(rf"(?m)^\\s*#?\\s*{re.escape(key)}\\s+\\S+\\s*$")
-    if not pattern.search(text):
-        raise SystemExit(f"missing {key} in {path}")
-    return pattern.sub(f"{key} {value}", text, count=1)
+    # INetSim package defaults vary by distro/release: a directive can be
+    # enabled, commented out, duplicated, or absent entirely. Production
+    # configuration must therefore normalize exactly one active declaration
+    # rather than assuming the vendor file already contains the key.
+    pattern = re.compile(rf"^\\s*#?\\s*{re.escape(key)}(?:\\s+.*)?$", re.I)
+    lines = text.splitlines()
+    out = []
+    enabled = False
+    for line in lines:
+        if pattern.match(line):
+            if not enabled:
+                out.append(f"{key} {value}")
+                enabled = True
+            else:
+                out.append(f"# duplicate disabled by CAPE-INetSim-AutoDeploy: {key} {value}")
+        else:
+            out.append(line)
+    if not enabled:
+        out.append(f"{key} {value}")
+    return "\\n".join(out) + "\\n"
 
 text = set_one(text, "service_bind_address", ip)
 text = set_one(text, "dns_default_ip", ip)
