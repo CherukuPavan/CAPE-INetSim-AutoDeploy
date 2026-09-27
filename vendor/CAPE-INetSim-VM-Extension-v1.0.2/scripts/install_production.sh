@@ -176,7 +176,7 @@ discover_cape_runtime() {
        && [[ -r "/proc/$CAPE_WEB_PID/cmdline" ]]; then
 
         CAPE_PYTHON="$(
-            tr '\\0' '\\n' < "/proc/$CAPE_WEB_PID/cmdline" \
+            tr '\0' '\n' < "/proc/$CAPE_WEB_PID/cmdline" \
                 2>/dev/null |
             head -1
         )"
