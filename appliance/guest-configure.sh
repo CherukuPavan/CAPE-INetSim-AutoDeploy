@@ -71,7 +71,7 @@ sleep 2
 
 ip -4 addr show dev "$IFACE" | grep -Fq "$CIDR"
 for port in 53 80 443 25 21; do
-  ss -lntup | grep -Eq "[$][:]?$port|$IP:$port" || {
+  ss -lntupH | grep -Eq "($IP|0\\.0\\.0\\.0|\\[::\\]|\\*):$port([[:space:]]|$)" || {
     echo "expected INetSim listener missing on port $port" >&2
     exit 32
   }
