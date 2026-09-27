@@ -17,6 +17,7 @@ MARKER_ROOTER = "CAPE_INETSIM_AUTODEPLOY_ROUTE_V4"
 MARKER_ANALYSIS = "CAPE_INETSIM_AUTODEPLOY_ROUTE_V4"
 MARKER_NETWORK = "CAPE_INETSIM_AUTODEPLOY_TASK_NETWORK_V2"
 MARKER_SUBMISSION = "CAPE_INETSIM_AUTODEPLOY_ROUTE_UI_V2"
+MARKER_STARTUP = "CAPE_INETSIM_AUTODEPLOY_INETSIM_NO_NAT_V1"
 
 
 def read(path: Path) -> str:
@@ -372,11 +373,36 @@ def patch_submission(path: Path) -> None:
     write(path, s)
 
 
+def patch_startup(path: Path) -> None:
+    s = read(path)
+    if s.count(MARKER_STARTUP):
+        if s.count(MARKER_STARTUP) != 1:
+            raise RuntimeError("INetSim startup NAT marker is ambiguous")
+        return
+
+    old = '''        # Disable & enable NAT on this network interface. Disable it just
+        # in case we still had the same rule from a previous run.
+        rooter("disable_nat", routing.inetsim.interface)
+        rooter("enable_nat", routing.inetsim.interface)
+'''
+    new = '''        # CAPE_INETSIM_AUTODEPLOY_INETSIM_NO_NAT_V1
+        # AutoDeploy's INetSim bridge is an isolated fake-Internet appliance.
+        # route=inetsim uses DNAT + forwarding only; it must never be masqueraded.
+        # Disable any stale CAPE-rooter MASQUERADE left by a prior CAPE startup.
+        rooter("disable_nat", routing.inetsim.interface)
+'''
+    if old not in s:
+        raise RuntimeError("INetSim startup NAT anchor not found")
+    s = s.replace(old, new, 1)
+    write(path, s)
+
+
 def patch_all(root: Path, helper: Path) -> None:
     patch_rooter(root / "utils/rooter.py")
     patch_analysis_manager(root / "lib/cuckoo/core/analysis_manager.py")
     patch_network(root / "modules/processing/network.py")
     patch_submission(root / "web/templates/submission/index.html")
+    patch_startup(root / "lib/cuckoo/core/startup.py")
 
     target = root / "modules/processing/autodeploy_task_network.py"
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -402,6 +428,7 @@ def main() -> int:
         "lib/cuckoo/core/analysis_manager.py",
         "modules/processing/network.py",
         "web/templates/submission/index.html",
+        "lib/cuckoo/core/startup.py",
     ):
         if not (root / rel).is_file():
             raise SystemExit(f"missing required CAPE file: {root / rel}")
@@ -413,6 +440,7 @@ def main() -> int:
         "lib/cuckoo/core/analysis_manager.py": MARKER_ANALYSIS,
         "modules/processing/network.py": MARKER_NETWORK,
         "web/templates/submission/index.html": MARKER_SUBMISSION,
+        "lib/cuckoo/core/startup.py": MARKER_STARTUP,
     }
     for rel, marker in checks.items():
         if read(root / rel).count(marker) != 1:
