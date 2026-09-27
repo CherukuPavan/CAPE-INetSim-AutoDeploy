@@ -169,8 +169,11 @@ else: raise AssertionError('unexpected Poetry invocation')
         self.env['TEST_OLD_POETRY'] = '1'
         self.assertEqual(self.shell('cape_runtime_python').stdout.strip(), self.python)
 
-    def test_unknown_environment_does_not_choose_host_python(self):
-        self.assertNotEqual(self.shell('cape_runtime_python', ok=False).returncode, 0)
+    def test_discovered_poetry_environment_is_valid_fallback(self):
+        # Production discovery intentionally falls back to a discovered Poetry
+        # environment when the service is stopped and ExecStart is unavailable.
+        # The candidate is accepted only after Django + CAPE imports succeed.
+        self.assertEqual(self.shell('cape_runtime_python').stdout.strip(), self.python)
 
     def test_private_release_handoff_preflight_has_no_db_effect(self):
         self.spawn_python()
