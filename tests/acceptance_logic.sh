@@ -90,6 +90,7 @@ fail(){ printf '[FAIL] %s\n' "$*" >&2; }
 pass(){ printf '[PASS] %s\n' "$*"; }
 kv(){ printf '%s %s\n' "$1" "$2"; }
 have(){ command -v "$1" >/dev/null 2>&1; }
+ad_python(){ python3 "$@"; }
 SH
 : >"$RUNTIME/lib/targets.sh"
 
