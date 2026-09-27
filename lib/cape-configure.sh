@@ -9,6 +9,11 @@ cape_post_sha_for_rel() {
     conf/kvm.conf) printf '%s\n' "${CAPE_POST_SHA_KVM:-}" ;;
     conf/processing.conf) printf '%s\n' "${CAPE_POST_SHA_PROCESSING:-}" ;;
     conf/routing.conf) printf '%s\n' "${CAPE_POST_SHA_ROUTING:-}" ;;
+    utils/rooter.py) printf '%s\n' "${CAPE_POST_SHA_ROOTER:-}" ;;
+    lib/cuckoo/core/analysis_manager.py) printf '%s\n' "${CAPE_POST_SHA_ANALYSIS_MANAGER:-}" ;;
+    modules/processing/network.py) printf '%s\n' "${CAPE_POST_SHA_NETWORK_PROCESSING:-}" ;;
+    modules/processing/autodeploy_task_network.py) printf '%s\n' "${CAPE_POST_SHA_TASK_NETWORK_HELPER:-}" ;;
+    web/templates/submission/index.html) printf '%s\n' "${CAPE_POST_SHA_SUBMISSION_TEMPLATE:-}" ;;
     *) return 1 ;;
   esac
 }
@@ -19,12 +24,19 @@ cape_capture_post_hashes() {
   CAPE_POST_SHA_KVM="$(sha256sum "$CAPE_ROOT/conf/kvm.conf" | awk '{print $1}')"
   CAPE_POST_SHA_PROCESSING="$(sha256sum "$CAPE_ROOT/conf/processing.conf" | awk '{print $1}')"
   CAPE_POST_SHA_ROUTING="$(sha256sum "$CAPE_ROOT/conf/routing.conf" | awk '{print $1}')"
+  CAPE_POST_SHA_ROOTER="$(sha256sum "$CAPE_ROOT/utils/rooter.py" | awk '{print $1}')"
+  CAPE_POST_SHA_ANALYSIS_MANAGER="$(sha256sum "$CAPE_ROOT/lib/cuckoo/core/analysis_manager.py" | awk '{print $1}')"
+  CAPE_POST_SHA_NETWORK_PROCESSING="$(sha256sum "$CAPE_ROOT/modules/processing/network.py" | awk '{print $1}')"
+  CAPE_POST_SHA_TASK_NETWORK_HELPER="$(sha256sum "$CAPE_ROOT/modules/processing/autodeploy_task_network.py" | awk '{print $1}')"
+  CAPE_POST_SHA_SUBMISSION_TEMPLATE="$(sha256sum "$CAPE_ROOT/web/templates/submission/index.html" | awk '{print $1}')"
   state_write_atomic
 }
 
 cape_assert_owned_files_unchanged() {
   local rel expected current failures=0
-  for rel in modules/auxiliary/sniffer.py conf/auxiliary.conf conf/kvm.conf conf/processing.conf conf/routing.conf; do
+  for rel in modules/auxiliary/sniffer.py conf/auxiliary.conf conf/kvm.conf conf/processing.conf conf/routing.conf \
+utils/rooter.py lib/cuckoo/core/analysis_manager.py modules/processing/network.py \
+modules/processing/autodeploy_task_network.py web/templates/submission/index.html; do
     expected="$(cape_post_sha_for_rel "$rel" 2>/dev/null || true)"
     [[ -n "$expected" ]] || continue
     current="$(sha256sum "$CAPE_ROOT/$rel" 2>/dev/null | awk '{print $1}' || true)"
@@ -100,6 +112,11 @@ cape_configure_inetsim() {
 
   cape_backup_integration_files
   patch_sniffer_capture_override "$CAPE_ROOT/modules/auxiliary/sniffer.py"
+  cape_runtime_patch_apply
+
+  DIRTY_LINE_INTERFACE="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}')"
+  [[ -n "$DIRTY_LINE_INTERFACE" ]] || DIRTY_LINE_INTERFACE="$(ip -4 route show default 2>/dev/null | awk 'NR==1{print $5}')"
+  [[ -n "$DIRTY_LINE_INTERFACE" ]] || { fail "Could not discover the host's real Internet dirty-line interface"; return 1; }
 
   local saved="${TARGET_INDEX:-}" i
   CAPE_TARGETS_COUNT="$(targets_count)"
@@ -131,12 +148,23 @@ cape_configure_inetsim() {
   python3 "$edit" "$CAPE_ROOT/conf/routing.conf" inetsim server "$INETSIM_IP"
   python3 "$edit" "$CAPE_ROOT/conf/routing.conf" inetsim dnsport 53
   python3 "$edit" "$CAPE_ROOT/conf/routing.conf" inetsim interface "$ISOLATED_BRIDGE_NAME"
+  python3 "$edit" "$CAPE_ROOT/conf/routing.conf" routing internet "$DIRTY_LINE_INTERFACE"
+  python3 "$edit" "$CAPE_ROOT/conf/routing.conf" routing nat yes
+  python3 "$edit" "$CAPE_ROOT/conf/processing.conf" behavior network_map yes
+  python3 "$edit" "$CAPE_ROOT/conf/processing.conf" network process_map yes
+  python3 "$edit" "$CAPE_ROOT/conf/processing.conf" network merge_behavior_map no
 
   local py
   py="$(cape_runtime_python)"
   "$py" -m py_compile "$CAPE_ROOT/modules/auxiliary/sniffer.py"
+  "$py" -m py_compile "$CAPE_ROOT/utils/rooter.py" "$CAPE_ROOT/lib/cuckoo/core/analysis_manager.py" "$CAPE_ROOT/modules/processing/network.py" "$CAPE_ROOT/modules/processing/autodeploy_task_network.py"
 
   state_record_resource cape-file "$CAPE_ROOT/modules/auxiliary/sniffer.py" modified yes "route-aware-capture-override"
+  state_record_resource cape-file "$CAPE_ROOT/utils/rooter.py" modified yes "strict-drop-route-policy"
+  state_record_resource cape-file "$CAPE_ROOT/lib/cuckoo/core/analysis_manager.py" modified yes "stale-strict-drop-reset"
+  state_record_resource cape-file "$CAPE_ROOT/modules/processing/network.py" modified yes "task-attributed-network-view"
+  state_record_resource cape-file "$CAPE_ROOT/modules/processing/autodeploy_task_network.py" modified yes "task-network-filter"
+  state_record_resource cape-file "$CAPE_ROOT/web/templates/submission/index.html" modified yes "route-semantics-ui"
   state_record_resource cape-file "$CAPE_ROOT/conf/auxiliary.conf" modified yes "per-machine-inetsim-capture=${CAPE_TARGETS_COUNT}"
   state_record_resource cape-file "$CAPE_ROOT/conf/kvm.conf" modified yes "managed-machines=${CAPE_TARGETS_COUNT} normal-route-snapshot+management-interface"
   state_record_resource cape-file "$CAPE_ROOT/conf/processing.conf" modified yes "dnswhitelist=no ipwhitelist=no"
