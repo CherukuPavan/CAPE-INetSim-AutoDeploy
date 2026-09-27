@@ -7,7 +7,7 @@ FIREWALL_RULES="$FIREWALL_DIR/firewall.nft"
 FIREWALL_UNIT="/etc/systemd/system/cape-inetsim-autodeploy-firewall.service"
 
 firewall_management_records() {
-  python3 - "${CAPE_TARGETS_JSON:-[]}" <<'PY'
+  ad_python - "${CAPE_TARGETS_JSON:-[]}" <<'PY'
 import json,sys
 order={"discovered":0,"nic-attached":10,"configured":20,"snapshots-ready":30,"cape-configured":40}
 try: a=json.loads(sys.argv[1])
@@ -22,7 +22,7 @@ PY
 }
 
 firewall_inetsim_client_records() {
-  python3 - "${CAPE_TARGETS_JSON:-[]}" <<'PY'
+  ad_python - "${CAPE_TARGETS_JSON:-[]}" <<'PY'
 import json,sys
 try: a=json.loads(sys.argv[1])
 except Exception: a=[]
@@ -36,7 +36,7 @@ PY
 }
 
 firewall_isolated_resultserver_records() {
-  python3 - "${CAPE_TARGETS_JSON:-[]}" <<'PY'
+  ad_python - "${CAPE_TARGETS_JSON:-[]}" <<'PY'
 import json,sys
 try: a=json.loads(sys.argv[1])
 except Exception: a=[]
