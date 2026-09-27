@@ -18,7 +18,9 @@ done
 [[ "$MGMT_MAC" != "$ISO_MAC" ]] || { echo "management and isolated MACs are identical" >&2; exit 29; }
 
 IP="${CIDR%/*}"
-python3 - "$CIDR" "$GATEWAY" "${CLIENT_IPS[@]}" <<'PY'
+PYTHON="$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)"
+[[ -n "$PYTHON" ]] || { echo "Python interpreter is required inside the appliance" >&2; exit 28; }
+"$PYTHON" - "$CIDR" "$GATEWAY" "${CLIENT_IPS[@]}" <<'PY'
 import ipaddress,sys
 n=ipaddress.ip_interface(sys.argv[1])
 g=ipaddress.ip_address(sys.argv[2])
@@ -114,12 +116,47 @@ done
 
 CONF=/etc/inetsim/inetsim.conf
 [[ -f "$CONF.pre-autodeploy" ]] || cp -a "$CONF" "$CONF.pre-autodeploy"
-python3 - "$CONF" "$IP" <<'PY'
-import re,sys
-p,ip=sys.argv[1:]
-s=open(p).read()
-def set_one(text,key,value):
-    pat=re.compile(rf'(?m)^\s*#?\s*{re.escape(key)}\s+\S+\s*
+"$PYTHON" - "$CONF" "$IP" <<'PY'
+import re
+import sys
+
+path, ip = sys.argv[1:]
+with open(path, encoding="utf-8", errors="replace") as fh:
+    text = fh.read()
+
+def set_one(text, key, value):
+    pattern = re.compile(rf"(?m)^\\s*#?\\s*{re.escape(key)}\\s+\\S+\\s*$")
+    if not pattern.search(text):
+        raise SystemExit(f"missing {key} in {path}")
+    return pattern.sub(f"{key} {value}", text, count=1)
+
+text = set_one(text, "service_bind_address", ip)
+text = set_one(text, "dns_default_ip", ip)
+
+# Production contract: exactly one enabled declaration for every fake-Internet
+# protocol CAPE acceptance relies on. Old/commented/duplicate declarations are
+# normalized deterministically instead of inheriting image history.
+required = ("dns", "http", "https", "smtp", "ftp")
+lines = text.splitlines()
+for service in required:
+    pattern = re.compile(rf"^\\s*#?\\s*start_service\\s+{re.escape(service)}\\s*$", re.I)
+    out = []
+    enabled = False
+    for line in lines:
+        if pattern.match(line):
+            if not enabled:
+                out.append(f"start_service {service}")
+                enabled = True
+            else:
+                out.append(f"# duplicate disabled by CAPE-INetSim-AutoDeploy: start_service {service}")
+        else:
+            out.append(line)
+    if not enabled:
+        out.append(f"start_service {service}")
+    lines = out
+
+with open(path, "w", encoding="utf-8") as fh:
+    fh.write("\n".join(lines) + "\n")
 PY
 
 sysctl -w net.ipv4.ip_unprivileged_port_start=53 >/dev/null
@@ -135,7 +172,7 @@ ready=no
 ISO_ADDRS=""
 UDP_LISTEN=""
 TCP_LISTEN=""
-for _ in $(seq 1 30); do
+for _ in $(seq 1 45); do
   ISO_ADDRS="$(ip -4 addr show dev "$ISO_IF" 2>/dev/null || true)"
   UDP_LISTEN="$(ss -lnup 2>/dev/null || true)"
   TCP_LISTEN="$(ss -lntp 2>/dev/null || true)"
@@ -152,7 +189,9 @@ for _ in $(seq 1 30); do
 done
 
 if [[ "$ready" != yes ]]; then
-  echo "INetSim services did not become ready within 30 seconds" >&2
+  echo "INetSim DNS/HTTP/HTTPS/SMTP/FTP services did not become ready within 45 seconds" >&2
+  echo "--- inetsim config service declarations ---" >&2
+  grep -E '^[[:space:]#]*start_service[[:space:]]+(dns|http|https|smtp|ftp)' "$CONF" >&2 || true
   echo "--- ip -4 addr ---" >&2
   ip -4 addr >&2 || true
   echo "--- ip -4 route ---" >&2
@@ -162,121 +201,8 @@ if [[ "$ready" != yes ]]; then
   echo "--- inetsim status ---" >&2
   systemctl status inetsim.service --no-pager -l >&2 || true
   echo "--- inetsim journal ---" >&2
-  journalctl -u inetsim.service -n 100 --no-pager >&2 || true
+  journalctl -u inetsim.service -n 150 --no-pager >&2 || true
   exit 36
 fi
 
-echo "INETSIM_GUEST_CONFIG_OK management=$MGMT_IF isolated=$ISO_IF ip=$CIDR"
-)
-    if not pat.search(text): raise SystemExit(f'missing {key} in {p}')
-    return pat.sub(f'{key} {value}',text,count=1)
-s=set_one(s,'service_bind_address',ip)
-s=set_one(s,'dns_default_ip',ip)
-
-# Production contract: these protocols are always available on the isolated
-# appliance. Normalize duplicates and uncomment exactly one declaration.
-for service in ("dns","http","https","smtp","ftp"):
-    pat=re.compile(rf'(?m)^\s*#?\s*start_service\s+{re.escape(service)}\s*
-PY
-
-sysctl -w net.ipv4.ip_unprivileged_port_start=53 >/dev/null
-sysctl -w net.ipv4.ip_forward=0 >/dev/null
-sysctl -w net.ipv6.conf.all.forwarding=0 >/dev/null
-[[ "$(sysctl -n net.ipv4.ip_unprivileged_port_start)" == 53 ]]
-[[ "$(sysctl -n net.ipv4.ip_forward)" == 0 ]]
-[[ "$(sysctl -n net.ipv6.conf.all.forwarding)" == 0 ]]
-systemctl enable inetsim.service >/dev/null
-systemctl restart inetsim.service
-
-ready=no
-ISO_ADDRS=""
-UDP_LISTEN=""
-TCP_LISTEN=""
-for _ in $(seq 1 30); do
-  ISO_ADDRS="$(ip -4 addr show dev "$ISO_IF" 2>/dev/null || true)"
-  UDP_LISTEN="$(ss -lnup 2>/dev/null || true)"
-  TCP_LISTEN="$(ss -lntp 2>/dev/null || true)"
-  if grep -Fq "$CIDR" <<<"$ISO_ADDRS" &&
-     grep -Fq "$IP:53" <<<"$UDP_LISTEN" &&
-     grep -Eq "$IP:80[[:space:]]" <<<"$TCP_LISTEN" &&
-     grep -Eq "$IP:443[[:space:]]" <<<"$TCP_LISTEN"; then
-    ready=yes
-    break
-  fi
-  sleep 1
-done
-
-if [[ "$ready" != yes ]]; then
-  echo "INetSim services did not become ready within 30 seconds" >&2
-  echo "--- ip -4 addr ---" >&2
-  ip -4 addr >&2 || true
-  echo "--- ip -4 route ---" >&2
-  ip -4 route >&2 || true
-  echo "--- listeners ---" >&2
-  ss -lnupt >&2 || true
-  echo "--- inetsim status ---" >&2
-  systemctl status inetsim.service --no-pager -l >&2 || true
-  echo "--- inetsim journal ---" >&2
-  journalctl -u inetsim.service -n 100 --no-pager >&2 || true
-  exit 36
-fi
-
-echo "INETSIM_GUEST_CONFIG_OK management=$MGMT_IF isolated=$ISO_IF ip=$CIDR"
-)
-    hits=list(pat.finditer(s))
-    if not hits:
-        s += f"\nstart_service {service}\n"
-        continue
-    first=[True]
-    def repl(m):
-        if first[0]:
-            first[0]=False
-            return f"start_service {service}"
-        return f"# duplicate disabled by CAPE-INetSim-AutoDeploy: start_service {service}"
-    s=pat.sub(repl,s)
-open(p,'w').write(s)
-PY
-
-sysctl -w net.ipv4.ip_unprivileged_port_start=53 >/dev/null
-sysctl -w net.ipv4.ip_forward=0 >/dev/null
-sysctl -w net.ipv6.conf.all.forwarding=0 >/dev/null
-[[ "$(sysctl -n net.ipv4.ip_unprivileged_port_start)" == 53 ]]
-[[ "$(sysctl -n net.ipv4.ip_forward)" == 0 ]]
-[[ "$(sysctl -n net.ipv6.conf.all.forwarding)" == 0 ]]
-systemctl enable inetsim.service >/dev/null
-systemctl restart inetsim.service
-
-ready=no
-ISO_ADDRS=""
-UDP_LISTEN=""
-TCP_LISTEN=""
-for _ in $(seq 1 30); do
-  ISO_ADDRS="$(ip -4 addr show dev "$ISO_IF" 2>/dev/null || true)"
-  UDP_LISTEN="$(ss -lnup 2>/dev/null || true)"
-  TCP_LISTEN="$(ss -lntp 2>/dev/null || true)"
-  if grep -Fq "$CIDR" <<<"$ISO_ADDRS" &&
-     grep -Fq "$IP:53" <<<"$UDP_LISTEN" &&
-     grep -Eq "$IP:80[[:space:]]" <<<"$TCP_LISTEN" &&
-     grep -Eq "$IP:443[[:space:]]" <<<"$TCP_LISTEN"; then
-    ready=yes
-    break
-  fi
-  sleep 1
-done
-
-if [[ "$ready" != yes ]]; then
-  echo "INetSim services did not become ready within 30 seconds" >&2
-  echo "--- ip -4 addr ---" >&2
-  ip -4 addr >&2 || true
-  echo "--- ip -4 route ---" >&2
-  ip -4 route >&2 || true
-  echo "--- listeners ---" >&2
-  ss -lnupt >&2 || true
-  echo "--- inetsim status ---" >&2
-  systemctl status inetsim.service --no-pager -l >&2 || true
-  echo "--- inetsim journal ---" >&2
-  journalctl -u inetsim.service -n 100 --no-pager >&2 || true
-  exit 36
-fi
-
-echo "INETSIM_GUEST_CONFIG_OK management=$MGMT_IF isolated=$ISO_IF ip=$CIDR"
+echo "INETSIM_GUEST_CONFIG_OK management=$MGMT_IF isolated=$ISO_IF ip=$CIDR services=dns,http,https,smtp,ftp"
