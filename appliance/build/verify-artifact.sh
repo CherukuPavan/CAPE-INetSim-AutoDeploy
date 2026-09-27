@@ -25,7 +25,7 @@ os_release="$(virt-cat -a "$IMAGE" /etc/os-release)"
 grep -Fxq 'VERSION_ID="24.04"' <<<"$os_release"
 
 lowports="$(virt-cat -a "$IMAGE" /etc/sysctl.d/99-inetsim-lowports.conf | tr -d '\r')"
-[[ "$lowports" == 'net.ipv4.ip_unprivileged_port_start=53' ]]
+[[ "$lowports" == 'net.ipv4.ip_unprivileged_port_start=21' ]]
 
 isolation="$(virt-cat -a "$IMAGE" /etc/sysctl.d/99-cape-inetsim-isolation.conf | tr -d '\r')"
 grep -Fxq 'net.ipv4.ip_forward=0' <<<"$isolation"
