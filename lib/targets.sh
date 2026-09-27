@@ -15,7 +15,7 @@ CAPE_TARGETS_COUNT="${CAPE_TARGETS_COUNT:-0}"
 TARGET_INDEX="${TARGET_INDEX:-}"
 
 targets_count() {
-  python3 - "${CAPE_TARGETS_JSON:-[]}" <<'PY'
+  ad_python - "${CAPE_TARGETS_JSON:-[]}" <<'PY'
 import json,sys
 try: print(len(json.loads(sys.argv[1])))
 except Exception: print(0)
@@ -24,7 +24,7 @@ PY
 
 targets_get() {
   local index="$1" key="$2"
-  python3 - "${CAPE_TARGETS_JSON:-[]}" "$index" "$key" <<'PY'
+  ad_python - "${CAPE_TARGETS_JSON:-[]}" "$index" "$key" <<'PY'
 import json,sys
 a=json.loads(sys.argv[1]); i=int(sys.argv[2]); k=sys.argv[3]
 v=a[i].get(k,"")
@@ -37,7 +37,7 @@ PY
 targets_bind() {
   local index="$1"
   local assignments
-  assignments="$(python3 - "${CAPE_TARGETS_JSON:-[]}" "$index" <<'PY'
+  assignments="$(ad_python - "${CAPE_TARGETS_JSON:-[]}" "$index" <<'PY'
 import json,shlex,sys
 a=json.loads(sys.argv[1]); i=int(sys.argv[2]); d=a[i]
 mapping={
@@ -91,7 +91,7 @@ PY
 targets_capture_bound() {
   local index="${1:-${TARGET_INDEX:-}}"
   [[ "$index" =~ ^[0-9]+$ ]] || return 0
-  CAPE_TARGETS_JSON="$(python3 - "${CAPE_TARGETS_JSON:-[]}" "$index"     "${WINDOWS_ISOLATED_NIC_MODEL:-}" "${WINDOWS_ISOLATED_MAC:-}"     "${WINDOWS_BACKEND_USED:-}" "${WINDOWS_ORIGINAL_DOMAIN_STATE:-}"     "${SAFETY_SNAPSHOT:-}" "${WORKING_SNAPSHOT:-}" "${FINAL_SNAPSHOT:-}" "${NORMAL_SNAPSHOT:-}"     "${TARGET_PHASE:-discovered}" <<'PY'
+  CAPE_TARGETS_JSON="$(ad_python - "${CAPE_TARGETS_JSON:-[]}" "$index"     "${WINDOWS_ISOLATED_NIC_MODEL:-}" "${WINDOWS_ISOLATED_MAC:-}"     "${WINDOWS_BACKEND_USED:-}" "${WINDOWS_ORIGINAL_DOMAIN_STATE:-}"     "${SAFETY_SNAPSHOT:-}" "${WORKING_SNAPSHOT:-}" "${FINAL_SNAPSHOT:-}" "${NORMAL_SNAPSHOT:-}"     "${TARGET_PHASE:-discovered}" <<'PY'
 import json,sys
 a=json.loads(sys.argv[1]); i=int(sys.argv[2])
 keys=("isolated_nic_model","isolated_mac","backend_used","original_domain_state",
@@ -105,7 +105,7 @@ PY
 }
 
 targets_identity_json() {
-  python3 - "${CAPE_TARGETS_JSON:-[]}" <<'PY'
+  ad_python - "${CAPE_TARGETS_JSON:-[]}" <<'PY'
 import json,sys
 a=json.loads(sys.argv[1])
 keys=("section","label","ip","platform","domain",
@@ -117,7 +117,7 @@ PY
 }
 
 targets_identity_sha256() {
-  python3 - "$(targets_identity_json)" <<'PY'
+  ad_python - "$(targets_identity_json)" <<'PY'
 import hashlib,sys
 print(hashlib.sha256(sys.argv[1].encode()).hexdigest())
 PY
@@ -125,7 +125,7 @@ PY
 
 targets_append_current() {
   local target_errors_json="${1:-[]}"
-  CAPE_TARGETS_JSON="$(python3 - "${CAPE_TARGETS_JSON:-[]}"     "${CAPE_MACHINE_SECTION:-}" "${CAPE_MACHINE_LABEL:-}" "${CAPE_MACHINE_IP:-}"     "${CAPE_MACHINE_SNAPSHOT:-}" "${CAPE_MACHINE_INTERFACE:-}" "${CAPE_MACHINE_PLATFORM:-}"     "${DOMAIN:-}" "${DOMAIN_STATE:-}" "${DOMAIN_NIC_COUNT:-}" "${DOMAIN_NIC_MODELS:-}"     "${WINDOWS_INTERNAL_SNAPSHOT_CAPABLE:-no}"     "${CAPE_ANALYSIS_SNAPSHOT_STATUS:-unproven}" "${CAPE_ANALYSIS_SNAPSHOT_STATE:-}" "${CAPE_ANALYSIS_SNAPSHOT_MEMORY:-}"     "${MANAGEMENT_NETWORK_NAME:-}" "${MANAGEMENT_BRIDGE_NAME:-}" "${WINDOWS_MANAGEMENT_MAC:-}"     "${CAPE_RESULTSERVER_IP:-}" "${CAPE_RESULTSERVER_PORT:-}" "${CONTROL_HOST_IP:-}"     "${QGA_AVAILABLE:-unknown}" "${WINRM_AVAILABLE:-unknown}" "${CAPE_AGENT_REACHABLE:-unknown}" "${WINDOWS_BACKEND:-unknown}"     "$target_errors_json" <<'PY'
+  CAPE_TARGETS_JSON="$(ad_python - "${CAPE_TARGETS_JSON:-[]}"     "${CAPE_MACHINE_SECTION:-}" "${CAPE_MACHINE_LABEL:-}" "${CAPE_MACHINE_IP:-}"     "${CAPE_MACHINE_SNAPSHOT:-}" "${CAPE_MACHINE_INTERFACE:-}" "${CAPE_MACHINE_PLATFORM:-}"     "${DOMAIN:-}" "${DOMAIN_STATE:-}" "${DOMAIN_NIC_COUNT:-}" "${DOMAIN_NIC_MODELS:-}"     "${WINDOWS_INTERNAL_SNAPSHOT_CAPABLE:-no}"     "${CAPE_ANALYSIS_SNAPSHOT_STATUS:-unproven}" "${CAPE_ANALYSIS_SNAPSHOT_STATE:-}" "${CAPE_ANALYSIS_SNAPSHOT_MEMORY:-}"     "${MANAGEMENT_NETWORK_NAME:-}" "${MANAGEMENT_BRIDGE_NAME:-}" "${WINDOWS_MANAGEMENT_MAC:-}"     "${CAPE_RESULTSERVER_IP:-}" "${CAPE_RESULTSERVER_PORT:-}" "${CONTROL_HOST_IP:-}"     "${QGA_AVAILABLE:-unknown}" "${WINRM_AVAILABLE:-unknown}" "${CAPE_AGENT_REACHABLE:-unknown}" "${WINDOWS_BACKEND:-unknown}"     "$target_errors_json" <<'PY'
 import json,sys
 a=json.loads(sys.argv[1])
 vals=sys.argv[2:]
@@ -151,7 +151,7 @@ PY
 
 targets_assign_fake_ips() {
   [[ -n "${ISOLATED_SUBNET:-}" ]] || return 0
-  CAPE_TARGETS_JSON="$(python3 - "${CAPE_TARGETS_JSON:-[]}" "$ISOLATED_SUBNET" <<'PY'
+  CAPE_TARGETS_JSON="$(ad_python - "${CAPE_TARGETS_JSON:-[]}" "$ISOLATED_SUBNET" <<'PY'
 import ipaddress,json,sys
 a=json.loads(sys.argv[1]); net=ipaddress.ip_network(sys.argv[2])
 if len(a) > 240:
@@ -168,7 +168,7 @@ PY
 
 targets_validate_uniqueness() {
   local report
-  report="$(python3 - "${CAPE_TARGETS_JSON:-[]}" <<'PY'
+  report="$(ad_python - "${CAPE_TARGETS_JSON:-[]}" <<'PY'
 import collections,json,sys
 a=json.loads(sys.argv[1])
 for key,label in (("section","CAPE section"),("label","CAPE label"),("domain","libvirt domain"),("ip","management IP")):
@@ -239,7 +239,7 @@ targets_discover_all() {
     discover_windows_backends
 
     local target_errors_json
-    target_errors_json="$(python3 - "${DISCOVERY_ERRORS[@]}" <<'PY'
+    target_errors_json="$(ad_python - "${DISCOVERY_ERRORS[@]}" <<'PY'
 import json,sys
 print(json.dumps(sys.argv[1:],separators=(",",":")))
 PY
@@ -275,7 +275,7 @@ targets_for_each_index() {
 }
 
 targets_summary_lines() {
-  python3 - "${CAPE_TARGETS_JSON:-[]}" <<'PY'
+  ad_python - "${CAPE_TARGETS_JSON:-[]}" <<'PY'
 import json,sys
 a=json.loads(sys.argv[1])
 for i,d in enumerate(a,1):
@@ -294,7 +294,7 @@ target_state_set_phase() {
 
 targets_all_phase_at_least() {
   local want="$1"
-  python3 - "${CAPE_TARGETS_JSON:-[]}" "$want" <<'PY'
+  ad_python - "${CAPE_TARGETS_JSON:-[]}" "$want" <<'PY'
 import json,sys
 order={"discovered":0,"nic-attached":10,"configured":20,"snapshots-ready":30,"cape-configured":40}
 a=json.loads(sys.argv[1]); want=sys.argv[2]
