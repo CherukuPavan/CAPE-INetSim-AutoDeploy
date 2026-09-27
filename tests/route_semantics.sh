@@ -119,9 +119,19 @@ for rel,marker in checks.items():
     text=(root/rel).read_text()
     assert text.count(marker)==1, (rel,text.count(marker))
 rooter=(root/"utils/rooter.py").read_text()
+analysis=(root/"lib/cuckoo/core/analysis_manager.py").read_text()
 assert "CAPEAD_" in rooter
 assert "autodeploy_route_policy_set" in rooter
 assert '"autodeploy_route_policy_set": autodeploy_route_policy_set' in rooter
+expected_internet = """            self.rooter_response = rooter(
+                "autodeploy_route_policy_set",
+                self.machine.ip,
+                self.machine.interface,
+                self.interface,
+                str(self.cfg.resultserver.ip),
+                str(self.machine.resultserver_port),
+            )"""
+assert expected_internet in analysis
 print("RC66 patcher idempotency/marker checks passed")
 PY
 
