@@ -175,10 +175,10 @@ with open(path, "w", encoding="utf-8") as fh:
     fh.write("\n".join(lines) + "\n")
 PY
 
-sysctl -w net.ipv4.ip_unprivileged_port_start=53 >/dev/null
+sysctl -w net.ipv4.ip_unprivileged_port_start=21 >/dev/null
 sysctl -w net.ipv4.ip_forward=0 >/dev/null
 sysctl -w net.ipv6.conf.all.forwarding=0 >/dev/null
-[[ "$(sysctl -n net.ipv4.ip_unprivileged_port_start)" == 53 ]]
+[[ "$(sysctl -n net.ipv4.ip_unprivileged_port_start)" == 21 ]]
 [[ "$(sysctl -n net.ipv4.ip_forward)" == 0 ]]
 [[ "$(sysctl -n net.ipv6.conf.all.forwarding)" == 0 ]]
 systemctl enable inetsim.service >/dev/null
