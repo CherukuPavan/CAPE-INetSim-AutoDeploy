@@ -6,7 +6,7 @@ collect_used_cidrs() {
     ip -4 route show table all 2>/dev/null | awk '$1 ~ /^[0-9]+\./ && $1 ~ /\// {print $1}'
     local n
     for n in "${LIBVIRT_NETWORKS[@]:-}"; do
-      virsh net-dumpxml "$n" 2>/dev/null | python3 -c '
+      virsh net-dumpxml "$n" 2>/dev/null | ad_python -c '
 import ipaddress,sys,xml.etree.ElementTree as ET
 try: root=ET.fromstring(sys.stdin.read())
 except Exception: raise SystemExit
@@ -27,7 +27,7 @@ plan_isolated_subnet() {
   f="$(mktemp)"
   collect_used_cidrs >"$f"
   mapfile -t USED_CIDRS <"$f"
-  ISOLATED_SUBNET="$(python3 - "$f" <<'PY'
+  ISOLATED_SUBNET="$(ad_python - "$f" <<'PY'
 import ipaddress,sys
 used=[]
 for s in open(sys.argv[1]):
@@ -42,7 +42,7 @@ PY
 )"
   rm -f "$f"
   if [[ -z "$ISOLATED_SUBNET" ]]; then add_error "No unused candidate private /24 subnet could be selected"; return 0; fi
-  read -r BRIDGE_IP INETSIM_IP < <(python3 - "$ISOLATED_SUBNET" <<'PY'
+  read -r BRIDGE_IP INETSIM_IP < <(ad_python - "$ISOLATED_SUBNET" <<'PY'
 import ipaddress,sys
 n=ipaddress.ip_network(sys.argv[1]); print(n.network_address+1,n.network_address+2)
 PY
