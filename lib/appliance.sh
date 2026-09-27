@@ -5,7 +5,7 @@ APPLIANCE_CACHE_ROOT="${APPLIANCE_CACHE_ROOT:-/var/cache/cape-inetsim-autodeploy
 
 appliance_manifest_field() {
   local field="$1" manifest="${2:-$APPLIANCE_MANIFEST}"
-  python3 - "$manifest" "$field" <<'PY'
+  ad_python - "$manifest" "$field" <<'PY'
 import json,sys
 p,key=sys.argv[1:]
 with open(p) as f: d=json.load(f)
@@ -21,7 +21,7 @@ PY
 
 appliance_manifest_validate() {
   local manifest="${1:-$APPLIANCE_MANIFEST}"
-  python3 - "$manifest" <<'PY'
+  ad_python - "$manifest" <<'PY'
 import json,re,sys,urllib.parse
 p=sys.argv[1]
 try:
@@ -39,11 +39,16 @@ if d['status'] != 'published':
 url=str(d['artifact_url'] or '')
 if urllib.parse.urlparse(url).scheme != 'https':
     print('artifact_url must use https', file=sys.stderr); raise SystemExit(2)
-sha=str(d['sha256'] or '').lower()
-if not re.fullmatch(r'[0-9a-f]{64}', sha):
-    print('sha256 must be 64 hex characters', file=sys.stderr); raise SystemExit(2)
+for key in ('sha256','transport_sha256'):
+    if key in d and d[key] is not None and not re.fullmatch(r'[0-9a-fA-F]{64}',str(d[key])):
+        print(f'{key} must be 64 hex characters', file=sys.stderr); raise SystemExit(2)
 if d['format'] != 'qcow2':
     print('only qcow2 appliances are supported', file=sys.stderr); raise SystemExit(2)
+compression=str(d.get('transport_compression','none')).lower()
+if compression not in ('none','gzip'):
+    print('unsupported transport compression', file=sys.stderr); raise SystemExit(2)
+if compression=='gzip' and not d.get('transport_sha256'):
+    print('gzip transport requires transport_sha256', file=sys.stderr); raise SystemExit(2)
 print('OK')
 PY
 }
@@ -54,37 +59,57 @@ appliance_verify_file() {
   local expected actual
   expected="$(appliance_manifest_field sha256 "$manifest")"
   actual="$(sha256sum "$file" | awk '{print $1}')"
-  [[ "$actual" == "$expected" ]] || {
-    fail "Appliance SHA-256 mismatch"
-    return 1
-  }
+  [[ "$actual" == "$expected" ]] || { fail "Appliance SHA-256 mismatch"; return 1; }
   if have qemu-img; then
     local fmt
-    fmt="$(qemu-img info --output=json "$file" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("format",""))' 2>/dev/null || true)"
+    fmt="$(qemu-img info --output=json "$file" 2>/dev/null | ad_python -c 'import json,sys; print(json.load(sys.stdin).get("format",""))' 2>/dev/null || true)"
     [[ "$fmt" == qcow2 ]] || { fail "Appliance is not qcow2 (detected: ${fmt:-unknown})"; return 1; }
   fi
-  pass "Appliance artifact checksum verified"
+  pass "Appliance QCOW2 checksum/format verified"
 }
 
 appliance_fetch() {
   local manifest="${1:-$APPLIANCE_MANIFEST}"
   appliance_manifest_validate "$manifest" >/dev/null
-  local name url cache part
+  local name url cache compression transport_sha transport part actual
   name="$(appliance_manifest_field artifact_name "$manifest")"
   url="$(appliance_manifest_field artifact_url "$manifest")"
+  compression="$(appliance_manifest_field transport_compression "$manifest" 2>/dev/null || echo none)"
+  transport_sha="$(appliance_manifest_field transport_sha256 "$manifest" 2>/dev/null || true)"
   install -d -m 0755 "$APPLIANCE_CACHE_ROOT"
   cache="$APPLIANCE_CACHE_ROOT/$name"
-  part="$cache.part"
 
   if [[ -f "$cache" ]] && appliance_verify_file "$cache" "$manifest" >/dev/null 2>&1; then
     printf '%s\n' "$cache"
     return 0
   fi
 
-  rm -f "$part"
-  curl --fail --location --proto '=https' --tlsv1.2 --retry 3 --output "$part" "$url"
-  appliance_verify_file "$part" "$manifest" >&2
-  chmod 0644 "$part"
-  mv -f "$part" "$cache"
+  transport="$cache.download"
+  [[ "$compression" == gzip ]] && transport="$transport.gz"
+  part="$transport.part"
+  rm -f "$part" "$transport" "$cache.part"
+
+  curl --fail --location --proto '=https' --tlsv1.2 --retry 5 --retry-all-errors --continue-at - --output "$part" "$url"
+  mv -f "$part" "$transport"
+
+  if [[ -n "$transport_sha" ]]; then
+    actual="$(sha256sum "$transport" | awk '{print $1}')"
+    [[ "$actual" == "$transport_sha" ]] || { rm -f "$transport"; fail "Appliance transport SHA-256 mismatch"; return 1; }
+  fi
+
+  case "$compression" in
+    gzip)
+      gzip -t "$transport"
+      gzip -dc "$transport" >"$cache.part"
+      ;;
+    none)
+      cp -f "$transport" "$cache.part"
+      ;;
+  esac
+
+  appliance_verify_file "$cache.part" "$manifest" >&2
+  chmod 0644 "$cache.part"
+  mv -f "$cache.part" "$cache"
+  rm -f "$transport"
   printf '%s\n' "$cache"
 }
