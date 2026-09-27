@@ -14,7 +14,7 @@ windows_configure_via_qga() {
   qga_exec_wait "$DOMAIN" "$windows_qga_powershell_path"     -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$remote_ps"     -ManagementIP "$guest_ip" -IsolatedMac "$isolated_mac" -FakeIP "$fake_ip"     -PrefixLength "$prefix" -DnsIP "$dns_ip" -ResultServerIP "$result_ip"     -ResultServerPort "$result_port" -ControlHostIP "$control_host_ip" -ResultPath "$remote_result"
   qga_file_read "$DOMAIN" "$remote_result" "$local_result"
 
-  python3 - "$local_result" <<'PY'
+  ad_python - "$local_result" <<'PY'
 import json,sys
 with open(sys.argv[1],encoding="utf-8-sig") as f: d=json.load(f)
 if not d.get("ok"):
@@ -36,7 +36,7 @@ windows_verify_via_qga() {
   qga_file_write "$DOMAIN" "$ps1" "$remote_ps"
   qga_exec_wait "$DOMAIN" "$windows_qga_powershell_path" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$remote_ps"     -ManagementIP "$guest_ip" -IsolatedMac "$isolated_mac" -FakeIP "$fake_ip" -DnsIP "$dns_ip"     -ResultServerIP "$result_ip" -ResultServerPort "$result_port" -ResultPath "$remote_result"
   qga_file_read "$DOMAIN" "$remote_result" "$local_result"
-  python3 - "$local_result" <<'PY'
+  ad_python - "$local_result" <<'PY'
 import json,sys
 with open(sys.argv[1],encoding="utf-8-sig") as f: d=json.load(f)
 if not d.get("ok"): raise SystemExit(json.dumps(d))
