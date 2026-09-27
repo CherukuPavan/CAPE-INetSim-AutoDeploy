@@ -65,7 +65,7 @@ python3 - "$TMP/result.json" <<'PY'
 import json,sys
 d=json.load(open(sys.argv[1]))
 assert d["status"]=="pass"
-assert d["mode"]=="route-separation-marker-pair"
+assert d["mode"]=="three-route-separation-marker-controls"
 assert d["positive"]["route"]=="inetsim"
 assert d["positive"]["uses_inetsim"] is True
 assert d["positive"]["marker_present"] is True
@@ -161,4 +161,4 @@ assert d["pcap_validation"]["drop_contains_inetsim_ip"] is False
 assert d["drop_route_requires_zero_network_analysis_events"] is True
 PY
 
-echo '[PASS] acceptance proves route=inetsim marker traffic and clean route=internet separation'
+echo '[PASS] acceptance proves INetSim, Internet, and strict no-network route semantics'
