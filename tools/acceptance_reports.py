@@ -134,7 +134,16 @@ def evaluate(task_id):
     if not isinstance(network,dict):
         network={}
     uses=bool(logic.network_uses_inetsim(network,a.inetsim_ip))
-    summary=logic.summarize_inetsim_network(network,a.inetsim_ip)
+    # Keep acceptance independent of optional extension helper APIs. The
+    # structural contract is task-local route/evidence separation, so summary
+    # counts are derived directly from the report's network lists.
+    summary={
+        "dns_count": len(network.get("dns") or []),
+        "http_count": len(network.get("http") or []),
+        "tcp_count": len(network.get("tcp") or []),
+        "udp_count": len(network.get("udp") or []),
+    }
+    summary["total_connections"]=summary["tcp_count"]+summary["udp_count"]
     evidence,inetsim_evidence=marker_evidence(network)
     return {
         "task_id":int(task_id),
