@@ -184,9 +184,13 @@ discover_cape_services() {
   if [[ -n "$CAPE_ROOTER_SERVICE" ]]; then
     exec_text="$(systemctl show "$CAPE_ROOTER_SERVICE" -p ExecStart --value 2>/dev/null || true)"
     CAPE_ROOTER_EXECUTABLE="$(printf '%s\n' "$exec_text" | grep -oE '/[^ ;{}]*rooter\.py' | head -1 || true)"
+    # systemd's rendered ExecStart can be lossy for paths containing spaces.
+    # Never accept a parsed token unless it is the real file; fall back to the
+    # live CAPE tree, where the exact pathname can be resolved safely.
+    [[ -n "$CAPE_ROOTER_EXECUTABLE" && -f "$CAPE_ROOTER_EXECUTABLE" ]] || CAPE_ROOTER_EXECUTABLE=""
   fi
   if [[ -z "$CAPE_ROOTER_EXECUTABLE" ]]; then
-    CAPE_ROOTER_EXECUTABLE="$(find "$CAPE_ROOT" -maxdepth 4 -type f -name rooter.py -path '*/utils/*' -print -quit 2>/dev/null || true)"
+    CAPE_ROOTER_EXECUTABLE="$(find "$CAPE_ROOT" -maxdepth 5 -type f -name rooter.py -path '*/utils/*' -print -quit 2>/dev/null || true)"
   fi
   [[ -n "$CAPE_ROOTER_EXECUTABLE" ]] || add_error "CAPE Rooter executable could not be discovered under the live CAPE root"
 }
