@@ -249,12 +249,12 @@ assert p.get("network", "merge_behavior_map", fallback="").lower() in ("no","fal
 print("RC66 CAPE route policy configuration PASS")
 PY
 
-  grep -Fq 'CAPE_INETSIM_AUTODEPLOY_ROUTE_V3' "$CAPE_ROOT/utils/rooter.py"
+  grep -Fq 'CAPE_INETSIM_AUTODEPLOY_ROUTE_V4' "$CAPE_ROOT/utils/rooter.py"
   grep -Fq '"autodeploy_route_policy_set": autodeploy_route_policy_set' "$CAPE_ROOT/utils/rooter.py"
   grep -Fq '"autodeploy_route_policy_reset": autodeploy_route_policy_reset' "$CAPE_ROOT/utils/rooter.py"
   grep -Fq 'CAPE_INETSIM_AUTODEPLOY_ROUTE_V3' "$CAPE_ROOT/lib/cuckoo/core/analysis_manager.py"
-  grep -Fq 'CAPE_INETSIM_AUTODEPLOY_TASK_NETWORK_V1' "$CAPE_ROOT/modules/processing/network.py"
-  grep -Fq 'CAPE_INETSIM_AUTODEPLOY_ROUTE_UI_V1' "$CAPE_ROOT/web/templates/submission/index.html"
+  grep -Fq 'CAPE_INETSIM_AUTODEPLOY_TASK_NETWORK_V2' "$CAPE_ROOT/modules/processing/network.py"
+  grep -Fq 'CAPE_INETSIM_AUTODEPLOY_ROUTE_UI_V2' "$CAPE_ROOT/web/templates/submission/index.html"
 
   if virsh domiflist "$DOMAIN" 2>/dev/null | grep -Fq "$ISOLATED_NETWORK_NAME"; then
     fail "Windows analysis VM has a persistent AutoDeploy isolated NIC; RC66 requires host-side per-task routing"
