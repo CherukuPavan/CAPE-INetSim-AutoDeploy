@@ -33,6 +33,7 @@ sudo ./install --status
 sudo ./install --verify
 sudo ./install --repair
 sudo ./install --collect
+sudo ./install --selftest
 sudo ./install --acceptance --positive-task <id> --negative-task <id> --marker <unique-hostname>
 sudo ./install --rollback
 sudo ./install --rollback --apply
@@ -42,7 +43,7 @@ Do **not** treat the development branch as a production release until `appliance
 
 `--collect` is the supported single-command read-only evidence collector. It writes one credential-redacted `.tar.gz` plus SHA-256 without changing CAPE, libvirt, Windows, networking, firewall, snapshots, or services.
 
-`--acceptance` is a post-deployment read-only functional gate. It re-runs the structural verifier, then validates a controlled pair of completed route-separated tasks (`route=inetsim` positive, `route=internet` negative) using a unique hostname marker. The positive task must use route=inetsim and contain the marker in task-local INetSim evidence and its pcap. The negative task must use route=internet and must contain neither the marker nor any traffic to the INetSim endpoint. This avoids host/image-specific domain blacklists while keeping the negative control meaningful.
+`--selftest` submits controlled benign CAPE tasks and automatically proves the deployed `route=inetsim` path with DNS, HTTP, PCAP and reported-analysis evidence. When a CAPE Internet route is configured it also runs a separate Internet control.\n\n`--acceptance` is a post-deployment read-only functional gate. It re-runs the structural verifier, then validates a controlled pair of completed route-separated tasks (`route=inetsim` positive, `route=internet` negative) using a unique hostname marker. The positive task must use route=inetsim and contain the marker in task-local INetSim evidence and its pcap. The negative task must use route=internet and must contain neither the marker nor any traffic to the INetSim endpoint. This avoids host/image-specific domain blacklists while keeping the negative control meaningful.
 
 ## Architecture
 
