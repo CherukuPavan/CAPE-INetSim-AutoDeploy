@@ -2,7 +2,12 @@
 set -o pipefail
 
 AD_NAME="CAPE-INetSim-AutoDeploy"
-AD_VERSION="$(cat "${AUTODEPLOY_ROOT}/VERSION" 2>/dev/null || echo unknown)"
+_AD_COMMON_ROOT="${AUTODEPLOY_ROOT:-}"
+if [[ -z "$_AD_COMMON_ROOT" ]]; then
+  _AD_COMMON_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd || true)"
+fi
+AD_VERSION="$(cat "${_AD_COMMON_ROOT:+$_AD_COMMON_ROOT/}VERSION" 2>/dev/null || echo unknown)"
+unset _AD_COMMON_ROOT
 
 pass(){ printf '[PASS] %s\n' "$*"; }
 warn(){ printf '[WARN] %s\n' "$*"; }
