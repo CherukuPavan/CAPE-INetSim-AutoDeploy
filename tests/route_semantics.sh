@@ -166,3 +166,32 @@ print("RC66 route-policy allowlist/drop semantics passed")
 PY
 
 echo "RC66 routing/network semantics test suite passed"
+
+# Route=drop/none must suppress all analyst-facing Network Analysis events.
+python3 - "$ROOT/tools/task_network_filter.py" <<'PY'
+import importlib.util
+import pathlib
+import sys
+
+p = pathlib.Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location("task_filter", p)
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+
+network = {
+    "tcp": [{"process_id": 100, "dst": "8.8.8.8"}],
+    "dns": [{"process_id": 100, "request": "example.invalid"}],
+    "http": [{"process_id": 300, "host": "background.invalid"}],
+}
+behavior = {"processtree": [{"pid": 100, "children": []}]}
+out = m.filter_network_to_task_process_tree(network, behavior, "drop")
+assert out["tcp"] == []
+assert out["dns"] == []
+assert out["http"] == []
+meta = out["autodeploy_task_network"]
+assert meta["mode"] == "strict-no-network"
+assert meta["kept_events"] == 0
+assert meta["suppressed_events"] == 3
+assert meta["raw_pcap_preserved"] is True
+print("RC66 strict no-network Network Analysis filter passed")
+PY
