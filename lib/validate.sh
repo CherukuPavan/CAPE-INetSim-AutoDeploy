@@ -35,7 +35,22 @@ validate_recovery_assets() {
   local rel backup failures=0
   if state_has_owned_kind cape-file; then
     for rel in modules/auxiliary/sniffer.py conf/auxiliary.conf conf/kvm.conf conf/processing.conf conf/routing.conf utils/rooter.py lib/cuckoo/core/analysis_manager.py modules/processing/network.py modules/processing/autodeploy_task_network.py web/templates/submission/index.html; do
-      # Only files actually stamped by the current runtime patch transaction
+      # These long-standing CAPE integration files remain mandatory for any
+    # deployment that owns CAPE-file mutations, including older releases.
+    for rel in modules/auxiliary/sniffer.py conf/auxiliary.conf conf/kvm.conf conf/processing.conf conf/routing.conf; do
+      backup="$AD_BACKUP_ROOT/${DEPLOYMENT_ID}/$rel"
+      if [[ ! -f "$backup" || ! -f "$backup.sha256" ]]; then
+        fail "Rollback backup is missing for CAPE file: $rel"
+        failures=$((failures+1))
+        continue
+      fi
+      if ! (cd "$(dirname "$backup")" && sha256sum -c "$(basename "$backup.sha256")" >/dev/null); then
+        fail "Rollback backup checksum failed for CAPE file: $rel"
+        failures=$((failures+1))
+      fi
+    done
+
+    # Only files actually stamped by the current runtime patch transaction
       # are required here. Older committed deployments legitimately lack the
       # RC66 runtime-file hashes and must remain verifiable.
       expected="$(cape_post_sha_for_rel "$rel" 2>/dev/null || true)"
