@@ -225,6 +225,11 @@ def filter_network_to_task_process_tree(
     # into the Network Analysis tabs.
     _filter_derived_aggregates(network)
 
+    # CAPE's dead_hosts aggregate is packet-derived and has no process
+    # attribution. Clear it so background-only failed connections cannot leak
+    # back into the analyst-facing task-local view.
+    network["dead_hosts"] = []
+
     after = _event_count(network)
     metadata["kept_events"] = after
     metadata["suppressed_events"] = max(metadata["suppressed_events"], before - after)
