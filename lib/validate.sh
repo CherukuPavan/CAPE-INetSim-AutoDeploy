@@ -34,7 +34,7 @@ validate_release_provenance() {
 validate_recovery_assets() {
   local rel backup failures=0
   if state_has_owned_kind cape-file; then
-    for rel in modules/auxiliary/sniffer.py conf/auxiliary.conf conf/kvm.conf conf/processing.conf conf/routing.conf; do
+    for rel in modules/auxiliary/sniffer.py conf/auxiliary.conf conf/kvm.conf conf/processing.conf conf/routing.conf utils/rooter.py lib/cuckoo/core/analysis_manager.py modules/processing/network.py web/templates/submission/index.html; do
       backup="$AD_BACKUP_ROOT/${DEPLOYMENT_ID}/$rel"
       if [[ ! -f "$backup" || ! -f "$backup.sha256" ]]; then
         fail "Rollback backup is missing for CAPE file: $rel"
@@ -182,6 +182,58 @@ if r.get("inetsim","dnsport",fallback="") != "53":
 PY
   grep -q 'CAPE_INETSIM_AUTODEPLOY_CAPTURE_V2' "$CAPE_ROOT/modules/auxiliary/sniffer.py"
 }
+ 
+validate_rc66_route_policy() {
+  local dirty="$DIRTY_LINE_INTERFACE"
+  [[ -n "$dirty" ]] || {
+    fail "RC66 real-Internet dirty-line interface was not discovered"
+    return 1
+  }
+
+  if ! command -v ip >/dev/null 2>&1 || ! ip link show "$dirty" >/dev/null 2>&1; then
+    fail "RC66 real-Internet dirty-line interface is unavailable: $dirty"
+    return 1
+  fi
+
+  python3 - "$CAPE_ROOT" "$dirty" "$INETSIM_IP" "$ISOLATED_BRIDGE_NAME" <<'PY'
+import configparser, sys
+root, dirty, inetsim, bridge = sys.argv[1:]
+
+def load(name):
+    c = configparser.ConfigParser(interpolation=None, strict=False)
+    c.optionxform = str.lower
+    c.read(root + "/conf/" + name + ".conf")
+    return c
+
+p = load("processing")
+r = load("routing")
+
+assert r.get("routing", "internet", fallback="") == dirty, "routing.internet != discovered dirty line"
+assert r.get("routing", "nat", fallback="").lower() in ("yes","true","1","on"), "routing.nat is not enabled"
+assert r.get("routing", "route", fallback="").lower() in ("none","drop","false"), "default routing policy is not non-routed"
+assert r.get("inetsim", "enabled", fallback="").lower() in ("yes","true","1","on"), "INetSim route is disabled"
+assert r.get("inetsim", "server", fallback="") == inetsim, "INetSim server mismatch"
+assert r.get("inetsim", "interface", fallback="") == bridge, "INetSim interface mismatch"
+assert p.get("behavior", "network_map", fallback="").lower() in ("yes","true","1","on"), "behavior.network_map is disabled"
+assert p.get("network", "process_map", fallback="").lower() in ("yes","true","1","on"), "network.process_map is disabled"
+assert p.get("network", "merge_behavior_map", fallback="").lower() in ("no","false","0","off"), "merge_behavior_map must remain disabled"
+print("RC66 CAPE route policy configuration PASS")
+PY
+
+  grep -Fq 'CAPE_INETSIM_AUTODEPLOY_ROUTE_V3' "$CAPE_ROOT/utils/rooter.py"
+  grep -Fq '"autodeploy_strict_drop_enable": autodeploy_strict_drop_enable' "$CAPE_ROOT/utils/rooter.py"
+  grep -Fq '"autodeploy_strict_drop_disable": autodeploy_strict_drop_disable' "$CAPE_ROOT/utils/rooter.py"
+  grep -Fq 'CAPE_INETSIM_AUTODEPLOY_ROUTE_V3' "$CAPE_ROOT/lib/cuckoo/core/analysis_manager.py"
+  grep -Fq 'CAPE_INETSIM_AUTODEPLOY_TASK_NETWORK_V1' "$CAPE_ROOT/modules/processing/network.py"
+  grep -Fq 'CAPE_INETSIM_AUTODEPLOY_ROUTE_UI_V1' "$CAPE_ROOT/web/templates/submission/index.html"
+
+  if virsh domiflist "$DOMAIN" 2>/dev/null | grep -Fq "$ISOLATED_NETWORK_NAME"; then
+    fail "Windows analysis VM has a persistent AutoDeploy isolated NIC; RC66 requires host-side per-task routing"
+    return 1
+  fi
+
+  return 0
+}
 
 validate_resultserver_host() {
   [[ "${CAPE_SERVICE_WAS_ACTIVE:-yes}" == yes ]] || return 0
@@ -243,6 +295,10 @@ validate_all_targets_structural() {
     fi
     validate_cape_configuration || {
       fail "CAPE route-separated configuration validation failed for $CAPE_MACHINE_SECTION"
+      failures=$((failures+1))
+    }
+    validate_rc66_route_policy || {
+      fail "RC66 route and Network Analysis policy validation failed for $CAPE_MACHINE_SECTION"
       failures=$((failures+1))
     }
   done
