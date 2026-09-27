@@ -129,7 +129,7 @@ def set_one(text, key, value):
     # enabled, commented out, duplicated, or absent entirely. Production
     # configuration must therefore normalize exactly one active declaration
     # rather than assuming the vendor file already contains the key.
-    pattern = re.compile(rf"^\\s*#?\\s*{re.escape(key)}(?:\\s+.*)?$", re.I)
+    pattern = re.compile(rf"^\s*#?\s*{re.escape(key)}(?:\s+.*)?$", re.I)
     lines = text.splitlines()
     out = []
     enabled = False
@@ -144,7 +144,7 @@ def set_one(text, key, value):
             out.append(line)
     if not enabled:
         out.append(f"{key} {value}")
-    return "\\n".join(out) + "\\n"
+    return "\n".join(out) + "\n"
 
 text = set_one(text, "service_bind_address", ip)
 text = set_one(text, "dns_default_ip", ip)
@@ -155,7 +155,7 @@ text = set_one(text, "dns_default_ip", ip)
 required = ("dns", "http", "https", "smtp", "ftp")
 lines = text.splitlines()
 for service in required:
-    pattern = re.compile(rf"^\\s*#?\\s*start_service\\s+{re.escape(service)}\\s*$", re.I)
+    pattern = re.compile(rf"^\s*#?\s*start_service\s+{re.escape(service)}\s*$", re.I)
     out = []
     enabled = False
     for line in lines:
