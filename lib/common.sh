@@ -66,7 +66,7 @@ nwfilter_find_definition() {
     [[ -n "$root" ]] || continue
     path="$root/$target.xml"
     [[ -r "$path" ]] || continue
-    if python3 - "$path" "$target" <<'PY'
+    if ad_python - "$path" "$target" <<'PY'
 import sys,xml.etree.ElementTree as ET
 path,target=sys.argv[1:]
 try:
