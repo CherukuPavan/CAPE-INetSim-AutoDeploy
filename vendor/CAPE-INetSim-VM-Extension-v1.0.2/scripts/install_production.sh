@@ -164,41 +164,80 @@ discover_cape_runtime() {
             --value
     )"
 
-    # CAPE_INETSIM_RUNTIME_DISCOVERY_V2
+    # CAPE_INETSIM_RUNTIME_DISCOVERY_V3
     #
-    # Preserve the interpreter path exactly as cape-web uses it.
-    # readlink /proc/<pid>/exe would resolve a virtualenv Python
-    # symlink to /usr/bin/python, losing the CAPE environment.
+    # Prefer the exact interpreter path recorded in the running cape-web
+    # process. Do not resolve /proc/<pid>/exe because virtualenv Python may
+    # symlink back to the system interpreter and lose CAPE packages.
     CAPE_PYTHON=""
 
     if [[ "$CAPE_WEB_PID" =~ ^[0-9]+$ ]] \
-       && (( CAPE_WEB_PID > 0 )); then
+       && (( CAPE_WEB_PID > 0 )) \
+       && [[ -r "/proc/$CAPE_WEB_PID/cmdline" ]]; then
 
         CAPE_PYTHON="$(
-            ps -p "$CAPE_WEB_PID" -o args= \
+            tr '\0' '\n' < "/proc/$CAPE_WEB_PID/cmdline" \
                 2>/dev/null |
-            awk '{print $1}' |
             head -1
         )"
 
+        case "$(basename "$CAPE_PYTHON" 2>/dev/null || true)" in
+            python|python[0-9]|python[0-9].[0-9]|python[0-9].[0-9][0-9])
+                ;;
+            *)
+                CAPE_PYTHON=""
+                ;;
+        esac
     fi
 
-    if [[ -z "$CAPE_PYTHON" ]]; then
+    if [[ -n "$CAPE_PYTHON" ]] \
+       && ! sudo -u "$CAPE_SERVICE_USER" test -x "$CAPE_PYTHON"; then
+        CAPE_PYTHON=""
+    fi
 
-        CAPE_PYTHON="$(
+    # CAPE installations are often launched through Poetry. When the main
+    # process is unavailable, resolve Poetry's own virtualenv interpreter
+    # rather than assuming ExecStart begins with a Python executable.
+    if [[ -z "$CAPE_PYTHON" ]]; then
+        local launcher=""
+        launcher="$(
             systemctl cat "$CAPE_WEB_SERVICE" |
             sed -n \
-                's/^ExecStart=\([^[:space:]]*python[^[:space:]]*\).*/\1/p' |
+                's/^ExecStart=\\([^[:space:]]*poetry\\).*/\\1/p' |
             head -1
         )"
 
+        if [[ "$launcher" == /* && -x "$launcher" ]] \
+           && [[ "$(basename "$launcher" 2>/dev/null || true)" == "poetry" ]]; then
+            CAPE_PYTHON="$(
+                sudo -u "$CAPE_SERVICE_USER" \
+                    timeout 20 "$launcher" env info --executable \
+                    2>/dev/null || true
+            )"
+        fi
     fi
 
     if [[ -z "$CAPE_PYTHON" ]]; then
+        local launcher_python=""
+        launcher_python="$(
+            systemctl cat "$CAPE_WEB_SERVICE" |
+            sed -n \
+                's/^ExecStart=\\([^[:space:]]*python[^[:space:]]*\\).*/\\1/p' |
+            head -1
+        )"
+        if [[ "$launcher_python" == /* && -x "$launcher_python" ]]; then
+            CAPE_PYTHON="$launcher_python"
+        fi
+    fi
+
+    if [[ -z "$CAPE_PYTHON" && -x "$CAPE_ROOT/.venv/bin/python" ]]; then
+        CAPE_PYTHON="$CAPE_ROOT/.venv/bin/python"
+    fi
+
+    if [[ -z "$CAPE_PYTHON" || ! -x "$CAPE_PYTHON" ]]; then
         fail "Unable to discover CAPE Python interpreter"
         return 1
     fi
-
     if ! sudo -u "$CAPE_SERVICE_USER" \
         test -x "$CAPE_PYTHON"; then
 

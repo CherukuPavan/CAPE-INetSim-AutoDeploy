@@ -608,6 +608,9 @@ deploy_run() {
     validate_deployment_services
   fi
 
+  # Keep persisted top-level compatibility fields deterministic in a multi-target deployment.
+  # CAPE_TARGETS_JSON remains authoritative; index 0 supplies legacy scalar fields.
+  targets_bind 0
   state_set_phase committed
   trap - ERR INT TERM
   echo

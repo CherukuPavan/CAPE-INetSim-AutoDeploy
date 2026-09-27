@@ -152,5 +152,11 @@ grep -Fq 'extension-legacy' "$ROOT/lib/extension.sh"
 grep -Fq 'CAPE_INETSIM_VM_ROUTE_GATED_V2' "$ROOT/lib/extension.sh"
 grep -Fq 'CAPE_INETSIM_VM_ROUTE_STATUS_V3' "$ROOT/lib/extension.sh"
 grep -Fq 'Refreshing transaction-owned INetSim route-status UI' "$ROOT/lib/extension.sh"
+# RC66 portability regression: direct extension installation must support the
+# common Poetry-launched CAPE service layout.
+grep -Fq 'CAPE_INETSIM_RUNTIME_DISCOVERY_V3' "$EXTENSION_BUNDLED_ROOT/scripts/install_production.sh"
+grep -Fq 'systemctl show "$CAPE_WEB_SERVICE"' "$EXTENSION_BUNDLED_ROOT/scripts/install_production.sh"
+grep -Fq 'env info --executable' "$EXTENSION_BUNDLED_ROOT/scripts/install_production.sh"
+grep -Fq '/proc/$CAPE_WEB_PID/cmdline' "$EXTENSION_BUNDLED_ROOT/scripts/install_production.sh"
 
 echo '[PASS] vendored extension v1.0.2 supports modern CAPE, managed preflight, stale-runtime refresh, and protected RC44 upgrade'

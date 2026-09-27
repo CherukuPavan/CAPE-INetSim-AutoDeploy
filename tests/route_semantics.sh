@@ -119,9 +119,19 @@ for rel,marker in checks.items():
     text=(root/rel).read_text()
     assert text.count(marker)==1, (rel,text.count(marker))
 rooter=(root/"utils/rooter.py").read_text()
+analysis=(root/"lib/cuckoo/core/analysis_manager.py").read_text()
 assert "CAPEAD_" in rooter
 assert "autodeploy_route_policy_set" in rooter
 assert '"autodeploy_route_policy_set": autodeploy_route_policy_set' in rooter
+expected_internet = """            self.rooter_response = rooter(
+                "autodeploy_route_policy_set",
+                self.machine.ip,
+                self.machine.interface,
+                self.interface,
+                str(self.cfg.resultserver.ip),
+                str(self.machine.resultserver_port),
+            )"""
+assert expected_internet in analysis
 print("RC66 patcher idempotency/marker checks passed")
 PY
 
@@ -206,4 +216,21 @@ assert meta["kept_events"] == 0
 assert meta["suppressed_events"] == 7
 assert meta["raw_pcap_preserved"] is True
 print("RC66 strict no-network Network Analysis filter passed")
+
+# Non-drop routes must not expose packet-derived dead_hosts because that
+# aggregate has no process attribution.
+network = {
+    "tcp": [{"process_id": 100, "dst": "8.8.8.8"}],
+    "hosts": [{"ip": "8.8.8.8"}],
+    "domains": ["example.invalid"],
+    "dead_hosts": [["203.0.113.10", 443]],
+    "sorted": {"tcp": [{"process_id": 100, "dst": "8.8.8.8"}]},
+}
+behavior = {"processtree": [{"pid": 100, "children": []}]}
+out = m.filter_network_to_task_process_tree(network, behavior, "internet")
+assert out["tcp"] == [{"process_id": 100, "dst": "8.8.8.8"}]
+assert out["dead_hosts"] == []
+assert out["sorted"] == {}
+assert out["autodeploy_task_network"]["kept_events"] >= 1
+print("RC66 task-local Network Analysis dead_hosts suppression passed")
 PY
