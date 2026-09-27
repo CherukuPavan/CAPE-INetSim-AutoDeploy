@@ -7,6 +7,8 @@ set -Eeuo pipefail
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends inetsim qemu-guest-agent ca-certificates iproute2 netplan.io
+[[ -x /usr/local/src/cape-inetsim-gui-enable ]] || { echo "Missing GUI enable helper" >&2; exit 23; }
+/usr/local/src/cape-inetsim-gui-enable
 
 INET_VER="$(dpkg-query -W -f='${Version}' inetsim)"
 [[ "$INET_VER" == 1.3.2* ]] || { echo "Unexpected INetSim package: $INET_VER" >&2; exit 20; }
@@ -28,6 +30,7 @@ systemctl disable systemd-networkd-wait-online.service 2>/dev/null || true
 
 # The deployment executes this through QEMU Guest Agent after both NICs exist.
 install -m 0755 /usr/local/src/cape-inetsim-guest-configure /usr/local/sbin/cape-inetsim-guest-configure
+install -m 0755 /usr/local/src/cape-inetsim-gui-enable /usr/local/sbin/cape-inetsim-gui-enable
 
 # Do not bind/start simulator services during image construction. Deployment enables it.
 systemctl disable inetsim.service >/dev/null 2>&1 || true
