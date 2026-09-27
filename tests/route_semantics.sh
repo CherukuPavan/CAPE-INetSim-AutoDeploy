@@ -161,7 +161,7 @@ calls.clear()
 mod["autodeploy_route_policy_set"]("192.168.122.204","virbr0","","192.168.122.1","2040")
 rules=[" ".join(a) for kind,a in calls if kind=="iptables"]
 assert not any("-o ens33" in r for r in rules)
-assert any("-j DROP" in r for r in rules)
+assert any("-i virbr0" in r and "-j DROP" in r for r in rules)
 print("RC66 route-policy allowlist/drop semantics passed")
 PY
 
