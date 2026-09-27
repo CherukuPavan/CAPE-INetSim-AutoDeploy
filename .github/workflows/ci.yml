@@ -74,6 +74,8 @@ jobs:
         run: bash tests/ini_edit.sh
       - name: CAPE configuration patch
         run: bash tests/cape_config_logic.sh
+      - name: RC66 route and Network Analysis semantics
+        run: bash tests/route_semantics.sh
       - name: CAPE maintenance helper
         run: bash tests/maintenance_tool.sh
       - name: CAPE virtualenv and service-user runtime

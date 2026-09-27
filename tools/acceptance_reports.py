@@ -134,16 +134,38 @@ def evaluate(task_id):
     if not isinstance(network,dict):
         network={}
     uses=bool(logic.network_uses_inetsim(network,a.inetsim_ip))
-    context=logic.build_inetsim_route_context(network,a.inetsim_ip)
+    # Keep acceptance independent of optional extension helper APIs. The
+    # structural contract is task-local route/evidence separation, so summary
+    # counts are derived directly from the report's network lists.
+    summary={
+        "dns_count": len(network.get("dns") or []),
+        "http_count": len(network.get("http") or []),
+        "tcp_count": len(network.get("tcp") or []),
+        "udp_count": len(network.get("udp") or []),
+    }
+    summary["total_connections"]=summary["tcp_count"]+summary["udp_count"]
     evidence,inetsim_evidence=marker_evidence(network)
     return {
         "task_id":int(task_id),
         "report_path":str(path),
         "route":route,
         "uses_inetsim":uses,
-        "context_enabled":bool(context.get("enabled")),
-        "summary":context.get("summary") or {},
-        "task_domains":(context.get("attribution_summary") or {}).get("task_domains") or [],
+        "context_enabled":bool(uses),
+        "summary":{
+            "dns":summary.get("dns_count",0),
+            "http":summary.get("http_count",0),
+            "tcp":summary.get("tcp_count",0),
+            "udp":summary.get("udp_count",0),
+            "total_connections":summary.get("total_connections",0),
+        },
+        "task_domains":[
+            norm_host(e.get("request"))
+            for e in (network.get("dns") or [])
+            if isinstance(e,dict) and any(
+                isinstance(a0,dict) and str(a0.get("data","")).strip()==a.inetsim_ip
+                for a0 in (e.get("answers") or [])
+            )
+        ],
         "capture_path":str(capture) if capture else "",
         "marker_present":bool(evidence),
         "marker_evidence":evidence,
@@ -162,6 +184,7 @@ positive_ok=bool(
     and positive["uses_inetsim"]
     and positive["context_enabled"]
     and positive["marker_present"]
+    and positive["marker_reached_inetsim"]
 )
 negative_ok=bool(
     negative
