@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Task-attributed Network Analysis filtering for CAPE.
 
-The raw PCAP is intentionally left untouched for forensic use. The CAPE
-Network Analysis result is filtered to the primary analysis process tree
-root and its descendants. Unattributed/background network events are
-suppressed from the user-facing Network Analysis view.
+The raw PCAP is intentionally left untouched for forensic use. The analyst-
+facing CAPE Network Analysis result is kept task-local by attributing events
+to the primary analysis process tree. For route=drop/none, the analyst-facing
+network result is intentionally empty because the route is a strict no-network
+analysis path; raw PCAP remains available for forensic inspection.
 """
 
 from __future__ import annotations
@@ -65,18 +66,45 @@ def _event_count(network: Dict[str, Any]) -> int:
     return total
 
 
+def _empty_network_view(network: Dict[str, Any], mode: str) -> Dict[str, Any]:
+    before = _event_count(network)
+    for key in NETWORK_EVENT_LISTS:
+        if isinstance(network.get(key), list):
+            network[key] = []
+    network["autodeploy_task_network"] = {
+        "enabled": True,
+        "mode": mode,
+        "raw_pcap_preserved": True,
+        "root_pid": None,
+        "tracked_pids": 0,
+        "suppressed_events": before,
+        "kept_events": 0,
+    }
+    return network
+
+
 def filter_network_to_task_process_tree(
     network: Dict[str, Any],
     behavior: Dict[str, Any],
+    route: str = "",
 ) -> Dict[str, Any]:
-    """Filter network results to the primary task process and descendants.
+    """Keep only network events attributed to the task's primary process tree.
 
-    The first ProcessTree root is the primary analysis process used by CAPE's
-    analyst UI. Events without an attributed PID in that tree are omitted.
-    The raw dump.pcap is not changed.
+    CAPE's ProcessTree is the authority for task-local process attribution.
+    The first ProcessTree root is treated as the primary submitted-analysis
+    process and every descendant is retained.
+
+    For route=drop/none/false, the user-facing Network Analysis view is
+    deliberately empty. This enforces the semantic contract that "No network"
+    presents no network-analysis events, while the raw dump.pcap remains
+    untouched and available for forensic inspection.
     """
     if not isinstance(network, dict):
         return {}
+
+    route = str(route or "").strip().lower()
+    if route in {"none", "drop", "false"}:
+        return _empty_network_view(network, "strict-no-network")
 
     tree = behavior.get("processtree") if isinstance(behavior, dict) else None
     roots = tree if isinstance(tree, list) else []
@@ -94,13 +122,7 @@ def filter_network_to_task_process_tree(
     }
 
     if root is None:
-        for key in NETWORK_EVENT_LISTS:
-            value = network.get(key)
-            if isinstance(value, list):
-                metadata["suppressed_events"] += len(value)
-                network[key] = []
-        network["autodeploy_task_network"] = metadata
-        return network
+        return _empty_network_view(network, "primary-process-tree-no-root")
 
     tracked = _walk_tree(root)
     metadata["tracked_pids"] = len(tracked)
