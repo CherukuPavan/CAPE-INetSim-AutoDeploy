@@ -17,6 +17,7 @@ python3 -m py_compile "$VENDOR/scripts/prepare_install_candidate.py" "$VENDOR/sr
 
 grep -Fq 'source "$ROOT/lib/qga.sh"' "$ROOT/bin/cape-inetsim-verify"
 grep -Fq 'source "$ROOT/lib/windows-management-dhcp.sh"' "$ROOT/bin/cape-inetsim-verify"
+grep -Fq 'source "$ROOT/lib/cape-configure.sh"' "$ROOT/bin/cape-inetsim-verify"
 
 if command -v pwsh >/dev/null 2>&1; then
   for f in "$ROOT"/windows/*.ps1; do
@@ -32,6 +33,5 @@ grep -Fq 'legacy_network_stack' "$ROOT/windows/configure-inetsim.ps1"
 grep -Fq 'legacy_network_stack' "$ROOT/windows/verify-inetsim.ps1"
 grep -Fq 'Get-WmiObject Win32_NetworkAdapterConfiguration' "$ROOT/windows/configure-inetsim.ps1"
 grep -Fq 'Get-WmiObject Win32_NetworkAdapterConfiguration' "$ROOT/windows/verify-inetsim.ps1"
-
 
 echo "[PASS] shell/Python/PowerShell syntax, verifier dependencies and legacy Windows guards"
