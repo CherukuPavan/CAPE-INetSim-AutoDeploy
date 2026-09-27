@@ -32,8 +32,8 @@ PY
   return 1
 }
 
-# Resolve the host-side interpreter once from PATH. Runtime code uses this
-# absolute executable; it never assumes /usr/bin/python3 or a CAPE venv path.
+# Resolve the host-side interpreter once from PATH. Runtime code uses the
+# discovered absolute executable and never assumes a fixed system or CAPE path.
 if [[ -z "${AD_HOST_PYTHON:-}" ]]; then
   AD_HOST_PYTHON="$(ad_select_host_python 2>/dev/null || true)"
 fi
