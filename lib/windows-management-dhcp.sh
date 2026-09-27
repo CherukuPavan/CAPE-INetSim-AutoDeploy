@@ -15,7 +15,7 @@ windows_management_network_is_active() {
 windows_management_dhcp_host_xml() {
   local xml
   xml="$(virsh net-dumpxml "$MANAGEMENT_NETWORK_NAME" 2>/dev/null)" || return 1
-  python3 -c '
+  ad_python -c '
 import sys,xml.etree.ElementTree as ET
 mac=sys.argv[1].lower()
 try:
@@ -35,7 +35,7 @@ if hits:
 
 windows_management_dhcp_host_ip() {
   local xml="$1"
-  python3 -c '
+  ad_python -c '
 import sys,xml.etree.ElementTree as ET
 try:
     h=ET.fromstring(sys.stdin.read())
@@ -47,7 +47,7 @@ print(h.get("ip") or "")
 
 windows_management_dhcp_desired_xml() {
   local old="$1"
-  python3 -c '
+  ad_python -c '
 import sys,xml.etree.ElementTree as ET
 mac,ip,label=sys.argv[1:]
 text=sys.stdin.read().strip()
@@ -63,7 +63,7 @@ print(ET.tostring(h,encoding="unicode"))
 windows_management_dhcp_ip_conflict() {
   local xml
   xml="$(virsh net-dumpxml "$MANAGEMENT_NETWORK_NAME" 2>/dev/null)" || return 2
-  python3 -c '
+  ad_python -c '
 import sys,xml.etree.ElementTree as ET
 ip,mac=sys.argv[1:]
 try:
