@@ -7,11 +7,12 @@ from pathlib import Path
 import sys
 from urllib.parse import urlsplit
 
-p=argparse.ArgumentParser(description="Validate controlled CAPE INetSim-vs-Internet route separation")
+p=argparse.ArgumentParser(description="Validate controlled CAPE INetSim/Internet/No-network route separation")
 p.add_argument("--cape-root",required=True)
 p.add_argument("--inetsim-ip",required=True)
 p.add_argument("--positive-task",required=True)
 p.add_argument("--negative-task",required=True)
+p.add_argument("--drop-task",required=True)
 p.add_argument("--marker",required=True,help="Unique hostname marker intentionally generated only by the positive control")
 p.add_argument("--output",required=True)
 a=p.parse_args()
@@ -123,6 +124,13 @@ def marker_evidence(network):
 
     return all_hits,inetsim_hits
 
+NETWORK_LISTS=("tcp","udp","dns","http","http_ex","https_ex","hosts","ftp","smtp","irc","ssh","tls")
+
+def network_event_count(network):
+    if not isinstance(network,dict):
+        return 0
+    return sum(len(network.get(k) or []) for k in NETWORK_LISTS if isinstance(network.get(k) or [],list))
+
 def evaluate(task_id):
     report,path=load_report(task_id)
     if not isinstance(report,dict):
@@ -134,16 +142,13 @@ def evaluate(task_id):
     if not isinstance(network,dict):
         network={}
     uses=bool(logic.network_uses_inetsim(network,a.inetsim_ip))
-    # Keep acceptance independent of optional extension helper APIs. The
-    # structural contract is task-local route/evidence separation, so summary
-    # counts are derived directly from the report's network lists.
     summary={
-        "dns_count": len(network.get("dns") or []),
-        "http_count": len(network.get("http") or []),
-        "tcp_count": len(network.get("tcp") or []),
-        "udp_count": len(network.get("udp") or []),
+        "dns":len(network.get("dns") or []),
+        "http":len(network.get("http") or []),
+        "tcp":len(network.get("tcp") or []),
+        "udp":len(network.get("udp") or []),
+        "total_network_events":network_event_count(network),
     }
-    summary["total_connections"]=summary["tcp_count"]+summary["udp_count"]
     evidence,inetsim_evidence=marker_evidence(network)
     return {
         "task_id":int(task_id),
@@ -151,30 +156,17 @@ def evaluate(task_id):
         "route":route,
         "uses_inetsim":uses,
         "context_enabled":bool(uses),
-        "summary":{
-            "dns":summary.get("dns_count",0),
-            "http":summary.get("http_count",0),
-            "tcp":summary.get("tcp_count",0),
-            "udp":summary.get("udp_count",0),
-            "total_connections":summary.get("total_connections",0),
-        },
-        "task_domains":[
-            norm_host(e.get("request"))
-            for e in (network.get("dns") or [])
-            if isinstance(e,dict) and any(
-                isinstance(a0,dict) and str(a0.get("data","")).strip()==a.inetsim_ip
-                for a0 in (e.get("answers") or [])
-            )
-        ],
+        "summary":summary,
         "capture_path":str(capture) if capture else "",
         "marker_present":bool(evidence),
         "marker_evidence":evidence,
         "marker_reached_inetsim":bool(inetsim_evidence),
-        "marker_inetsim_evidence":inetsim_evidence,
+        "network_event_count":summary["total_network_events"],
     }
 
 positive=evaluate(a.positive_task)
 negative=evaluate(a.negative_task)
+drop=evaluate(a.drop_task)
 errors=[]
 
 positive_ok=bool(
@@ -194,21 +186,34 @@ negative_ok=bool(
     and not negative["context_enabled"]
     and not negative["marker_present"]
 )
+drop_ok=bool(
+    drop
+    and drop["capture_path"]
+    and drop["route"] in {"drop","none","false"}
+    and not drop["uses_inetsim"]
+    and not drop["context_enabled"]
+    and not drop["marker_present"]
+    and drop["network_event_count"]==0
+)
 
 if not positive_ok:
-    errors.append("positive task is not a route=inetsim report containing the required marker and task-local INetSim evidence")
+    errors.append("positive task is not a route=inetsim report containing the required marker with task-local INetSim evidence")
 if not negative_ok:
     errors.append("negative task is not a clean route=internet report with no INetSim evidence and no marker")
+if not drop_ok:
+    errors.append("drop task is not a strict no-network report: analyst-facing Network Analysis must contain zero network events")
 
 result={
-    "schema":2,
+    "schema":3,
     "status":"pass" if not errors else "incomplete",
-    "mode":"route-separation-marker-pair",
+    "mode":"three-route-separation-marker-controls",
     "inetsim_ip":a.inetsim_ip,
     "marker":marker,
     "positive":positive,
     "negative":negative,
+    "drop":drop,
     "background_inetsim_allowed_in_negative":False,
+    "drop_route_requires_zero_network_analysis_events":True,
     "errors":errors,
 }
 Path(a.output).parent.mkdir(parents=True,exist_ok=True)
@@ -219,5 +224,6 @@ if errors:
         print(f"[FAIL] {e}",file=sys.stderr)
     raise SystemExit(20)
 
-print(f"[PASS] positive route=inetsim task {positive['task_id']} contains marker {marker}; packet capture must prove marker-to-INetSim linkage")
-print(f"[PASS] negative route=internet task {negative['task_id']} has no INetSim evidence and lacks marker {marker}")
+print(f"[PASS] route=inetsim task {positive['task_id']} contains marker {marker} linked to INetSim")
+print(f"[PASS] route=internet task {negative['task_id']} contains no INetSim evidence and lacks marker {marker}")
+print(f"[PASS] route=drop task {drop['task_id']} has zero analyst-facing Network Analysis events")

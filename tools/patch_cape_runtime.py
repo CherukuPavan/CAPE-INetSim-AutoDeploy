@@ -66,7 +66,7 @@ def _autodeploy_checked_rule(*args):
         raise RuntimeError("RC66 iptables rule failed: %s" % err.strip())
 
 
-def autodeploy_route_policy_set(ipaddr, allowed_interface="", resultserver_ip="", resultserver_port=""):
+def autodeploy_route_policy_set(ipaddr, ingress_interface="", allowed_interface="", resultserver_ip="", resultserver_port=""):
     """Allow only the selected analysis egress plus CAPE ResultServer traffic."""
     chain = _autodeploy_policy_chain(ipaddr)
     autodeploy_route_policy_reset(ipaddr)
@@ -77,32 +77,33 @@ def autodeploy_route_policy_set(ipaddr, allowed_interface="", resultserver_ip=""
     run(ServicePaths.iptables, "-F", chain)
 
     if resultserver_ip and resultserver_port:
-        _autodeploy_checked_rule(
-            "-I", chain, "1",
-            "--source", ipaddr,
+        rule_pos = ["-I", chain, "1", "--source", ipaddr]
+        if ingress_interface:
+            rule_pos += ["-i", ingress_interface]
+        rule_pos += [
             "--destination", resultserver_ip,
             "-p", "tcp",
             "--dport", resultserver_port,
             "-j", "ACCEPT",
-        )
+        ]
+        _autodeploy_checked_rule(*rule_pos)
 
     if allowed_interface:
         pos = "2" if resultserver_ip and resultserver_port else "1"
-        _autodeploy_checked_rule(
-            "-I", chain, pos,
-            "--source", ipaddr,
-            "-o", allowed_interface,
-            "-j", "ACCEPT",
-        )
+        rule_pos = ["-I", chain, pos, "--source", ipaddr]
+        if ingress_interface:
+            rule_pos += ["-i", ingress_interface]
+        rule_pos += ["-o", allowed_interface, "-j", "ACCEPT"]
+        _autodeploy_checked_rule(*rule_pos)
         drop_pos = "3" if resultserver_ip and resultserver_port else "2"
     else:
         drop_pos = "2" if resultserver_ip and resultserver_port else "1"
 
-    _autodeploy_checked_rule(
-        "-I", chain, drop_pos,
-        "--source", ipaddr,
-        "-j", "DROP",
-    )
+    rule_pos = ["-I", chain, drop_pos, "--source", ipaddr]
+    if ingress_interface:
+        rule_pos += ["-i", ingress_interface]
+    rule_pos += ["-j", "DROP"]
+    _autodeploy_checked_rule(*rule_pos)
 
     # CAPE_REJECTED_SEGMENTS is traversed before CAPE_ACCEPTED_SEGMENTS, so the
     # per-task policy is enforced before any broad forwarding allow rule.
@@ -182,6 +183,7 @@ def patch_analysis_manager(path: Path) -> None:
             self.rooter_response = rooter(
                 "autodeploy_route_policy_set",
                 self.machine.ip,
+                self.machine.interface,
                 self.interface,
                 str(self.cfg.resultserver.ip),
                 str(self.machine.resultserver_port),
@@ -211,6 +213,7 @@ def patch_analysis_manager(path: Path) -> None:
             self.rooter_response = rooter(
                 "autodeploy_route_policy_set",
                 self.machine.ip,
+                self.machine.interface,
                 "",
                 str(self.cfg.resultserver.ip),
                 str(self.machine.resultserver_port),
@@ -307,6 +310,7 @@ from modules.processing.autodeploy_task_network import filter_network_to_task_pr
             results = filter_network_to_task_process_tree(
                 results,
                 self.results.get("behavior", {}) if isinstance(self.results, dict) else {},
+                str(self.task.get("route") or ""),
             )
 
         return results

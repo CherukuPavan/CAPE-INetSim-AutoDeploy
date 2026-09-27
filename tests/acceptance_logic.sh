@@ -4,7 +4,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-mkdir -p "$TMP/cape/web/analysis" "$TMP/cape/storage/analyses/20/reports" "$TMP/cape/storage/analyses/19/reports"
+mkdir -p "$TMP/cape/web/analysis" "$TMP/cape/storage/analyses/20/reports" "$TMP/cape/storage/analyses/19/reports" "$TMP/cape/storage/analyses/18/reports"
 cat >"$TMP/cape/web/analysis/inetsim_vm_logic.py" <<'PY'
 def network_uses_inetsim(network, server_ip):
     for proto in ("tcp","udp"):
@@ -18,12 +18,7 @@ def network_uses_inetsim(network, server_ip):
     return False
 
 def build_inetsim_route_context(network, server_ip):
-    enabled=network_uses_inetsim(network,server_ip)
-    return {
-        "enabled":enabled,
-        "summary":{"total":1 if enabled else 0},
-        "attribution_summary":{"task_domains":["marker.test"] if enabled else []},
-    }
+    return {"enabled": network_uses_inetsim(network, server_ip)}
 # CAPE_INETSIM_VM_ROUTE_GATED_V2
 PY
 
@@ -48,19 +43,29 @@ cat >"$TMP/cape/storage/analyses/19/reports/report.json" <<'JSON'
 }
 JSON
 
+cat >"$TMP/cape/storage/analyses/18/reports/report.json" <<'JSON'
+{
+  "info":{"id":18,"route":"drop"},
+  "network":{
+    "tcp":[],"udp":[],"dns":[],"http":[],"http_ex":[],"https_ex":[],"hosts":[]
+  }
+}
+JSON
+
 printf '10.77.50.2 cape-inetsim-accept-123.invalid\n' >"$TMP/cape/storage/analyses/20/dump.pcap"
 printf '8.8.8.8 internet-only\n' >"$TMP/cape/storage/analyses/19/dump.pcap"
+printf '192.168.122.1 resultserver-control-only\n' >"$TMP/cape/storage/analyses/18/dump.pcap"
 
 python3 "$ROOT/tools/acceptance_reports.py" \
   --cape-root "$TMP/cape" --inetsim-ip 10.77.50.2 \
-  --positive-task 20 --negative-task 19 \
+  --positive-task 20 --negative-task 19 --drop-task 18 \
   --marker cape-inetsim-accept-123.invalid --output "$TMP/result.json"
 
 python3 - "$TMP/result.json" <<'PY'
 import json,sys
 d=json.load(open(sys.argv[1]))
 assert d["status"]=="pass"
-assert d["mode"]=="route-separation-marker-pair"
+assert d["mode"]=="three-route-separation-marker-controls"
 assert d["positive"]["route"]=="inetsim"
 assert d["positive"]["uses_inetsim"] is True
 assert d["positive"]["marker_present"] is True
@@ -68,12 +73,17 @@ assert d["negative"]["route"]=="internet"
 assert d["negative"]["uses_inetsim"] is False
 assert d["negative"]["context_enabled"] is False
 assert d["negative"]["marker_present"] is False
+assert d["drop"]["route"]=="drop"
+assert d["drop"]["network_event_count"]==0
+assert d["drop"]["uses_inetsim"] is False
+assert d["drop"]["marker_present"] is False
+assert d["drop_route_requires_zero_network_analysis_events"] is True
 assert d["background_inetsim_allowed_in_negative"] is False
 PY
 
 if python3 "$ROOT/tools/acceptance_reports.py" \
   --cape-root "$TMP/cape" --inetsim-ip 10.77.50.2 \
-  --positive-task 19 --negative-task 20 \
+  --positive-task 19 --negative-task 20 --drop-task 18 \
   --marker cape-inetsim-accept-123.invalid --output "$TMP/bad.json" >/dev/null 2>&1; then
   echo "route-separation acceptance accepted swapped controls" >&2
   exit 1
@@ -135,7 +145,7 @@ chmod +x "$TMP/fakebin/tcpdump"
 
 PATH="$TMP/fakebin:$PATH" AUTODEPLOY_ROOT="$RUNTIME" \
   bash "$RUNTIME/bin/cape-inetsim-acceptance" \
-    --positive-task 20 --negative-task 19 \
+    --positive-task 20 --negative-task 19 --drop-task 18 \
     --marker cape-inetsim-accept-123.invalid \
     --output "$TMP/shell-acceptance.json"
 
@@ -147,6 +157,8 @@ assert d["pcap_validation"]["positive_contains_marker"] is True
 assert d["pcap_validation"]["negative_contains_marker"] is False
 assert d["pcap_validation"]["positive_contains_inetsim_ip"] is True
 assert d["pcap_validation"]["negative_contains_inetsim_ip"] is False
+assert d["pcap_validation"]["drop_contains_inetsim_ip"] is False
+assert d["drop_route_requires_zero_network_analysis_events"] is True
 PY
 
-echo '[PASS] acceptance proves route=inetsim marker traffic and clean route=internet separation'
+echo '[PASS] acceptance proves INetSim, Internet, and strict no-network route semantics'

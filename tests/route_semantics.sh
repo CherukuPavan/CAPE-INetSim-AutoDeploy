@@ -151,14 +151,14 @@ mod["run_iptables"]=run_iptables
 exec(p.read_text(),mod)
 
 mod["ServicePaths"].iptables="/sbin/iptables"
-mod["autodeploy_route_policy_set"]("192.168.122.204","ens33","192.168.122.1","2040")
+mod["autodeploy_route_policy_set"]("192.168.122.204","virbr0","ens33","192.168.122.1","2040")
 rules=[" ".join(a) for kind,a in calls if kind=="iptables"]
-assert any("-o ens33" in r and "-j ACCEPT" in r for r in rules), rules
-assert any("--destination 192.168.122.1" in r and "--dport 2040" in r and "-j ACCEPT" in r for r in rules), rules
-assert any("-j DROP" in r and "-o" not in r for r in rules), rules
+assert any("-i virbr0" in r and "-o ens33" in r and "-j ACCEPT" in r for r in rules), rules
+assert any("-i virbr0" in r and "--destination 192.168.122.1" in r and "--dport 2040" in r and "-j ACCEPT" in r for r in rules), rules
+assert any("-i virbr0" in r and "-j DROP" in r and "-o" not in r for r in rules), rules
 
 calls.clear()
-mod["autodeploy_route_policy_set"]("192.168.122.204","","192.168.122.1","2040")
+mod["autodeploy_route_policy_set"]("192.168.122.204","virbr0","","192.168.122.1","2040")
 rules=[" ".join(a) for kind,a in calls if kind=="iptables"]
 assert not any("-o ens33" in r for r in rules)
 assert any("-j DROP" in r for r in rules)
@@ -166,3 +166,32 @@ print("RC66 route-policy allowlist/drop semantics passed")
 PY
 
 echo "RC66 routing/network semantics test suite passed"
+
+# Route=drop/none must suppress all analyst-facing Network Analysis events.
+python3 - "$ROOT/tools/task_network_filter.py" <<'PY'
+import importlib.util
+import pathlib
+import sys
+
+p = pathlib.Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location("task_filter", p)
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+
+network = {
+    "tcp": [{"process_id": 100, "dst": "8.8.8.8"}],
+    "dns": [{"process_id": 100, "request": "example.invalid"}],
+    "http": [{"process_id": 300, "host": "background.invalid"}],
+}
+behavior = {"processtree": [{"pid": 100, "children": []}]}
+out = m.filter_network_to_task_process_tree(network, behavior, "drop")
+assert out["tcp"] == []
+assert out["dns"] == []
+assert out["http"] == []
+meta = out["autodeploy_task_network"]
+assert meta["mode"] == "strict-no-network"
+assert meta["kept_events"] == 0
+assert meta["suppressed_events"] == 3
+assert meta["raw_pcap_preserved"] is True
+print("RC66 strict no-network Network Analysis filter passed")
+PY
