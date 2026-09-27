@@ -26,7 +26,9 @@ source "$ROOT/lib/maintenance.sh"
 source "$ROOT/lib/validate.sh"
 
 require_root
-transaction_lock_acquire
+if [[ "${CAPE_INETSIM_LOCK_HELD:-0}" != 1 ]]; then
+  transaction_lock_acquire
+fi
 state_load || { fail "No deployment state exists"; exit 1; }
 
 case "${DEPLOYMENT_PHASE:-}" in
