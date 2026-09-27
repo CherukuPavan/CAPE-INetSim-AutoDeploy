@@ -29,7 +29,7 @@ check_cape_layout() {
   if ((${#missing[@]})); then add_note "missing:${missing[*]}"; return 0; fi
 
   local config_layout
-  config_layout="$(python3 - "$CAPE_ROOT" "${CAPE_TARGETS_JSON:-[]}" <<'PY'
+  config_layout="$(ad_python - "$CAPE_ROOT" "${CAPE_TARGETS_JSON:-[]}" <<'PY'
 import configparser,json,sys
 root,targets_json=sys.argv[1:]
 checks=[
@@ -67,7 +67,7 @@ PY
   fi
 
   local maintenance_layout
-  maintenance_layout="$(python3 - "$CAPE_ROOT" <<'PY'
+  maintenance_layout="$(ad_python - "$CAPE_ROOT" <<'PY'
 import pathlib,sys
 root=pathlib.Path(sys.argv[1])
 required={
@@ -102,7 +102,7 @@ PY
   add_note "maintenance-api:known-layout"
 
   local sniffer="$CAPE_ROOT/modules/auxiliary/sniffer.py" layout
-  layout="$(python3 - "$sniffer" <<'PY'
+  layout="$(ad_python - "$sniffer" <<'PY'
 import sys
 p=sys.argv[1]
 s=open(p,encoding="utf-8").read()
@@ -168,12 +168,12 @@ discover_resources() {
     state="$(virsh pool-info "$p" 2>/dev/null | awk -F: '/^State:/ {gsub(/^[ \t]+/,"",$2);print $2}')"
     [[ "$state" == running ]] || continue
     xml="$(virsh pool-dumpxml "$p" 2>/dev/null || true)"
-    typ="$(python3 -c 'import sys,xml.etree.ElementTree as E
+    typ="$(ad_python -c 'import sys,xml.etree.ElementTree as E
 try: r=E.fromstring(sys.stdin.read())
 except Exception: raise SystemExit
 print(r.get("type",""))' <<<"$xml" 2>/dev/null || true)"
     [[ "$typ" == dir ]] || continue
-    path="$(python3 -c 'import sys,xml.etree.ElementTree as E
+    path="$(ad_python -c 'import sys,xml.etree.ElementTree as E
 try: r=E.fromstring(sys.stdin.read())
 except Exception: raise SystemExit
 x=r.find("./target/path")
