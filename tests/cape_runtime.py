@@ -38,8 +38,11 @@ class RuntimeTests(unittest.TestCase):
         cls.cape = cls.root / "cape"
         cls.cape.mkdir()
         modules = {
+            "django.py": "__version__='test-fixture'\n",
             "lib/__init__.py": "",
             "lib/cuckoo/__init__.py": "",
+            "lib/cuckoo/common/__init__.py": "",
+            "lib/cuckoo/common/config.py": "class Config: pass\n",
             "lib/cuckoo/core/__init__.py": "",
             "lib/cuckoo/core/data/__init__.py": "",
             "lib/cuckoo/core/database.py": "class Database: pass\ndef init_database(**kwargs): raise AssertionError('preflight must not initialize DB')\n",
@@ -102,6 +105,7 @@ else: raise AssertionError('unexpected Poetry invocation')
         self.env.update(PATH=str(self.bin)+os.pathsep+os.environ['PATH'],
                         TEST_USER=self.user, TEST_PID="0", TEST_EXECSTART="",
                         TEST_VENV=str(self.venv), CAPE_ROOT=str(self.cape),
+                        CAPE_SCHEDULER_SERVICE="test-scheduler.service",
                         AUTODEPLOY_ROOT=str(self.private), DEPLOYMENT_ID=self.tx,
                         AD_STATE_ROOT=str(self.private / self.tx),
                         CAPE_MACHINE_LABEL="test-machine")
@@ -199,6 +203,10 @@ source "$AUTODEPLOY_ROOT/lib/deploy.sh"
 require_root(){ :; }
 transaction_lock_acquire(){ :; }
 run_discovery(){ :; }
+deployment_decision_classify(){ DEPLOYMENT_DECISION=fresh; }
+deployment_decision_require_safe(){ :; }
+discover_cape_runtime(){ CAPE_RUNTIME_PYTHON="$TEST_VENV/bin/python"; CAPE_SERVICE_USER="$TEST_USER"; }
+inventory_write_json(){ :; }
 deploy_assert_supported_environment(){ :; }
 deploy_initialize_or_resume_state(){ DEPLOYMENT_PHASE=planned; }
 cape_preflight_runtime(){ return 1; }
