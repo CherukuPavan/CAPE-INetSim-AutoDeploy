@@ -210,9 +210,11 @@ discover_cape_runtime() {
         if [[ "$launcher" == /* && -x "$launcher" ]] \
            && [[ "$(basename "$launcher" 2>/dev/null || true)" == "poetry" ]]; then
             CAPE_PYTHON="$(
+                (cd "$CAPE_ROOT" &&
                 sudo -u "$CAPE_SERVICE_USER" \
-                    timeout 20 "$launcher" env info --executable \
+                sudo -u "$CAPE_SERVICE_USER" \
                     2>/dev/null || true
+                )
             )"
         fi
     fi
