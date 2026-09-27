@@ -254,5 +254,6 @@ cape_restore_integration_files() {
   local py
   py="$(cape_runtime_python)"
   "$py" -m py_compile "$CAPE_ROOT/modules/auxiliary/sniffer.py"
+  cape_runtime_patch_restore_files || failures=$((failures+1))
   ((failures == 0))
 }
