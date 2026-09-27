@@ -6,7 +6,7 @@ windows_management_interface_xml() {
   local scope="${1:-inactive}"
   local -a args=(dumpxml "$DOMAIN")
   [[ "$scope" == inactive ]] && args+=(--inactive)
-  virsh "${args[@]}" 2>/dev/null | python3 -c '
+  virsh "${args[@]}" 2>/dev/null | ad_python -c '
 import sys,xml.etree.ElementTree as ET
 mac=sys.argv[1].lower(); net=sys.argv[2]
 try: root=ET.fromstring(sys.stdin.read())
@@ -30,7 +30,7 @@ windows_management_guard_backup_path() {
 
 windows_management_guard_filter_facts() {
   local scope="${1:-inactive}"
-  windows_management_interface_xml "$scope" | python3 -c '
+  windows_management_interface_xml "$scope" | ad_python -c '
 import sys,xml.etree.ElementTree as ET
 ip=sys.argv[1]
 try: i=ET.fromstring(sys.stdin.read())
@@ -79,7 +79,7 @@ nwfilter_runtime_definition_closure() {
   local -a roots=()
   mapfile -t roots < <(nwfilter_definition_roots)
   (("${#roots[@]}" > 0)) || { fail "No libvirt nwfilter definition roots are available"; return 1; }
-  python3 - "$WINDOWS_MGMT_FILTER_NAME" "${roots[@]}" <<'PY'
+  ad_python - "$WINDOWS_MGMT_FILTER_NAME" "${roots[@]}" <<'PY'
 import os,sys,xml.etree.ElementTree as ET
 target=sys.argv[1]
 roots=sys.argv[2:]
@@ -366,7 +366,7 @@ windows_management_guard_apply() {
   chmod 0600 "$backup"
 
   guarded="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-windows-management-$(ad_safe_token "$DOMAIN-$WINDOWS_MANAGEMENT_MAC").xml"
-  python3 - "$WINDOWS_MGMT_FILTER_NAME" "$CAPE_MACHINE_IP" "$backup" >"$guarded" <<'PY'
+  ad_python - "$WINDOWS_MGMT_FILTER_NAME" "$CAPE_MACHINE_IP" "$backup" >"$guarded" <<'PY'
 import sys,xml.etree.ElementTree as ET
 name,ip,path=sys.argv[1:]
 root=ET.parse(path).getroot()
