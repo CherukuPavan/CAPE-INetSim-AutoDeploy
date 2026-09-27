@@ -5,7 +5,7 @@ windows_existing_network_interfaces() {
   local mode="${2:-current}"
   local -a args=(dumpxml "$dom")
   [[ "$mode" == inactive ]] && args+=(--inactive)
-  virsh "${args[@]}" | python3 -c '
+  virsh "${args[@]}" | ad_python -c '
 import sys,xml.etree.ElementTree as ET
 root=ET.fromstring(sys.stdin.read())
 for i in root.findall("./devices/interface"):
@@ -50,7 +50,7 @@ windows_choose_isolated_mac() {
   [[ -n "${WINDOWS_ISOLATED_MAC:-}" ]] && return 0
   local i candidate
   for i in $(seq 0 255); do
-    candidate="$(python3 - "$DEPLOYMENT_ID" "$DOMAIN" "$i" <<'PY'
+    candidate="$(ad_python - "$DEPLOYMENT_ID" "$DOMAIN" "$i" <<'PY'
 import hashlib,sys
 h=hashlib.sha256(("|".join(sys.argv[1:])).encode()).digest()
 print("52:54:00:%02x:%02x:%02x"%(h[0],h[1],h[2]))
@@ -141,14 +141,14 @@ windows_detach_isolated_nic() {
 windows_snapshot_exists() { virsh snapshot-info "$DOMAIN" "$1" >/dev/null 2>&1; }
 
 windows_snapshot_token() {
-  python3 - "$DEPLOYMENT_ID" <<'PY'
+  ad_python - "$DEPLOYMENT_ID" <<'PY'
 import hashlib,sys
 print(hashlib.sha256(sys.argv[1].encode()).hexdigest()[:12])
 PY
 }
 
 windows_snapshot_description() {
-  virsh snapshot-dumpxml "$DOMAIN" "$1" 2>/dev/null | python3 -c '
+  virsh snapshot-dumpxml "$DOMAIN" "$1" 2>/dev/null | ad_python -c '
 import sys,xml.etree.ElementTree as ET
 try: r=ET.fromstring(sys.stdin.read())
 except Exception: raise SystemExit
@@ -194,7 +194,7 @@ windows_create_safety_snapshot() {
 
 snapshot_state_memory() {
   local snap="$1"
-  virsh snapshot-dumpxml "$DOMAIN" "$snap" | python3 -c '
+  virsh snapshot-dumpxml "$DOMAIN" "$snap" | ad_python -c '
 import sys,xml.etree.ElementTree as ET
 r=ET.fromstring(sys.stdin.read())
 state=r.findtext("state") or ""
@@ -339,7 +339,7 @@ windows_snapshot_has_child() {
   local candidate="$1" snap parent
   while IFS= read -r snap; do
     [[ -n "$snap" && "$snap" != "$candidate" ]] || continue
-    parent="$(virsh snapshot-dumpxml "$DOMAIN" "$snap" 2>/dev/null | python3 -c '
+    parent="$(virsh snapshot-dumpxml "$DOMAIN" "$snap" 2>/dev/null | ad_python -c '
 import sys,xml.etree.ElementTree as ET
 try: r=ET.fromstring(sys.stdin.read())
 except Exception: raise SystemExit
