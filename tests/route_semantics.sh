@@ -180,18 +180,30 @@ spec.loader.exec_module(m)
 
 network = {
     "tcp": [{"process_id": 100, "dst": "8.8.8.8"}],
+    "udp": [{"process_id": 100, "dst": "1.1.1.1"}],
+    "icmp": [{"process_id": 100, "dst": "9.9.9.9"}],
     "dns": [{"process_id": 100, "request": "example.invalid"}],
     "http": [{"process_id": 300, "host": "background.invalid"}],
+    "hosts": [{"ip":"8.8.8.8"},{"ip":"6.6.6.6"}],
+    "domains": ["example.invalid","background.invalid","leak.invalid"],
+    "dead_hosts": [("6.6.6.6",80)],
+    "sorted": {"tcp":[{"process_id":300,"dst":"5.5.5.5"}]},
 }
 behavior = {"processtree": [{"pid": 100, "children": []}]}
 out = m.filter_network_to_task_process_tree(network, behavior, "drop")
 assert out["tcp"] == []
+assert out["udp"] == []
+assert out["icmp"] == []
 assert out["dns"] == []
 assert out["http"] == []
+assert out["hosts"] == []
+assert out["domains"] == []
+assert out["dead_hosts"] == []
+assert out["sorted"] == {}
 meta = out["autodeploy_task_network"]
 assert meta["mode"] == "strict-no-network"
 assert meta["kept_events"] == 0
-assert meta["suppressed_events"] == 3
+assert meta["suppressed_events"] == 7
 assert meta["raw_pcap_preserved"] is True
 print("RC66 strict no-network Network Analysis filter passed")
 PY
