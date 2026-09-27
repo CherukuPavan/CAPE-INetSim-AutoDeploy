@@ -246,22 +246,23 @@ jobs:
             echo "::error::candidate source is missing required extension runtime: $SOURCE_VENDOR"
             exit 3
           }
-          [[ -s "$SOURCE_VENDOR/RUNTIME-SHA256SUMS" ]] || {
-            echo "::error::candidate extension checksum manifest is missing or empty"
-            exit 3
-          }
           [[ "$(cat "$SOURCE_VENDOR/VERSION" 2>/dev/null || true)" == "$EXTENSION_VERSION" ]] || {
             echo "::error::candidate extension VERSION does not match lib/extension.sh"
             exit 3
           }
-          (
-            cd "$SOURCE_VENDOR"
-            sha256sum -c RUNTIME-SHA256SUMS >/dev/null
-          )
+          python3 - "$SOURCE_VENDOR/ORIGIN.json" "$EXTENSION_VERSION" <<'PY'
+          import json,sys,re
+          p,version=sys.argv[1:]
+          d=json.load(open(p))
+          assert d["repository"]=="CherukuPavan/CAPE-INetSim-VM-Extension"
+          assert d["version"]==version
+          assert re.fullmatch(r"[0-9a-f]{40}",d["source_commit"])
+          PY
           mkdir -p "$VENDOR"
-          rsync -a --exclude ORIGIN.json "$SOURCE_VENDOR/" "$VENDOR/"
+          rsync -a --exclude ORIGIN.json --exclude RUNTIME-SHA256SUMS "$SOURCE_VENDOR/" "$VENDOR/"
           (
             cd "$VENDOR"
+            find . -type f ! -name RUNTIME-SHA256SUMS -print0 | sort -z | xargs -0 sha256sum >RUNTIME-SHA256SUMS
             sha256sum -c RUNTIME-SHA256SUMS >/dev/null
           )
 
