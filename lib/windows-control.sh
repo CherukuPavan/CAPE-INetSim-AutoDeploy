@@ -149,13 +149,13 @@ windows_configure_via_manual_callback() {
   local bind_ip="${CONTROL_HOST_IP:-$CAPE_RESULTSERVER_IP}"
   local token ready result server_log port base_url command server_pid rc
   [[ -n "$bind_ip" ]] || { fail "Cannot create Windows fallback callback without a CAPE-host control IP"; return 40; }
-  token="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+  token="$(ad_python -c 'import secrets; print(secrets.token_urlsafe(32))')"
   ready="$AD_LOG_ROOT/${DEPLOYMENT_ID}-$(ad_safe_token "$DOMAIN")-windows-callback.ready"
   result="$AD_LOG_ROOT/${DEPLOYMENT_ID}-$(ad_safe_token "$DOMAIN")-windows-verify.json"
   server_log="$AD_LOG_ROOT/${DEPLOYMENT_ID}-$(ad_safe_token "$DOMAIN")-windows-callback.log"
   rm -f "$ready" "$result"
 
-  python3 "$AUTODEPLOY_ROOT/tools/windows_callback.py"     --bind "$bind_ip" --client "$CAPE_MACHINE_IP" --port 0 --token "$token"     --script "$AUTODEPLOY_ROOT/windows/configure-inetsim.ps1"     --result "$result" --ready "$ready" --timeout "${WINDOWS_FALLBACK_TIMEOUT:-900}"     >"$server_log" 2>&1 &
+  ad_python "$AUTODEPLOY_ROOT/tools/windows_callback.py"     --bind "$bind_ip" --client "$CAPE_MACHINE_IP" --port 0 --token "$token"     --script "$AUTODEPLOY_ROOT/windows/configure-inetsim.ps1"     --result "$result" --ready "$ready" --timeout "${WINDOWS_FALLBACK_TIMEOUT:-900}"     >"$server_log" 2>&1 &
   server_pid=$!
 
   local i
