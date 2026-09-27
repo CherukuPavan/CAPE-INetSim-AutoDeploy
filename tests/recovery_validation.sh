@@ -57,6 +57,14 @@ grep -Fq 'Roll it back with that exact release before installing this route-sepa
 # Ordinary deployment remains rollback-first across releases. The only supported
 # in-place RC44 conversion is the explicit, ownership-gated --repair path.
 grep -Fq 'Owned legacy route-global deployment detected' "$ROOT/bin/cape-inetsim-repair"
+grep -Fq 'source "$ROOT/lib/runtime-patches.sh"' "$ROOT/bin/cape-inetsim-repair"
+python3 - "$ROOT/bin/cape-inetsim-repair" <<'PY'
+import pathlib,sys
+s=pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+patches=s.index('source "$ROOT/lib/runtime-patches.sh"')
+configure=s.index('source "$ROOT/lib/cape-configure.sh"')
+assert patches < configure, "standalone repair must source runtime-patches.sh before cape-configure.sh"
+PY
 grep -Fq 'Legacy route-global CAPE patch is not transaction-owned' "$ROOT/bin/cape-inetsim-repair"
 grep -Fq 'Legacy route-global web extension is not transaction-owned' "$ROOT/bin/cape-inetsim-repair"
 python3 - "$ROOT/bin/cape-inetsim-repair" <<'PY'
