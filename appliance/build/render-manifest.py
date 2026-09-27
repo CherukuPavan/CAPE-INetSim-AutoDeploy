@@ -35,7 +35,7 @@ manifest={
   "inetsim":{
     "expected_major_version":"1.3.2",
     "dns_compatibility_patch":"netdns-loop-once",
-    "unprivileged_port_start":53
+    "unprivileged_port_start":21
   },
   "guest_management":{"qemu_guest_agent":True,"ssh_password_login_required":False},
   "networking":{"management":"dhcp-by-deployment-mac","isolated":"static-by-deployment-mac","baked_in_fake_internet_subnet":False},
