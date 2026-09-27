@@ -117,4 +117,6 @@ The INetSim Network Analysis visual is route-gated and is never enabled for an a
 
 ### Upgrade from route-global release candidates
 
-Release candidates that permanently configured a Windows fake-Internet NIC/DNS baseline must not be upgraded in place. A committed older deployment is first rolled back with its exact immutable release so its ownership journal can restore the original CAPE files, Windows snapshot/hardware, and remove only resources created by that release. After the state reaches `rolled-back`, the route-separated release may be installed as a fresh transaction. The installer safe-stops if a different release is still committed.
+A committed older AutoDeploy deployment may be migrated in place with the checksum-pinned `--repair` path when its CAPE files and resources are still transaction-owned and unchanged. Repair validates the existing Windows/CAPE baseline, acquires a task-safe maintenance point, reapplies the route-separated CAPE configuration, upgrades the route-aware extension, revalidates the deployment, and promotes the new release provenance only after all gates pass.
+
+Ordinary `--deploy` remains rollback-first when a different committed release is already present; `--repair` is the explicit migration path for an existing committed deployment.
