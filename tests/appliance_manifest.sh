@@ -22,7 +22,7 @@ cat >"$TMP/manifest.json" <<EOF2
   "sha256":"$raw_sha",
   "format":"qcow2",
   "os":{"distribution":"Ubuntu","release":"24.04 LTS","architecture":"x86_64"},
-  "inetsim":{"unprivileged_port_start":53},
+  "inetsim":{"unprivileged_port_start":21},
   "guest_management":{"qemu_guest_agent":true},
   "networking":{"baked_in_fake_internet_subnet":false},
   "transport":{"compression":"gzip","artifact_name":"a.qcow2.gz","sha256":"$transport_sha"}
