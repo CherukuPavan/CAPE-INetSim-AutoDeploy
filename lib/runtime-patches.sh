@@ -15,7 +15,7 @@ cape_runtime_patch_backup_files() {
     if [[ -e "$CAPE_ROOT/$rel" ]]; then
       backup_file_once "$CAPE_ROOT/$rel" "$rel"
       state_record_resource cape-file "$CAPE_ROOT/$rel" planned-modification yes \
-        "backup=$AD_BACKUP_ROOT/\${DEPLOYMENT_ID}/$rel"
+        "backup=$AD_BACKUP_ROOT/${DEPLOYMENT_ID}/$rel"
     else
       state_record_resource cape-file "$CAPE_ROOT/$rel" planned-creation yes \
         "file absent before RC66; rollback removes only if post-hash matches"
@@ -59,7 +59,7 @@ cape_runtime_patch_restore_files() {
   while IFS= read -r rel; do
     [[ -n "$rel" ]] || continue
 
-    backup="$AD_BACKUP_ROOT/\${DEPLOYMENT_ID}/$rel"
+    backup="$AD_BACKUP_ROOT/${DEPLOYMENT_ID}/$rel"
     current="$(sha256sum "$CAPE_ROOT/$rel" 2>/dev/null | awk '{print $1}' || true)"
     expected="$(cape_post_sha_for_rel "$rel" 2>/dev/null || true)"
 
