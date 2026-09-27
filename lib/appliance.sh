@@ -5,7 +5,7 @@ APPLIANCE_CACHE_ROOT="${APPLIANCE_CACHE_ROOT:-/var/cache/cape-inetsim-autodeploy
 
 appliance_manifest_field() {
   local field="$1" manifest="${2:-$APPLIANCE_MANIFEST}"
-  python3 - "$manifest" "$field" <<'PY'
+  ad_python - "$manifest" "$field" <<'PY'
 import json,sys
 p,key=sys.argv[1:]
 with open(p) as f: d=json.load(f)
@@ -21,7 +21,7 @@ PY
 
 appliance_manifest_validate() {
   local manifest="${1:-$APPLIANCE_MANIFEST}"
-  python3 - "$manifest" <<'PY'
+  ad_python - "$manifest" <<'PY'
 import json,re,sys,urllib.parse
 p=sys.argv[1]
 try:
@@ -83,7 +83,7 @@ appliance_verify_file() {
   }
   if have qemu-img; then
     local info_check
-    info_check="$(qemu-img info --output=json "$file" 2>/dev/null | python3 -c '
+    info_check="$(qemu-img info --output=json "$file" 2>/dev/null | ad_python -c '
 import json,sys
 try: d=json.load(sys.stdin)
 except Exception: raise SystemExit(2)
