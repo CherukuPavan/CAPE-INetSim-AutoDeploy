@@ -236,6 +236,7 @@ def patch_analysis_manager(path: Path) -> None:
             self.rooter_response = rooter(
                 "autodeploy_route_policy_set",
                 self.machine.ip,
+                self.machine.interface,
                 self.interface,
                 str(self.cfg.resultserver.ip),
                 str(self.machine.resultserver_port),
