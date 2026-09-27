@@ -66,7 +66,7 @@ discover_domain_details() {
   [[ -n "${DOMAIN:-}" ]] || return 0
   DOMAIN_STATE="$(virsh domstate "$DOMAIN" 2>/dev/null | head -1 | xargs || true)"
   DOMAIN_XML="$(virsh dumpxml "$DOMAIN" 2>/dev/null || true)"
-  read -r DOMAIN_NIC_COUNT DOMAIN_NIC_MODELS < <(python3 -c '
+  read -r DOMAIN_NIC_COUNT DOMAIN_NIC_MODELS < <(ad_python -c '
 import sys,xml.etree.ElementTree as ET
 xml=sys.stdin.read()
 try: root=ET.fromstring(xml)
@@ -96,7 +96,7 @@ qemu_img_detect_format_readonly() {
     info="$(qemu-img info --force-share --output=json "$path" 2>/dev/null || true)"
   fi
 
-  python3 -c '
+  ad_python -c '
 import json,sys
 try:
     print(json.load(sys.stdin).get("format",""))
@@ -110,7 +110,7 @@ discover_windows_snapshot_capability() {
   [[ -n "${DOMAIN_XML:-}" && -n "${DOMAIN:-}" ]] || return 0
 
   local disk_records
-  disk_records="$(python3 -c '
+  disk_records="$(ad_python -c '
 import sys,xml.etree.ElementTree as ET
 try: root=ET.fromstring(sys.stdin.read())
 except Exception: raise SystemExit
@@ -193,7 +193,7 @@ discover_cape_analysis_snapshot() {
     return 0
   }
 
-  facts="$(python3 -c '
+  facts="$(ad_python -c '
 import sys,xml.etree.ElementTree as ET
 domain,net,mac=sys.argv[1:]
 try:
@@ -250,7 +250,7 @@ discover_management_network() {
   mapfile -t _mgmt_macs < <(printf '%s\n' "$addr_text" | sed '/^$/d')
   if ((${#_mgmt_macs[@]} == 1)); then
     mgmt_mac="${_mgmt_macs[0]}"
-    MANAGEMENT_NETWORK_NAME="$(python3 -c '
+    MANAGEMENT_NETWORK_NAME="$(ad_python -c '
 import sys,xml.etree.ElementTree as ET
 mac=sys.argv[1].lower()
 try: root=ET.fromstring(sys.stdin.read())
@@ -271,7 +271,7 @@ if len(set(nets))==1: print(nets[0])
   # Fallback for guests without QGA/lease visibility: require exactly one
   # attached libvirt network whose declared subnet contains the CAPE IP.
   local candidates
-  candidates="$(python3 -c '
+  candidates="$(ad_python -c '
 import sys,xml.etree.ElementTree as ET
 root=ET.fromstring(sys.stdin.read())
 for i in root.findall("./devices/interface"):
@@ -284,7 +284,7 @@ for i in root.findall("./devices/interface"):
   local -a subnet_matches=()
   for n in "${_mgmt_candidates[@]}"; do
     netxml="$(virsh net-dumpxml "$n" 2>/dev/null || true)"
-    match="$(python3 -c '
+    match="$(ad_python -c '
 import ipaddress,sys,xml.etree.ElementTree as ET
 target=ipaddress.ip_address(sys.argv[1])
 try: root=ET.fromstring(sys.stdin.read())
@@ -316,7 +316,7 @@ discover_management_network_details() {
 
   local netxml
   netxml="$(virsh net-dumpxml "$MANAGEMENT_NETWORK_NAME" 2>/dev/null || true)"
-  MANAGEMENT_BRIDGE_NAME="$(python3 -c '
+  MANAGEMENT_BRIDGE_NAME="$(ad_python -c '
 import sys,xml.etree.ElementTree as ET
 try: r=ET.fromstring(sys.stdin.read())
 except Exception: raise SystemExit
@@ -324,7 +324,7 @@ b=r.find("bridge")
 print((b.get("name") or "") if b is not None else "")
 ' <<<"$netxml")"
 
-  WINDOWS_MANAGEMENT_MAC="$(python3 -c '
+  WINDOWS_MANAGEMENT_MAC="$(ad_python -c '
 import sys,xml.etree.ElementTree as ET
 net=sys.argv[1]
 try: r=ET.fromstring(sys.stdin.read())
