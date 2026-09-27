@@ -196,8 +196,39 @@ discover_cape_runtime() {
     fi
 
     # CAPE installations are often launched through Poetry. When the main
-    # process is unavailable, resolve Poetry's own virtualenv interpreter
-    # rather than assuming ExecStart begins with a Python executable.
+    # process is unavailable, read systemd's parsed ExecStart so drop-ins and
+    # command-array quoting are handled correctly.
+    if [[ -z "$CAPE_PYTHON" ]]; then
+        local launcher=""
+        launcher="$(
+            systemctl show "$CAPE_WEB_SERVICE"                 --property=ExecStart                 --value 2>/dev/null |
+            python3 -c '
+import re, shlex, sys
+s = sys.stdin.read().strip()
+m = re.search(r"argv\[\]=(.*?)(?:\s*;\s*ignore_errors=|\s*;\s*start_time=|\s*;\s*pid=|\s*\}$)", s)
+if m:
+    try:
+        args = shlex.split(m.group(1))
+        if args:
+            print(args[0])
+    except ValueError:
+        pass
+'
+        )"
+
+        case "$(basename "$launcher" 2>/dev/null || true)" in
+            poetry)
+                CAPE_PYTHON="$(
+                    cd "$CAPE_ROOT" &&
+                    sudo -u "$CAPE_SERVICE_USER"                         timeout 20 "$launcher" env info --executable                         2>/dev/null || true
+                )"
+                ;;
+            python|python[0-9]|python[0-9].[0-9]|python[0-9].[0-9][0-9])
+                CAPE_PYTHON="$launcher"
+                ;;
+        esac
+    fi
+
     if [[ -z "$CAPE_PYTHON" ]]; then
         local launcher=""
         launcher="$(
