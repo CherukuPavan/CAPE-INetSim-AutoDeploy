@@ -11,9 +11,9 @@ choose_libvirt_storage_pool() {
     state="$(virsh pool-info "$p" 2>/dev/null | awk -F: '/^State:/ {gsub(/^[ \t]+/,"",$2);print $2}')"
     [[ "$state" == running ]] || continue
     xml="$(virsh pool-dumpxml "$p" 2>/dev/null || true)"
-    typ="$(python3 -c 'import sys,xml.etree.ElementTree as E; r=E.fromstring(sys.stdin.read()); print(r.get("type",""))' <<<"$xml" 2>/dev/null || true)"
+    typ="$(ad_python -c 'import sys,xml.etree.ElementTree as E; r=E.fromstring(sys.stdin.read()); print(r.get("type",""))' <<<"$xml" 2>/dev/null || true)"
     [[ "$typ" == dir ]] || continue
-    path="$(python3 -c 'import sys,xml.etree.ElementTree as E; r=E.fromstring(sys.stdin.read()); x=r.find("./target/path"); print(x.text if x is not None else "")' <<<"$xml" 2>/dev/null || true)"
+    path="$(ad_python -c 'import sys,xml.etree.ElementTree as E; r=E.fromstring(sys.stdin.read()); x=r.find("./target/path"); print(x.text if x is not None else "")' <<<"$xml" 2>/dev/null || true)"
     [[ -n "$path" && -d "$path" ]] || continue
     avail="$(df -Pk "$path" | awk 'NR==2{print $4}')"
     [[ "$avail" =~ ^[0-9]+$ && "$avail" -ge 20971520 ]] || continue
@@ -26,7 +26,7 @@ choose_libvirt_storage_pool() {
 }
 
 inject_qga_channel() {
-  python3 -c '
+  ad_python -c '
 import sys,xml.etree.ElementTree as ET
 r=ET.fromstring(sys.stdin.read())
 devices=r.find("devices")
@@ -43,7 +43,7 @@ print(ET.tostring(r,encoding="unicode"))
 }
 
 inetsim_domain_macs() {
-  virsh dumpxml "$INETSIM_DOMAIN_NAME" | python3 -c '
+  virsh dumpxml "$INETSIM_DOMAIN_NAME" | ad_python -c '
 import sys,xml.etree.ElementTree as ET
 r=ET.fromstring(sys.stdin.read())
 for i in r.findall("./devices/interface"):
@@ -107,23 +107,23 @@ qga_exec_wait() {
   local dom="$1" path="$2"
   shift 2
   local json pid status exited i args_json
-  args_json="$(python3 - "$@" <<'PY'
+  args_json="$(ad_python - "$@" <<'PY'
 import json,sys
 print(json.dumps(sys.argv[1:]))
 PY
 )"
-  json="$(python3 - "$path" "$args_json" <<'PY'
+  json="$(ad_python - "$path" "$args_json" <<'PY'
 import json,sys
 print(json.dumps({"execute":"guest-exec","arguments":{"path":sys.argv[1],"arg":json.loads(sys.argv[2]),"capture-output":True}}))
 PY
 )"
-  pid="$(virsh qemu-agent-command "$dom" "$json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["return"]["pid"])')"
+  pid="$(virsh qemu-agent-command "$dom" "$json" | ad_python -c 'import json,sys; print(json.load(sys.stdin)["return"]["pid"])')"
 
   for ((i=0;i<180;i++)); do
     status="$(virsh qemu-agent-command "$dom" "{\"execute\":\"guest-exec-status\",\"arguments\":{\"pid\":$pid}}")"
-    exited="$(python3 -c 'import json,sys; print(str(json.load(sys.stdin)["return"].get("exited",False)).lower())' <<<"$status")"
+    exited="$(ad_python -c 'import json,sys; print(str(json.load(sys.stdin)["return"].get("exited",False)).lower())' <<<"$status")"
     if [[ "$exited" == true ]]; then
-      python3 -c 'import base64,json,sys
+      ad_python -c 'import base64,json,sys
 r=json.load(sys.stdin)["return"]
 if r.get("out-data"): sys.stdout.write(base64.b64decode(r["out-data"]).decode(errors="replace"))
 if r.get("err-data"): sys.stderr.write(base64.b64decode(r["err-data"]).decode(errors="replace"))
