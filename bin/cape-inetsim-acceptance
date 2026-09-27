@@ -10,6 +10,18 @@ source "$ROOT/lib/common.sh"
 source "$ROOT/lib/targets.sh"
 source "$ROOT/lib/state.sh"
 
+# Keep standalone/public-runtime acceptance robust even when invoked through
+# sudo/env wrappers that sanitize shell state. The common runtime owns host
+# interpreter discovery; acceptance refuses to continue unless that helper is
+# actually present after sourcing.
+if ! declare -F ad_python >/dev/null 2>&1; then
+  source "$ROOT/lib/common.sh"
+fi
+declare -F ad_python >/dev/null 2>&1 || {
+  echo "[FAIL] AutoDeploy host-Python helper did not load from $ROOT/lib/common.sh" >&2
+  exit 127
+}
+
 # Keep acceptance independent of shell-function inheritance and fixed Python
 # paths. Resolve the same host interpreter contract locally and execute it
 # directly for every report/PCAP helper.
