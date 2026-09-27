@@ -81,7 +81,7 @@ inetsim_define_domain() {
 
   local raw="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-inetsim-domain.raw.xml"
   local xml="$AD_GENERATED_ROOT/${DEPLOYMENT_ID}-inetsim-domain.xml"
-  virt-install --connect qemu:///system --name "$INETSIM_DOMAIN_NAME" --memory 4096 --vcpus 2 --import     --disk "path=$INETSIM_DISK_PATH,format=qcow2,bus=virtio"     --network "network=$MANAGEMENT_NETWORK_NAME,model=virtio"     --network "network=$ISOLATED_NETWORK_NAME,model=virtio"     --os-variant generic --graphics none --noautoconsole --print-xml >"$raw"
+  virt-install --connect qemu:///system --name "$INETSIM_DOMAIN_NAME" --memory 4096 --vcpus 2 --import     --disk "path=$INETSIM_DISK_PATH,format=qcow2,bus=virtio"     --network "network=$MANAGEMENT_NETWORK_NAME,model=virtio"     --network "network=$ISOLATED_NETWORK_NAME,model=virtio"     --os-variant generic --graphics "spice,listen=127.0.0.1" --video virtio --channel spicevmc --noautoconsole --print-xml >"$raw"
   inject_qga_channel <"$raw" >"$xml"
 
   virsh define "$xml" >/dev/null
@@ -139,14 +139,28 @@ inetsim_configure_guest() {
   virsh start "$INETSIM_DOMAIN_NAME" >/dev/null 2>&1 || true
   qga_wait "$INETSIM_DOMAIN_NAME" 180 || { fail "INetSim appliance QEMU Guest Agent did not come online"; return 1; }
   qga_exec_wait "$INETSIM_DOMAIN_NAME" /usr/local/sbin/cape-inetsim-guest-configure --isolated-mac "$INETSIM_ISOLATED_MAC" --ip "$INETSIM_IP/24"
+  qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/bash -lc 'id capeinetsim >/dev/null && test -x /usr/bin/startxfce4 && test -f /usr/share/xsessions/xfce.desktop && systemctl is-enabled lightdm.service >/dev/null && systemctl is-active lightdm.service >/dev/null && command -v spice-vdagent >/dev/null'
   state_record_resource inetsim-guest "$INETSIM_DOMAIN_NAME" configured yes "ip=$INETSIM_IP mac=$INETSIM_ISOLATED_MAC"
   state_set_phase appliance-configured
 }
 
 inetsim_verify_host() {
-  python3 "$AUTODEPLOY_ROOT/tools/dns_probe.py" "$INETSIM_IP" "$INETSIM_IP" >/dev/null
+  ad_python "$AUTODEPLOY_ROOT/tools/dns_probe.py" "$INETSIM_IP" "$INETSIM_IP" >/dev/null
   curl -fsS --max-time 5 "http://$INETSIM_IP/" >/dev/null
-  pass "INetSim DNS and HTTP respond on $INETSIM_IP"
+  local port
+  for port in 21 25 443; do
+    timeout 5 bash -c "</dev/tcp/$INETSIM_IP/$port" >/dev/null 2>&1 || {
+      fail "INetSim expected TCP service is not reachable: $INETSIM_IP:$port"
+      return 1
+    }
+  done
+  local xml
+  xml="$(virsh dumpxml "$INETSIM_DOMAIN_NAME")"
+  grep -q "<graphics type=['\"]spice['\"]" <<<"$xml" || { fail "INetSim domain has no SPICE graphics"; return 1; }
+  grep -q "<model type=['\"]virtio['\"]" <<<"$xml" || { fail "INetSim domain has no Virtio video model"; return 1; }
+  qga_wait "$INETSIM_DOMAIN_NAME" 30 || { fail "INetSim QEMU Guest Agent readiness lost"; return 1; }
+  qga_exec_wait "$INETSIM_DOMAIN_NAME" /bin/bash -lc 'id capeinetsim >/dev/null && systemctl is-active lightdm.service >/dev/null && test -f /usr/share/xsessions/xfce.desktop && command -v spice-vdagent >/dev/null'
+  pass "INetSim DNS/HTTP/HTTPS/SMTP/FTP, GUI, SPICE/Virtio and QGA checks passed"
 }
 
 inetsim_vm_rollback() {
