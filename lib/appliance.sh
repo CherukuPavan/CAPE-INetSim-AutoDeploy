@@ -54,7 +54,7 @@ if (d.get('guest_management') or {}).get('qemu_guest_agent') is not True:
     print('appliance must require QEMU Guest Agent management', file=sys.stderr); raise SystemExit(2)
 if (d.get('networking') or {}).get('baked_in_fake_internet_subnet') is not False:
     print('appliance must not contain a baked-in fake-Internet subnet', file=sys.stderr); raise SystemExit(2)
-if (d.get('inetsim') or {}).get('unprivileged_port_start') != 53:
+if (d.get('inetsim') or {}).get('unprivileged_port_start') != 21:
     print('appliance low-port safety setting is unexpected', file=sys.stderr); raise SystemExit(2)
 transport=d.get('transport') or {}
 if transport.get('compression') not in ('none','gzip'):
