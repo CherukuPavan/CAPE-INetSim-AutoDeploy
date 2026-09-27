@@ -227,15 +227,8 @@ jobs:
             echo "::error::required production milestone documentation is missing: docs/MILESTONE-2.md"
             exit 3
           }
-          python3 - "$ROOT/README.md" <<'PY'
-          from pathlib import Path
-          src = Path("source/README.md").read_text(encoding="utf-8")
-          src = src.replace(
-              "- No SSL43/SSL44/SSL45-specific values belong in product logic.",
-              "- Legacy lab-specific compatibility identifiers must never be embedded in product logic.",
-          )
-          Path("$ROOT/README.md").write_text(src, encoding="utf-8")
-          PY
+          install -m 0644 source/README.md "$ROOT/README.md"
+          sed -i 's#^- No SSL43/SSL44/SSL45-specific values belong in product logic\.$#- Legacy lab-specific compatibility identifiers must never be embedded in product logic.#' "$ROOT/README.md"
           install -m 0644 source/docs/MILESTONE-2.md "$ROOT/MILESTONE-2.md"
           cp -a source/lib/. "$ROOT/lib/"
           cp -a source/bin/. "$ROOT/bin/"
