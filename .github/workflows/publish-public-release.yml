@@ -219,13 +219,16 @@ jobs:
 
           mkdir -p "$DIST" "$ROOT"/{lib,bin,tools,windows,appliance,vendor}
           install -m 0755 source/install "$ROOT/install"
-          for doc in INSTALL.md TROUBLESHOOTING.md ARCHITECTURE.md RECOVERY.md; do
-            [[ -s "source/docs/$doc" ]] || {
-              echo "::error::required production documentation is missing from source/docs: $doc"
-              exit 3
-            }
-            install -m 0644 "source/docs/$doc" "$ROOT/$doc"
-          done
+          [[ -s "source/README.md" ]] || {
+            echo "::error::required production documentation is missing from source: README.md"
+            exit 3
+          }
+          [[ -s "source/docs/MILESTONE-2.md" ]] || {
+            echo "::error::required production milestone documentation is missing: docs/MILESTONE-2.md"
+            exit 3
+          }
+          install -m 0644 source/README.md "$ROOT/README.md"
+          install -m 0644 source/docs/MILESTONE-2.md "$ROOT/MILESTONE-2.md"
           cp -a source/lib/. "$ROOT/lib/"
           cp -a source/bin/. "$ROOT/bin/"
           cp -a source/tools/. "$ROOT/tools/"
@@ -367,7 +370,7 @@ jobs:
             echo "Verified appliance candidate run: $CANDIDATE_RUN_ID"
             echo "Runtime source bundle SHA-256: $SOURCE_SHA256"
             echo
-            echo "This release contains runtime/distribution material plus production install, troubleshooting, architecture and recovery documentation. Development history, tests, internal notes and host inventories are intentionally excluded."
+            echo "This release contains runtime/distribution material plus the production README and milestone documentation. Development history, tests, internal notes and host inventories are intentionally excluded."
           } >"$DIST/RELEASE-NOTES.txt"
 
       - name: Validate public bootstrap and package hygiene
@@ -377,12 +380,14 @@ jobs:
           ROOT="$RUNNER_TEMP/public-root/CAPE-INetSim-AutoDeploy-${RELEASE_TAG#v}"
           SOURCE_NAME="CAPE-INetSim-AutoDeploy-${RELEASE_TAG#v}.tar.gz"
           bash -n "$DIST/install"
-          for doc in INSTALL.md TROUBLESHOOTING.md ARCHITECTURE.md RECOVERY.md; do
-            [[ -s "$ROOT/$doc" ]] || {
-              echo "::error::production documentation missing from public runtime: $doc"
-              exit 3
-            }
-          done
+          [[ -s "$ROOT/README.md" ]] || {
+            echo "::error::production README missing from public runtime"
+            exit 3
+          }
+          [[ -s "$ROOT/MILESTONE-2.md" ]] || {
+            echo "::error::production milestone documentation missing from public runtime"
+            exit 3
+          }
           grep -Fq 'REPO="CherukuPavan/CAPE-INetSim-AutoDeploy-Releases"' "$DIST/install"
           grep -Fq 'sha256sum -c' "$DIST/install"
           python3 -m json.tool "$DIST/appliance-manifest.json" >/dev/null
