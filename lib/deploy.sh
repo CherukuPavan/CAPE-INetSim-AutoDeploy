@@ -37,8 +37,16 @@ deploy_assert_supported_environment() {
     fail "CAPE ResultServer path could not be derived"
     return 1
   }
-  systemctl is-active --quiet cape.service || {
-    fail "cape.service must be active before deployment so ResultServer/guest-control safety can be validated"
+  [[ -n "${CAPE_SCHEDULER_SERVICE:-}" ]] || {
+    fail "CAPE scheduler service could not be discovered"
+    return 1
+  }
+  systemctl is-active --quiet "$CAPE_SCHEDULER_SERVICE" || {
+    fail "CAPE scheduler service must be active before deployment: $CAPE_SCHEDULER_SERVICE"
+    return 1
+  }
+  [[ -n "${CAPE_PYTHON:-}" && -x "$CAPE_PYTHON" ]] || {
+    fail "Validated CAPE Python interpreter was not discovered"
     return 1
   }
   deploy_required_commands
@@ -153,6 +161,7 @@ deploy_windows_cutover() {
 }
 
 deploy_cape_cutover() {
+  validate_rooter_ready
   cape_configure_inetsim
   extension_install
   validate_deployment_structural
@@ -187,6 +196,7 @@ deploy_run() {
   require_root
   transaction_lock_acquire
   run_discovery
+  inventory_write
   deploy_assert_supported_environment
   deploy_initialize_or_resume_state
 
