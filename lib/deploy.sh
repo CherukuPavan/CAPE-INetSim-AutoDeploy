@@ -5,7 +5,7 @@ DEPLOY_WAIT_SECONDS="${DEPLOY_WAIT_SECONDS:-3600}"
 deploy_required_commands() {
   local -a missing=()
   local cmd
-  for cmd in python3 virsh qemu-img virt-install curl flock ip systemctl tar sha256sum base64 timeout; do
+  for cmd in virsh qemu-img virt-install curl flock ip systemctl tar sha256sum base64 timeout; do
     have "$cmd" || missing+=("$cmd")
   done
   if ((${#missing[@]})); then
@@ -195,6 +195,7 @@ deploy_handle_signal() {
 deploy_run() {
   require_root
   transaction_lock_acquire
+  export CAPE_INETSIM_LOCK_HELD=1
   run_discovery
   inventory_write
   deployment_decision_engine
