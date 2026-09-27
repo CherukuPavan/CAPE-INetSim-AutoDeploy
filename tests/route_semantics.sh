@@ -216,4 +216,21 @@ assert meta["kept_events"] == 0
 assert meta["suppressed_events"] == 7
 assert meta["raw_pcap_preserved"] is True
 print("RC66 strict no-network Network Analysis filter passed")
+
+# Non-drop routes must not expose packet-derived dead_hosts because that
+# aggregate has no process attribution.
+network = {
+    "tcp": [{"process_id": 100, "dst": "8.8.8.8"}],
+    "hosts": [{"ip": "8.8.8.8"}],
+    "domains": ["example.invalid"],
+    "dead_hosts": [["203.0.113.10", 443]],
+    "sorted": {"tcp": [{"process_id": 100, "dst": "8.8.8.8"}]},
+}
+behavior = {"processtree": [{"pid": 100, "children": []}]}
+out = m.filter_network_to_task_process_tree(network, behavior, "internet")
+assert out["tcp"] == [{"process_id": 100, "dst": "8.8.8.8"}]
+assert out["dead_hosts"] == []
+assert out["sorted"] == {}
+assert out["autodeploy_task_network"]["kept_events"] >= 1
+print("RC66 task-local Network Analysis dead_hosts suppression passed")
 PY
