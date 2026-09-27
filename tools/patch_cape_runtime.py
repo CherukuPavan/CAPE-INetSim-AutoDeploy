@@ -40,7 +40,6 @@ def patch_rooter(path: Path) -> None:
     if anchor not in s:
         raise RuntimeError("rooter drop_enable anchor not found")
 
-    helper = StringHelper if False else None
     insert = '''def autodeploy_route_policy_reset(ipaddr):
     """Remove only CAPE-rooter route-policy rules for this source."""
     try:
@@ -58,7 +57,7 @@ def patch_rooter(path: Path) -> None:
             src = parts[parts.index("--source") + 1]
         except (ValueError, IndexError):
             continue
-        if src != ipaddr or "CAPE-rooter" not in line:
+        if src.split("/", 1)[0] != ipaddr or "CAPE-rooter" not in line:
             continue
 
         delete = ["-D", "CAPE_REJECTED_SEGMENTS"] + parts[2:]
@@ -111,7 +110,6 @@ def autodeploy_route_policy_set(ipaddr, allowed_interface="", resultserver_ip=""
 '''
     # The unused expression above is replaced below; it exists only to keep
     # this generated text entirely literal and deterministic.
-    insert = insert.replace("    helper = StringHelper if False else None\n", "")
     s = s.replace(anchor, insert + anchor, 1)
 
     handlers_anchor = '''handlers = {
