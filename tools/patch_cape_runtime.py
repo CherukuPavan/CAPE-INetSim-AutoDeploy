@@ -307,6 +307,7 @@ from modules.processing.autodeploy_task_network import filter_network_to_task_pr
             results = filter_network_to_task_process_tree(
                 results,
                 self.results.get("behavior", {}) if isinstance(self.results, dict) else {},
+                str(self.task.get("route") or ""),
             )
 
         return results
