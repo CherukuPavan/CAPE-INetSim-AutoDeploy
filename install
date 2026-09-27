@@ -74,6 +74,7 @@ CAPE analysis VM that can be mapped safely to libvirt.
   sudo ./install --repair
   sudo ./install --status
   sudo ./install --collect
+  sudo ./install --selftest
   sudo ./install --acceptance --positive-task ID --negative-task ID --marker UNIQUE_HOST
   sudo ./install --rollback [--apply]
 
@@ -84,6 +85,7 @@ Safety:
   --deploy     transactional deployment; stops on unknown CAPE layouts and
                rolls back project-owned changes on failure.
   --collect    create one comprehensive read-only diagnostic .tar.gz for support/research.
+  --selftest    submit controlled benign CAPE tasks and prove route=inetsim DNS/HTTP/PCAP/report behavior.
   --acceptance validate completed route=inetsim positive / route=internet negative task evidence read-only.
   --rollback   dry-run recovery plan unless --apply is also supplied.
 
@@ -99,6 +101,7 @@ while (($#)); do
     --repair) MODE=repair; shift ;;
     --status) MODE=status; shift ;;
     --collect) MODE=collect; shift ;;
+    --selftest) MODE=selftest; shift ;;
     --acceptance) MODE=acceptance; shift ;;
     --positive-task)
       [[ $# -ge 2 && "$2" =~ ^[0-9]+$ ]] || { echo "--positive-task requires an integer" >&2; exit 2; }
@@ -159,6 +162,10 @@ case "$MODE" in
     ;;
   collect)
     exec bash "$AUTODEPLOY_ROOT/bin/cape-inetsim-collect"
+    ;;
+  selftest)
+    require_root
+    exec bash "$AUTODEPLOY_ROOT/bin/cape-inetsim-selftest"
     ;;
   acceptance)
     args=()
