@@ -1,0 +1,134 @@
+name: Build generalized INetSim appliance
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: appliance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      LIBGUESTFS_BACKEND: direct
+      LIBGUESTFS_MEMSIZE: 1024
+      ARTIFACT: cape-inetsim-appliance-v1.0.0.qcow2
+      TRANSPORT: cape-inetsim-appliance-v1.0.0.qcow2.gz
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install appliance build tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            qemu-utils libguestfs-tools cloud-image-utils gzip jq
+          sudo chmod 666 /dev/kvm 2>/dev/null || true
+          sudo chmod a+r /boot/vmlinuz-* /boot/initrd.img-* 2>/dev/null || true
+
+      - name: Fetch checksum-verified Ubuntu 24.04 base
+        run: |
+          set -euo pipefail
+          BASE=https://cloud-images.ubuntu.com/noble/current
+          curl -fL --retry 5 "$BASE/SHA256SUMS" -o "$RUNNER_TEMP/SHA256SUMS"
+          curl -fL --retry 5 "$BASE/noble-server-cloudimg-amd64.img" -o "$RUNNER_TEMP/base.img"
+          EXPECTED="$(awk '$2=="*noble-server-cloudimg-amd64.img" || $2=="noble-server-cloudimg-amd64.img"{print $1}' "$RUNNER_TEMP/SHA256SUMS" | head -1)"
+          [[ "$EXPECTED" =~ ^[0-9a-f]{64}$ ]]
+          ACTUAL="$(sha256sum "$RUNNER_TEMP/base.img" | awk '{print $1}')"
+          [[ "$ACTUAL" == "$EXPECTED" ]]
+          echo "BASE_SHA256=$ACTUAL" >>"$GITHUB_ENV"
+
+      - name: Build generalized appliance
+        run: |
+          set -euo pipefail
+          cp "$RUNNER_TEMP/base.img" "$RUNNER_TEMP/$ARTIFACT"
+          qemu-img resize "$RUNNER_TEMP/$ARTIFACT" 24G
+
+          install -d "$RUNNER_TEMP/stage"
+          install -m 0755 appliance/guest-configure.sh "$RUNNER_TEMP/stage/cape-inetsim-guest-configure"
+          install -m 0755 appliance/gui-enable.sh "$RUNNER_TEMP/stage/cape-inetsim-gui-enable"
+          install -m 0755 appliance/image-rootfs-prepare.sh "$RUNNER_TEMP/stage/image-rootfs-prepare.sh"
+
+          virt-customize -a "$RUNNER_TEMP/$ARTIFACT" --network \
+            --copy-in "$RUNNER_TEMP/stage/cape-inetsim-guest-configure:/usr/local/src" \
+            --copy-in "$RUNNER_TEMP/stage/cape-inetsim-gui-enable:/usr/local/src" \
+            --copy-in "$RUNNER_TEMP/stage/image-rootfs-prepare.sh:/usr/local/src" \
+            --run-command 'chmod 0755 /usr/local/src/*' \
+            --run-command '/usr/local/src/image-rootfs-prepare.sh'
+
+          virt-sysprep -a "$RUNNER_TEMP/$ARTIFACT" \
+            --operations machine-id,ssh-hostkeys,dhcp-client-state,net-hostname,logfiles,tmp-files,bash-history
+
+          qemu-img check "$RUNNER_TEMP/$ARTIFACT"
+          qemu-img info "$RUNNER_TEMP/$ARTIFACT" >"$RUNNER_TEMP/$ARTIFACT.info.txt"
+
+      - name: Independently verify image contents
+        run: |
+          set -euo pipefail
+          chmod +x appliance/build/verify-artifact.sh
+          appliance/build/verify-artifact.sh "$RUNNER_TEMP/$ARTIFACT" | tee "$RUNNER_TEMP/artifact-verify.log"
+
+      - name: Package and produce provenance
+        run: |
+          set -euo pipefail
+          RAW_SHA="$(sha256sum "$RUNNER_TEMP/$ARTIFACT" | awk '{print $1}')"
+          gzip -n -9 -c "$RUNNER_TEMP/$ARTIFACT" >"$RUNNER_TEMP/$TRANSPORT"
+          TRANSPORT_SHA="$(sha256sum "$RUNNER_TEMP/$TRANSPORT" | awk '{print $1}')"
+          TRANSPORT_SIZE="$(stat -c '%s' "$RUNNER_TEMP/$TRANSPORT")"
+          [[ "$TRANSPORT_SIZE" -lt 2147483648 ]]
+
+          printf '%s  %s\n' "$RAW_SHA" "$ARTIFACT" >"$RUNNER_TEMP/$ARTIFACT.sha256"
+          printf '%s  %s\n' "$TRANSPORT_SHA" "$TRANSPORT" >"$RUNNER_TEMP/$TRANSPORT.sha256"
+          printf '%s\n' "$TRANSPORT_SIZE" >"$RUNNER_TEMP/$TRANSPORT.size.txt"
+
+          python3 - "$RUNNER_TEMP/candidate-provenance.json" "$GITHUB_SHA" "$BASE_SHA256" "$RAW_SHA" "$TRANSPORT_SHA" "$TRANSPORT_SIZE" <<'PY'
+          import json,sys
+          out,source,base,raw,transport,size=sys.argv[1:]
+          d={
+            "schema":1,
+            "source_commit":source,
+            "base_image":"noble-server-cloudimg-amd64.img",
+            "base_image_sha256":base,
+            "artifact_name":"cape-inetsim-appliance-v1.0.0.qcow2",
+            "qcow2_sha256":raw,
+            "transport_name":"cape-inetsim-appliance-v1.0.0.qcow2.gz",
+            "transport_compression":"gzip",
+            "transport_sha256":transport,
+            "transport_size":int(size),
+            "independent_verifier":"PASS",
+            "gui":{"user":"capeinetsim","desktop":"xfce","display_manager":"lightdm"},
+          }
+          open(out,"w").write(json.dumps(d,indent=2,sort_keys=True)+"\n")
+          PY
+
+      - name: Upload candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: cape-inetsim-appliance-v1.0.0-candidate
+          path: |
+            ${{ runner.temp }}/cape-inetsim-appliance-v1.0.0.qcow2.gz
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: cape-inetsim-appliance-v1.0.0-evidence
+          path: |
+            ${{ runner.temp }}/cape-inetsim-appliance-v1.0.0.qcow2.sha256
+            ${{ runner.temp }}/cape-inetsim-appliance-v1.0.0.qcow2.gz.sha256
+            ${{ runner.temp }}/cape-inetsim-appliance-v1.0.0.qcow2.gz.size.txt
+            ${{ runner.temp }}/cape-inetsim-appliance-v1.0.0.qcow2.info.txt
+            ${{ runner.temp }}/candidate-provenance.json
+            ${{ runner.temp }}/artifact-verify.log
+          if-no-files-found: error
+          retention-days: 14
