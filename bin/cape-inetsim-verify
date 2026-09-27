@@ -16,6 +16,7 @@ source "$ROOT/lib/isolated-network.sh"
 source "$ROOT/lib/firewall.sh"
 source "$ROOT/lib/inetsim-vm.sh"
 source "$ROOT/lib/extension.sh"
+source "$ROOT/lib/cape-configure.sh"
 source "$ROOT/lib/services.sh"
 source "$ROOT/lib/validate.sh"
 
