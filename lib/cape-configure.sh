@@ -111,6 +111,7 @@ cape_configure_inetsim() {
   [[ "${CAPE_TARGETS_COUNT:-0}" -gt 0 ]] || { fail "No CAPE analysis targets are available for configuration"; return 1; }
 
   cape_backup_integration_files
+  cape_runtime_patch_backup_files
   patch_sniffer_capture_override "$CAPE_ROOT/modules/auxiliary/sniffer.py"
   cape_runtime_patch_apply
 
