@@ -17,13 +17,21 @@ resolve_cape_root_from_path() {
 }
 
 cape_service_roots() {
-  local unit wd root
-  for unit in cape.service cape-web.service cape-processor.service cape-rooter.service; do
-    systemctl cat "$unit" >/dev/null 2>&1 || continue
-    wd="$(systemctl show "$unit" -p WorkingDirectory --value 2>/dev/null || true)"
+  local unit wd root exec token
+  while IFS= read -r unit; do
+    [[ -n "$unit" ]] || continue
+    wd="$(service_workdir_text "$unit")"
     root="$(resolve_cape_root_from_path "$wd" 2>/dev/null || true)"
+    if [[ -z "$root" ]]; then
+      exec="$(service_execstart_text "$unit")"
+      for token in $exec; do
+        token="${token#\{}"; token="${token%\}}"; token="${token#\"}"; token="${token%\"}"
+        root="$(resolve_cape_root_from_path "$token" 2>/dev/null || true)"
+        [[ -n "$root" ]] && break
+      done
+    fi
     [[ -n "$root" ]] && printf '%s\n' "$root"
-  done | sort -u
+  done < <(systemd_service_inventory)
 }
 
 cape_fallback_roots() {
@@ -87,7 +95,8 @@ discover_cape_git() {
 discover_cape_services() {
   CAPE_SERVICES=()
   local s
-  for s in cape cape-web cape-processor cape-rooter; do
+  for s in "${CAPE_SCHEDULER_SERVICE:-}" "${CAPE_PROCESSOR_SERVICE:-}" "${CAPE_WEB_SERVICE:-}" "${CAPE_ROOTER_SERVICE:-}"; do
+    [[ -n "$s" ]] || continue
     if systemctl cat "$s" >/dev/null 2>&1; then
       CAPE_SERVICES+=("$s:$(systemctl is-active "$s" 2>/dev/null || true)")
     fi
