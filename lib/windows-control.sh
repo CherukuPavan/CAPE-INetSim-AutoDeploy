@@ -86,7 +86,7 @@ windows_manual_command() {
   local script_b64 wrapper encoded
   script_b64="$(base64 -w0 "$AUTODEPLOY_ROOT/windows/configure-inetsim.ps1")"
   wrapper="\$s=[ScriptBlock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$script_b64'))); & \$s -ManagementIP '$CAPE_MACHINE_IP' -IsolatedMac '$WINDOWS_ISOLATED_MAC' -FakeIP '$WINDOWS_FAKE_IP' -PrefixLength 24 -DnsIP '$INETSIM_IP' -ResultServerIP '$CAPE_RESULTSERVER_IP' -ResultServerPort $CAPE_RESULTSERVER_PORT -ControlHostIP '$CONTROL_HOST_IP' -ResultPath 'C:\Windows\Temp\cape-inetsim-autodeploy-result.json'"
-  encoded="$(python3 - "$wrapper" <<'PY'
+  encoded="$(ad_python - "$wrapper" <<'PY'
 import base64,sys
 print(base64.b64encode(sys.argv[1].encode("utf-16le")).decode())
 PY
