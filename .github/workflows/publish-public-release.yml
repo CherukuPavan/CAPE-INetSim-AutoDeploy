@@ -219,6 +219,13 @@ jobs:
 
           mkdir -p "$DIST" "$ROOT"/{lib,bin,tools,windows,appliance,vendor}
           install -m 0755 source/install "$ROOT/install"
+          for doc in INSTALL.md TROUBLESHOOTING.md ARCHITECTURE.md RECOVERY.md; do
+            [[ -s "source/$doc" ]] || {
+              echo "::error::required production documentation is missing: $doc"
+              exit 3
+            }
+            install -m 0644 "source/$doc" "$ROOT/$doc"
+          done
           cp -a source/lib/. "$ROOT/lib/"
           cp -a source/bin/. "$ROOT/bin/"
           cp -a source/tools/. "$ROOT/tools/"
@@ -360,6 +367,12 @@ jobs:
           ROOT="$RUNNER_TEMP/public-root/CAPE-INetSim-AutoDeploy-${RELEASE_TAG#v}"
           SOURCE_NAME="CAPE-INetSim-AutoDeploy-${RELEASE_TAG#v}.tar.gz"
           bash -n "$DIST/install"
+          for doc in INSTALL.md TROUBLESHOOTING.md ARCHITECTURE.md RECOVERY.md; do
+            [[ -s "$ROOT/$doc" ]] || {
+              echo "::error::production documentation missing from public runtime: $doc"
+              exit 3
+            }
+          done
           grep -Fq 'REPO="CherukuPavan/CAPE-INetSim-AutoDeploy-Releases"' "$DIST/install"
           grep -Fq 'sha256sum -c' "$DIST/install"
           python3 -m json.tool "$DIST/appliance-manifest.json" >/dev/null
