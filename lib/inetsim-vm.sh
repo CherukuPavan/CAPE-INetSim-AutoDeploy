@@ -57,10 +57,12 @@ print(ET.tostring(r,encoding="unicode"))
 INETSIM_GRAPHICS_CHANGED=no
 INETSIM_REFRESH_PENDING="${INETSIM_REFRESH_PENDING:-no}"
 INETSIM_REFRESH_BACKUP_DISK="${INETSIM_REFRESH_BACKUP_DISK:-}"
+INETSIM_REFRESH_TARGET_APPLIANCE_SHA256="${INETSIM_REFRESH_TARGET_APPLIANCE_SHA256:-}"
 
 inetsim_refresh_clear_pending() {
   INETSIM_REFRESH_PENDING=no
   INETSIM_REFRESH_BACKUP_DISK=""
+  INETSIM_REFRESH_TARGET_APPLIANCE_SHA256=""
   state_write_atomic
 }
 
@@ -106,7 +108,12 @@ inetsim_refresh_commit() {
 }
 
 inetsim_refresh_baked_gui_appliance() {
-  local artifact new_disk old_disk state i
+  local artifact new_disk old_disk state i desired_sha
+  desired_sha="$(appliance_manifest_field sha256 "$APPLIANCE_MANIFEST")" || return 1
+  [[ "$desired_sha" =~ ^[0-9a-f]{64}$ ]] || {
+    fail "Release appliance manifest has no valid raw SHA-256"
+    return 1
+  }
   state_resource_owned domain "$INETSIM_DOMAIN_NAME" || {
     fail "Refusing appliance refresh because INetSim domain is not AutoDeploy-owned"
     return 1
@@ -122,13 +129,22 @@ inetsim_refresh_baked_gui_appliance() {
   # Recover a process/power interruption around the atomic disk swap without
   # deleting the only known-good disk.
   if [[ "${INETSIM_REFRESH_PENDING:-no}" == yes ]]; then
-    if [[ -f "$old_disk" && -f "$INETSIM_DISK_PATH" ]]; then
+    if [[ -n "${INETSIM_REFRESH_TARGET_APPLIANCE_SHA256:-}" &&
+          "$INETSIM_REFRESH_TARGET_APPLIANCE_SHA256" != "$desired_sha" ]]; then
+      warn "Pending appliance refresh belongs to a different immutable appliance; restoring the pre-refresh disk first"
+      inetsim_refresh_rollback || return 1
+      old_disk="$INETSIM_DISK_PATH.release-refresh-old"
+    elif [[ -f "$old_disk" && -f "$INETSIM_DISK_PATH" ]]; then
       qemu-img check "$old_disk" >/dev/null && qemu-img check "$INETSIM_DISK_PATH" >/dev/null || {
         fail "Pending INetSim appliance refresh contains a corrupt current/backup disk"
         return 1
       }
+      [[ "${INETSIM_REFRESH_TARGET_APPLIANCE_SHA256:-}" == "$desired_sha" ]] || {
+        fail "Pending appliance refresh is missing exact artifact provenance; refusing to guess"
+        return 1
+      }
       INETSIM_REFRESH_BACKUP_DISK="$old_disk"
-      pass "Resuming previously activated INetSim appliance refresh with rollback disk preserved"
+      pass "Resuming exact checksum-bound INetSim appliance refresh with rollback disk preserved"
       return 0
     fi
     if [[ -f "$old_disk" && ! -e "$INETSIM_DISK_PATH" ]]; then
@@ -162,6 +178,7 @@ inetsim_refresh_baked_gui_appliance() {
   # can always distinguish the pre-refresh disk from the candidate disk.
   INETSIM_REFRESH_PENDING=yes
   INETSIM_REFRESH_BACKUP_DISK="$old_disk"
+  INETSIM_REFRESH_TARGET_APPLIANCE_SHA256="$desired_sha"
   state_write_atomic
 
   virsh shutdown "$INETSIM_DOMAIN_NAME" --mode agent >/dev/null 2>&1 || true
