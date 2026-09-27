@@ -28,7 +28,7 @@ windows_winrm_port() {
 }
 
 windows_winrm_client_available() {
-  python3 -c 'import winrm' >/dev/null 2>&1
+  ad_python -c 'import winrm' >/dev/null 2>&1
 }
 
 windows_winrm_ready() {
@@ -39,7 +39,7 @@ windows_winrm_ready() {
   password="$(windows_winrm_password)" || return 1
   [[ -n "$password" ]] || return 1
 
-  printf '%s' "$password" | python3 -c '
+  printf '%s' "$password" | ad_python -c '
 import sys
 try:
     import winrm
@@ -63,7 +63,7 @@ windows_winrm_run_script() {
   local port password validation="${CAPE_INETSIM_WINRM_CERT_VALIDATION:-validate}"
   port="$(windows_winrm_port "$ip")" || { fail "WinRM port is no longer reachable"; return 1; }
   password="$(windows_winrm_password)" || { fail "WinRM credentials are unavailable"; return 1; }
-  printf '%s' "$password" | python3 "$AUTODEPLOY_ROOT/tools/winrm_exec.py"     --host "$ip" --port "$port" --username "$CAPE_INETSIM_WINRM_USERNAME"     --script "$script" --result-path "$result_path" --cert-validation "$validation" -- "$@"
+  printf '%s' "$password" | ad_python "$AUTODEPLOY_ROOT/tools/winrm_exec.py"     --host "$ip" --port "$port" --username "$CAPE_INETSIM_WINRM_USERNAME"     --script "$script" --result-path "$result_path" --cert-validation "$validation" -- "$@"
 }
 
 windows_configure_via_winrm() {
@@ -89,7 +89,7 @@ windows_poweroff_via_winrm() {
   local ip="$1" port password validation="${CAPE_INETSIM_WINRM_CERT_VALIDATION:-validate}"
   port="$(windows_winrm_port "$ip" 2>/dev/null)" || return 0
   password="$(windows_winrm_password)" || return 0
-  printf '%s' "$password" | python3 -c '
+  printf '%s' "$password" | ad_python -c '
 import sys
 try:
     import winrm
