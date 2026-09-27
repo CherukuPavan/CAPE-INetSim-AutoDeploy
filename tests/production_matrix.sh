@@ -19,9 +19,17 @@ source "$ROOT/lib/cape.sh"
 
 virsh(){ return 1; }
 
+expect_eq(){
+  local actual="$1" expected="$2" label="$3"
+  if [[ "$actual" != "$expected" ]]; then
+    echo "[FAIL] $label: expected='$expected' actual='$actual'" >&2
+    exit 1
+  fi
+}
+
 # Machine A: completely fresh host.
 deployment_decision_classify
-[[ "$DEPLOYMENT_DECISION" == fresh ]]
+expect_eq "$DEPLOYMENT_DECISION" fresh "fresh-machine decision"
 
 # Machine B: old committed AutoDeploy release -> automatic upgrade.
 state_init_paths
@@ -35,12 +43,12 @@ EOF
 chmod 0600 "$AD_STATE_FILE"
 export CAPE_INETSIM_RELEASE_SOURCE_COMMIT=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 deployment_decision_classify
-[[ "$DEPLOYMENT_DECISION" == upgrade ]]
+expect_eq "$DEPLOYMENT_DECISION" upgrade "existing-release decision"
 
 # Broken previous repair -> automatic repair path.
 sed -i 's/^DEPLOYMENT_PHASE=.*/DEPLOYMENT_PHASE=repair-incomplete/' "$AD_STATE_FILE"
 deployment_decision_classify
-[[ "$DEPLOYMENT_DECISION" == repair ]]
+expect_eq "$DEPLOYMENT_DECISION" repair "broken-installation decision"
 
 # Machine C: custom CAPE path, custom unit names, no cape.service assumption.
 CUSTOM="$TMP/Custom CAPE Tree"
@@ -85,12 +93,12 @@ systemctl(){
 CAPE_ROOT=""
 DISCOVERY_ERRORS=()
 discover_cape_root
-[[ "$CAPE_ROOT" == "$CUSTOM" ]]
+expect_eq "$CAPE_ROOT" "$CUSTOM" "custom CAPE root"
 discover_cape_services
-[[ "$CAPE_SCHEDULER_SERVICE" == sandbox-scheduler.service ]]
-[[ "$CAPE_ROOTER_SERVICE" == sandbox-router.service ]]
-[[ "$CAPE_WEB_SERVICE" == custom-ui.service ]]
-[[ "$CAPE_PROCESSOR_SERVICE" == custom-processing.service ]]
-[[ "$CAPE_ROOTER_EXECUTABLE" == "$CUSTOM/utils/rooter.py" ]]
+expect_eq "${CAPE_SCHEDULER_SERVICE:-}" sandbox-scheduler.service "scheduler service discovery"
+expect_eq "${CAPE_ROOTER_SERVICE:-}" sandbox-router.service "Rooter service discovery"
+expect_eq "${CAPE_WEB_SERVICE:-}" custom-ui.service "web service discovery"
+expect_eq "${CAPE_PROCESSOR_SERVICE:-}" custom-processing.service "processor service discovery"
+expect_eq "${CAPE_ROOTER_EXECUTABLE:-}" "$CUSTOM/utils/rooter.py" "Rooter executable discovery"
 
 echo "[PASS] production decision/discovery matrix covers fresh, upgrade, broken and custom-layout hosts"
