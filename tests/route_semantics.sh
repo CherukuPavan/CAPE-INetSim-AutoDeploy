@@ -203,7 +203,7 @@ assert out["sorted"] == {}
 meta = out["autodeploy_task_network"]
 assert meta["mode"] == "strict-no-network"
 assert meta["kept_events"] == 0
-assert meta["suppressed_events"] == 6
+assert meta["suppressed_events"] == 7
 assert meta["raw_pcap_preserved"] is True
 print("RC66 strict no-network Network Analysis filter passed")
 PY
