@@ -48,8 +48,9 @@ def autodeploy_route_policy_reset(ipaddr):
     """Remove only the RC66 per-source policy chain and its jump."""
     chain = _autodeploy_policy_chain(ipaddr)
 
-    # The jump is a CAPE-rooter-tagged rule, so CAPE cleanup_rooter() will also
-    # remove it if Rooter restarts unexpectedly between analysis tasks.
+    # CAPE's cleanup_rooter() reconstructs the two native CAPE forwarding chains
+    # on restart, which removes this per-task jump; the private CAPEAD chain itself
+    # is then safely recreated/reset by the next task.
     while True:
         _, err = run_iptables("-D", "CAPE_REJECTED_SEGMENTS", "-j", chain)
         if err:
