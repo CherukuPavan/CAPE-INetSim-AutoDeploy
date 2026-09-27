@@ -13,5 +13,7 @@ grep -Fq 'acceptance_reports.py' "$S"
 grep -Fq 'CAPE_INETSIM_E2E_REQUIRED' "$ROOT/lib/deploy.sh"
 grep -Fq 'cape-inetsim-selftest' "$ROOT/lib/deploy.sh"
 grep -Fq 'cape-inetsim-selftest' "$ROOT/bin/cape-inetsim-repair"
+grep -Fq -- '--selftest) MODE=selftest' "$ROOT/install"
+grep -Fq 'exec bash "$AUTODEPLOY_ROOT/bin/cape-inetsim-selftest"' "$ROOT/install"
 
 echo "[PASS] deployment and repair require real CAPE DNS/HTTP/PCAP/report self-test"
