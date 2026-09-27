@@ -273,20 +273,59 @@ while IFS= read -r dom; do
   done
 done < <(virsh list --all --name 2>/dev/null)
 
-# CAPE: prefer root used by services
+# CAPE: discover service candidates and installation root without assuming
+# unit names, usernames or installation paths. Service WorkingDirectory wins;
+# filesystem discovery is used only when it resolves uniquely.
 CAPE_ROOT=""
-for svc in cape cape-web cape-processor cape-rooter; do
-  wd="$(systemctl show "$svc" -p WorkingDirectory --value 2>/dev/null || true)"
-  if [[ -n "$wd" && -f "$wd/conf/kvm.conf" ]]; then CAPE_ROOT="$(readlink -f "$wd")"; break; fi
-done
-[[ -n "$CAPE_ROOT" ]] || { [[ -f /opt/CAPEv2/conf/kvm.conf ]] && CAPE_ROOT=/opt/CAPEv2 || true; }
-printf '%s\n' "$CAPE_ROOT" >"$OUT/cape/detected-root.txt"
+CAPE_SERVICE_CANDIDATES=()
+mapfile -t CAPE_SERVICE_CANDIDATES < <(
+  {
+    systemctl list-unit-files --type=service --no-legend 2>/dev/null | awk '{print $1}'
+    systemctl list-units --type=service --all --no-legend 2>/dev/null | awk '{print $1}'
+  } | sed '/^$/d' | sort -u | while read -r unit; do
+    wd="$(systemctl show "$unit" -p WorkingDirectory --value 2>/dev/null || true)"
+    execstart="$(systemctl show "$unit" -p ExecStart --value 2>/dev/null || true)"
+    if [[ "$unit" =~ [Cc][Aa][Pp][Ee]|[Cc][Uu][Cc][Kk][Oo][Oo] ]] ||
+       [[ "$wd" =~ CAPE|cape|cuckoo|Cuckoo ]] ||
+       [[ "$execstart" =~ CAPE|cape|cuckoo|Cuckoo ]]; then
+      printf '%s\n' "$unit"
+    fi
+  done
+)
 
-for svc in cape cape-web cape-processor cape-rooter; do
-  systemctl cat "$svc" >"$OUT/cape/systemd-$svc.txt" 2>&1 || true
-  systemctl show "$svc" -p Id -p User -p Group -p WorkingDirectory -p ExecStart -p MainPID -p ActiveState -p SubState >"$OUT/cape/systemd-$svc-properties.txt" 2>&1 || true
-  systemctl status "$svc" --no-pager -l >"$OUT/cape/systemd-$svc-status.txt" 2>&1 || true
-  journalctl -u "$svc" -n 250 --no-pager >"$OUT/cape/journal-$svc.txt" 2>&1 || true
+declare -a CAPE_ROOTS=()
+for svc in "${CAPE_SERVICE_CANDIDATES[@]:-}"; do
+  wd="$(systemctl show "$svc" -p WorkingDirectory --value 2>/dev/null || true)"
+  while [[ -n "$wd" && "$wd" != / ]]; do
+    if [[ -f "$wd/conf/kvm.conf" ]]; then
+      CAPE_ROOTS+=("$(readlink -f "$wd")")
+      break
+    fi
+    wd="$(dirname "$wd")"
+  done
+done
+
+if (("${#CAPE_ROOTS[@]}" > 0)); then
+  mapfile -t CAPE_ROOTS < <(printf '%s\n' "${CAPE_ROOTS[@]}" | sed '/^$/d' | sort -u)
+fi
+if (("${#CAPE_ROOTS[@]}" == 1)); then
+  CAPE_ROOT="${CAPE_ROOTS[0]}"
+elif (("${#CAPE_ROOTS[@]}" == 0)); then
+  mapfile -t CAPE_ROOTS < <(
+    find /opt /srv /usr/local /home /var/lib -maxdepth 6 -type f -path '*/conf/kvm.conf' -printf '%h\n' 2>/dev/null |
+      sed 's#/conf$##' | sort -u
+  )
+  (("${#CAPE_ROOTS[@]}" == 1)) && CAPE_ROOT="${CAPE_ROOTS[0]}"
+fi
+printf '%s\n' "$CAPE_ROOT" >"$OUT/cape/detected-root.txt"
+printf '%s\n' "${CAPE_SERVICE_CANDIDATES[@]:-}" >"$OUT/cape/discovered-service-candidates.txt"
+
+for svc in "${CAPE_SERVICE_CANDIDATES[@]:-}"; do
+  safe_svc="$(printf '%s' "$svc" | tr -cs 'A-Za-z0-9._-' '_')"
+  systemctl cat "$svc" >"$OUT/cape/systemd-$safe_svc.txt" 2>&1 || true
+  systemctl show "$svc" -p Id -p User -p Group -p WorkingDirectory -p ExecStart -p MainPID -p ActiveState -p SubState >"$OUT/cape/systemd-$safe_svc-properties.txt" 2>&1 || true
+  systemctl status "$svc" --no-pager -l >"$OUT/cape/systemd-$safe_svc-status.txt" 2>&1 || true
+  journalctl -u "$svc" -n 250 --no-pager >"$OUT/cape/journal-$safe_svc.txt" 2>&1 || true
 done
 
 if [[ -n "$CAPE_ROOT" && -d "$CAPE_ROOT" ]]; then
