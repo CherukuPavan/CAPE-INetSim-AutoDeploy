@@ -220,11 +220,11 @@ jobs:
           mkdir -p "$DIST" "$ROOT"/{lib,bin,tools,windows,appliance,vendor}
           install -m 0755 source/install "$ROOT/install"
           for doc in INSTALL.md TROUBLESHOOTING.md ARCHITECTURE.md RECOVERY.md; do
-            [[ -s "source/$doc" ]] || {
-              echo "::error::required production documentation is missing: $doc"
+            [[ -s "source/docs/$doc" ]] || {
+              echo "::error::required production documentation is missing from source/docs: $doc"
               exit 3
             }
-            install -m 0644 "source/$doc" "$ROOT/$doc"
+            install -m 0644 "source/docs/$doc" "$ROOT/$doc"
           done
           cp -a source/lib/. "$ROOT/lib/"
           cp -a source/bin/. "$ROOT/bin/"
