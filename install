@@ -67,6 +67,7 @@ source "$AUTODEPLOY_ROOT/lib/services.sh"
 source "$AUTODEPLOY_ROOT/lib/maintenance.sh"
 source "$AUTODEPLOY_ROOT/lib/validate.sh"
 source "$AUTODEPLOY_ROOT/lib/rollback.sh"
+source "$AUTODEPLOY_ROOT/lib/decision.sh"
 source "$AUTODEPLOY_ROOT/lib/deploy.sh"
 
 MODE="deploy"
