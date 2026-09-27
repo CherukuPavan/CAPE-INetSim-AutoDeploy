@@ -54,7 +54,7 @@ while (($#)); do
 done
 
 [[ -n "$POSITIVE_TASK" && -n "$NEGATIVE_TASK" && -n "$DROP_TASK" && -n "$MARKER" ]] || {
-  fail "Functional acceptance requires --positive-task, --negative-task and --marker"
+  fail "Functional acceptance requires --positive-task, --negative-task, --drop-task and --marker"
   usage >&2
   exit 2
 }
@@ -176,6 +176,9 @@ d["pcap_validation"]={
     "negative_capture":neg,
     "negative_contains_marker":False,
     "negative_contains_inetsim_ip":neg_has_inetsim.lower()=="true",
+    "drop_capture":drop,
+    "drop_contains_inetsim_ip":False,
+    "drop_requires_zero_network_analysis_events":True,
     "background_inetsim_allowed_in_negative":False,
 }
 d["release_validation"]={
