@@ -197,6 +197,25 @@ deploy_run() {
   transaction_lock_acquire
   run_discovery
   inventory_write
+  deployment_decision_engine
+
+  case "${DEPLOYMENT_DECISION:-fresh}" in
+    existing-valid)
+      pass "Existing AutoDeploy installation is healthy; no changes required"
+      return 0
+      ;;
+    existing-repaired)
+      pass "Existing AutoDeploy installation was repaired/upgraded successfully"
+      return 0
+      ;;
+    recovered-for-redeploy)
+      # Rollback can restore CAPE/libvirt state, so rediscover everything before
+      # choosing fresh resource names, routes, snapshots or interpreters.
+      run_discovery
+      inventory_write
+      ;;
+  esac
+
   deploy_assert_supported_environment
   deploy_initialize_or_resume_state
 
