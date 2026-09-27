@@ -33,7 +33,7 @@ choose_isolated_bridge_name() {
 
 render_isolated_network_xml() {
   local name="$1" bridge="$2" cidr="$3" bridge_ip="$4"
-  python3 - "$name" "$bridge" "$cidr" "$bridge_ip" <<'PY'
+  ad_python - "$name" "$bridge" "$cidr" "$bridge_ip" <<'PY'
 import ipaddress,sys,xml.sax.saxutils as x
 name,bridge,cidr,bridge_ip=sys.argv[1:]
 net=ipaddress.ip_network(cidr, strict=False)
@@ -46,7 +46,7 @@ PY
 }
 
 network_xml_facts() {
-  python3 -c '
+  ad_python -c '
 import ipaddress,sys,xml.etree.ElementTree as ET
 try: root=ET.fromstring(sys.stdin.read())
 except Exception:
