@@ -51,10 +51,14 @@ def autodeploy_route_policy_reset(ipaddr):
     # CAPE's cleanup_rooter() reconstructs the two native CAPE forwarding chains
     # on restart, which removes this per-task jump; the private CAPEAD chain itself
     # is then safely recreated/reset by the next task.
-    while True:
-        _, err = run_iptables("-D", "CAPE_REJECTED_SEGMENTS", "-j", chain)
-        if err:
-            break
+    # Remove a jump left by any RC66 revision from every supported parent.
+    # The current route policy lives at the top of FORWARD so broad
+    # established/related accepts cannot bypass the per-task decision.
+    for parent in ("FORWARD", "CAPE_REJECTED_SEGMENTS"):
+        while True:
+            _, err = run_iptables("-D", parent, "-j", chain)
+            if err:
+                break
 
     # Chain-management operations must not receive rule-match/comment arguments.
     run(ServicePaths.iptables, "-F", chain)
@@ -106,10 +110,11 @@ def autodeploy_route_policy_set(ipaddr, ingress_interface="", allowed_interface=
     rule_pos += ["-j", "DROP"]
     _autodeploy_checked_rule(*rule_pos)
 
-    # CAPE_REJECTED_SEGMENTS is traversed before CAPE_ACCEPTED_SEGMENTS, so the
-    # per-task policy is enforced before any broad forwarding allow rule.
+    # Enforce the per-task decision at the top of FORWARD. CAPE's native
+    # CAPE_ACCEPTED_SEGMENTS chain accepts ESTABLISHED/RELATED traffic, so a
+    # jump placed only in CAPE_REJECTED_SEGMENTS can be bypassed.
     _autodeploy_checked_rule(
-        "-I", "CAPE_REJECTED_SEGMENTS", "1",
+        "-I", "FORWARD", "1",
         "-j", chain,
     )
 

@@ -252,7 +252,7 @@ PY
   grep -Fq 'CAPE_INETSIM_AUTODEPLOY_ROUTE_V4' "$CAPE_ROOT/utils/rooter.py"
   grep -Fq '"autodeploy_route_policy_set": autodeploy_route_policy_set' "$CAPE_ROOT/utils/rooter.py"
   grep -Fq '"autodeploy_route_policy_reset": autodeploy_route_policy_reset' "$CAPE_ROOT/utils/rooter.py"
-  grep -Fq 'CAPE_INETSIM_AUTODEPLOY_ROUTE_V3' "$CAPE_ROOT/lib/cuckoo/core/analysis_manager.py"
+  grep -Fq 'CAPE_INETSIM_AUTODEPLOY_ROUTE_V4' "$CAPE_ROOT/lib/cuckoo/core/analysis_manager.py"
   grep -Fq 'CAPE_INETSIM_AUTODEPLOY_TASK_NETWORK_V2' "$CAPE_ROOT/modules/processing/network.py"
   grep -Fq 'CAPE_INETSIM_AUTODEPLOY_ROUTE_UI_V2' "$CAPE_ROOT/web/templates/submission/index.html"
 
