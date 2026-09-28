@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+# READ-ONLY network diagnostics. No service restart, VM mutation, firewall/routing
+# change, CAPE-file write, malware copy, or packet-payload collection.
+ROOT="${AUTODEPLOY_ROOT:-/usr/local/lib/cape-inetsim-autodeploy}"
+if [[ ! -d "$ROOT" ]]; then ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; fi
+CAPE_ROOT="${CAPE_ROOT:-/opt/CAPEv2}"
+OUT="${1:-/tmp/cape-network-diagnostics-$(date -u +%Y%m%dT%H%M%SZ)}"
+mkdir -p "$OUT"/{host,libvirt,cape,tasks}
+exec > >(tee "$OUT/collection.log") 2>&1
+
+echo "CAPE/INetSim read-only diagnostics"
+echo "time=$(date -Is)"
+echo "host=$(hostname -f 2>/dev/null || hostname)"
+echo "cape_root=$CAPE_ROOT"
+
+run(){ local n="$1"; shift; { echo; echo "===== $n ====="; echo "COMMAND: $*"; "$@"; } >>"$OUT/host/commands.txt" 2>&1 || true; }
+runsh(){ local n="$1"; shift; { echo; echo "===== $n ====="; echo "COMMAND: $*"; bash -lc "$*"; } >>"$OUT/host/commands.txt" 2>&1 || true; }
+
+runsh ip_addr 'ip -details -br addr'
+runsh routes 'ip -4 route show table all'
+runsh rules 'ip -4 rule show'
+runsh links 'ip -details link show'
+runsh bridge 'bridge -details link show'
+runsh ip_forward 'sysctl net.ipv4.ip_forward'
+runsh nft 'nft -a list ruleset'
+runsh iptables 'iptables-save; echo "--- legacy ---"; iptables-legacy-save'
+runsh listeners 'ss -lntup'
+runsh capeisim_stats 'ip -s link show capeisim0'
+runsh virbr0_stats 'ip -s link show virbr0'
+runsh virsh_domains 'virsh -c qemu:///system list --all'
+runsh virsh_networks 'virsh -c qemu:///system net-list --all'
+runsh inetsim_xml 'virsh -c qemu:///system net-dumpxml cape-inetsim-isolated'
+runsh default_xml 'virsh -c qemu:///system net-dumpxml default'
+
+for svc in cape.service cape-processor.service cape-web.service cape-rooter.service suricata.service; do
+  runsh "service-${svc}" "systemctl show ${svc} -p MainPID -p User -p Group -p WorkingDirectory -p ExecStart -p ActiveState -p SubState"
+  runsh "journal-${svc}" "journalctl -u ${svc} -n 350 --no-pager"
+done
+
+for f in \
+  modules/processing/network.py \
+  modules/processing/autodeploy_task_network.py \
+  lib/cuckoo/core/startup.py \
+  modules/auxiliary/sniffer.py \
+  utils/rooter.py; do
+  [[ -f "$CAPE_ROOT/$f" ]] || continue
+  {
+    echo "===== $f ====="
+    sha256sum "$CAPE_ROOT/$f"
+    grep -nE 'CAPE_INETSIM_AUTODEPLOY|process_map|network_map|enable_nat|disable_nat|self\\.results|behavior_result|autodeploy_route_policy' "$CAPE_ROOT/$f" 2>/dev/null || true
+  } >> "$OUT/cape/runtime-files.txt"
+done
+
+for f in routing.conf processing.conf auxiliary.conf; do
+  [[ -f "$CAPE_ROOT/conf/$f" ]] || continue
+  {
+    echo "===== conf/$f ====="
+    # Redact credentials/tokens while preserving routing/capture semantics.
+    sed -E 's/((password|passwd|token|secret|api[_-]?key)[[:space:]]*=[[:space:]]*).*/\1<REDACTED>/Ig' "$CAPE_ROOT/conf/$f"
+  } >> "$OUT/cape/config.txt"
+done
+
+TASKS="${2:-}"
+if [[ -z "$TASKS" ]]; then
+  TASKS="$(find "$CAPE_ROOT/storage/analyses" -mindepth 1 -maxdepth 1 -type d -printf '%f\\n' 2>/dev/null | awk '/^[0-9]+$/ {print}' | sort -n | tail -n 12 | paste -sd, -)"
+fi
+
+python3 - "$CAPE_ROOT" "$TASKS" "$OUT/tasks/summary.json" <<'PY'
+import gzip, hashlib, json, pathlib, struct, sys
+
+root=pathlib.Path(sys.argv[1]); ids=[x for x in sys.argv[2].split(",") if x.isdigit()]
+base=root/"storage/analyses"
+
+def load(p):
+    try:
+        if p.suffix==".gz":
+            with gzip.open(p,"rt",encoding="utf-8",errors="replace") as f: return json.load(f)
+        return json.loads(p.read_text(encoding="utf-8",errors="replace"))
+    except Exception as e:
+        return {"__error__":type(e).__name__+":"+str(e)}
+
+def report(d):
+    for p in (d/"reports/report.json",d/"reports/report.json.gz",d/"report.json",d/"report.json.gz"):
+        if p.is_file(): return p
+    return None
+
+def n(v): return len(v) if isinstance(v,list) else 0
+
+def pcap_count(p):
+    if not p or not p.is_file() or p.stat().st_size<24: return 0
+    try:
+        with p.open("rb") as f:
+            h=f.read(24); m=h[:4]
+            le=m in (bytes.fromhex("d4c3b2a1"),bytes.fromhex("4d3cb2a1"))
+            be=m in (bytes.fromhex("a1b2c3d4"),bytes.fromhex("a1b23c4d"))
+            e="<" if le else ">" if be else None
+            if not e: return 0
+            c=0
+            while True:
+                r=f.read(16)
+                if not r: return c
+                if len(r)!=16: return c
+                _,_,ln,_=struct.unpack(e+"IIII",r); f.seek(ln,1); c+=1
+    except Exception: return 0
+
+rows=[]
+for sid in ids:
+    d=base/sid; row={"task_id":int(sid)}
+    if not d.is_dir(): row["missing_analysis_dir"]=True; rows.append(row); continue
+    rp=report(d); x=load(rp) if rp else {}
+    info=x.get("info") if isinstance(x.get("info"),dict) else {}
+    net=x.get("network") if isinstance(x.get("network"),dict) else {}
+    beh=x.get("behavior") if isinstance(x.get("behavior"),dict) else {}
+    sur=x.get("suricata") if isinstance(x.get("suricata"),dict) else {}
+    keys=("hosts","domains","tcp","udp","icmp","dns","http","http_ex","https_ex","smtp","smtp_ex","ftp","irc","ssh","tls","dead_hosts")
+    nc={k:n(net.get(k)) for k in keys}
+    meta=net.get("autodeploy_task_network") if isinstance(net.get("autodeploy_task_network"),dict) else {}
+    pcaps=[]
+    for p in (d/"dump.pcap",d/"dump_sorted.pcap",d/"dump_mixed.pcap"):
+        if p.is_file():
+            pcaps.append({"name":p.name,"size":p.stat().st_size,
+                          "sha256":hashlib.sha256(p.read_bytes()).hexdigest(),
+                          "packet_count":pcap_count(p)})
+    rows.append({
+      "task_id":int(sid),"route":str(info.get("route") or "").lower(),
+      "category":str(info.get("category") or ""),
+      "report_size":rp.stat().st_size if rp else 0,
+      "report_keys":sorted(x.keys()) if isinstance(x,dict) else [],
+      "behavior_keys":sorted(beh.keys()),
+      "process_tree_present":bool(beh.get("processtree")),
+      "network_counts":nc,
+      "network_autodeploy_task":meta,
+      "suricata_counts":{k:n(sur.get(k)) for k in ("alerts","dns","http","tls","ssh","files")},
+      "pcaps":pcaps
+    })
+(path:=pathlib.Path(sys.argv[3])).write_text(json.dumps({"schema":1,"tasks":rows},indent=2)+"\n")
+PY
+
+# Keep task logs useful without copying payloads/report bodies.
+python3 - "$CAPE_ROOT" "$TASKS" "$OUT/tasks/log-matches.txt" <<'PY'
+from pathlib import Path
+import re,sys
+root=Path(sys.argv[1]); ids=[x for x in sys.argv[2].split(",") if x.isdigit()]
+rx=re.compile(r"(?i)(sniffer|pcap|network|process.?map|route|rooter|inetsim|suricata|exception|traceback)")
+out=Path(sys.argv[3]); out.write_text("")
+for sid in ids:
+    d=root/"storage/analyses"/sid
+    for name in ("analysis.log","cuckoo.log"):
+        p=d/name
+        if not p.is_file(): continue
+        hits=[ln for ln in p.read_text(errors="replace").splitlines() if rx.search(ln)]
+        with out.open("a") as f:
+            f.write(f"===== task {sid} {name} =====\n")
+            f.write("\n".join(hits[-250:])+"\n")
+PY
+
+(
+  cd "$OUT"
+  find . -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+)
+tar -czf "$OUT.tar.gz" -C "$(dirname "$OUT")" "$(basename "$OUT")"
+sha256sum "$OUT.tar.gz" | tee "$OUT.tar.gz.sha256"
+echo
+echo "DONE: $OUT.tar.gz"
+echo "READ-ONLY: no CAPE/libvirt/VM/firewall/routing changes were made."
