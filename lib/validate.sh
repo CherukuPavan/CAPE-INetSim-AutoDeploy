@@ -33,10 +33,8 @@ validate_release_provenance() {
 
 validate_recovery_assets() {
   local rel backup failures=0
+
   if state_has_owned_kind cape-file; then
-    for rel in modules/auxiliary/sniffer.py conf/auxiliary.conf conf/kvm.conf conf/processing.conf conf/routing.conf utils/rooter.py lib/cuckoo/core/analysis_manager.py modules/processing/network.py modules/processing/autodeploy_task_network.py web/templates/submission/index.html web/templates/analysis/network/index.html; do
-      # These long-standing CAPE integration files remain mandatory for any
-    # deployment that owns CAPE-file mutations, including older releases.
     for rel in modules/auxiliary/sniffer.py conf/auxiliary.conf conf/kvm.conf conf/processing.conf conf/routing.conf; do
       backup="$AD_BACKUP_ROOT/${DEPLOYMENT_ID}/$rel"
       if [[ ! -f "$backup" || ! -f "$backup.sha256" ]]; then
@@ -50,12 +48,9 @@ validate_recovery_assets() {
       fi
     done
 
-    # Only files actually stamped by the current runtime patch transaction
-      # are required here. Older committed deployments legitimately lack the
-      # RC66 runtime-file hashes and must remain verifiable.
+    for rel in utils/rooter.py lib/cuckoo/core/analysis_manager.py modules/processing/network.py modules/processing/autodeploy_task_network.py web/templates/submission/index.html web/templates/analysis/network/index.html lib/cuckoo/core/startup.py; do
       expected="$(cape_post_sha_for_rel "$rel" 2>/dev/null || true)"
       [[ -n "$expected" ]] || continue
-
       backup="$AD_BACKUP_ROOT/${DEPLOYMENT_ID}/$rel"
       if [[ -f "$backup" && -f "$backup.sha256" ]]; then
         if ! (cd "$(dirname "$backup")" && sha256sum -c "$(basename "$backup.sha256")" >/dev/null); then
@@ -63,11 +58,9 @@ validate_recovery_assets() {
           failures=$((failures+1))
         fi
       elif [[ "$rel" == "modules/processing/autodeploy_task_network.py" ]]; then
-        # This helper is created by RC66 when it was absent from CAPE. Its
-        # rollback contract is the post-hash + transaction-ownership check.
         current="$(sha256sum "$CAPE_ROOT/$rel" 2>/dev/null | awk '{print $1}' || true)"
         [[ "$current" == "$expected" ]] || {
-          fail "RC66-created task-network helper hash does not match committed state"
+          fail "AutoDeploy-created task-network helper hash does not match committed state"
           failures=$((failures+1))
         }
       else
@@ -90,8 +83,6 @@ validate_recovery_assets() {
     fi
   fi
 
-  # Per-task route separation does not mutate Windows networking or snapshots,
-  # so no deployment-owned Windows safety snapshot is required.
   ((failures == 0))
 }
 validate_windows_result_path() {
@@ -250,6 +241,7 @@ print("RC66 CAPE route policy configuration PASS")
 PY
 
   grep -Fq 'CAPE_INETSIM_AUTODEPLOY_ROUTE_V4' "$CAPE_ROOT/utils/rooter.py"
+  grep -Fq '"-I", "FORWARD", "1"' "$CAPE_ROOT/utils/rooter.py"
   grep -Fq 'CAPE_INETSIM_AUTODEPLOY_INETSIM_NO_NAT_V1' "$CAPE_ROOT/lib/cuckoo/core/startup.py"
   if iptables-save -t nat 2>/dev/null |
       grep -Eq -- "-A POSTROUTING .* -o ${ISOLATED_BRIDGE_NAME} .* -j MASQUERADE"; then
@@ -258,7 +250,7 @@ PY
   fi
   grep -Fq '"autodeploy_route_policy_set": autodeploy_route_policy_set' "$CAPE_ROOT/utils/rooter.py"
   grep -Fq '"autodeploy_route_policy_reset": autodeploy_route_policy_reset' "$CAPE_ROOT/utils/rooter.py"
-  grep -Fq 'CAPE_INETSIM_AUTODEPLOY_ROUTE_V3' "$CAPE_ROOT/lib/cuckoo/core/analysis_manager.py"
+  grep -Fq 'CAPE_INETSIM_AUTODEPLOY_ROUTE_V4' "$CAPE_ROOT/lib/cuckoo/core/analysis_manager.py"
   grep -Fq 'CAPE_INETSIM_AUTODEPLOY_TASK_NETWORK_V2' "$CAPE_ROOT/modules/processing/network.py"
   grep -Fq 'CAPE_INETSIM_AUTODEPLOY_ROUTE_UI_V2' "$CAPE_ROOT/web/templates/submission/index.html"
   grep -Fq 'CAPE_INETSIM_AUTODEPLOY_NETWORK_UI_V1' "$CAPE_ROOT/web/templates/analysis/network/index.html"

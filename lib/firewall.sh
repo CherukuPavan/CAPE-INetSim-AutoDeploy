@@ -66,7 +66,7 @@ table inet $FIREWALL_TABLE {
   }
 
   chain forward_guard {
-    type filter hook forward priority -50; policy accept;
+    type filter hook forward priority 100; policy accept;
 EOF
 
   if [[ -n "$clients" ]]; then
@@ -154,6 +154,7 @@ firewall_activate_rules() {
 firewall_table_matches_base() {
   local text
   text="$(nft list table inet "$FIREWALL_TABLE" 2>/dev/null)" || return 1
+  grep -Fq "type filter hook forward priority 100; policy accept;" <<<"$text" || return 1
   grep -Fq "iifname \"$ISOLATED_BRIDGE_NAME\"" <<<"$text" || return 1
   grep -Fq "oifname \"$ISOLATED_BRIDGE_NAME\"" <<<"$text" || return 1
 }
@@ -161,6 +162,7 @@ firewall_table_matches_base() {
 firewall_file_matches_base() {
   [[ -f "$FIREWALL_RULES" ]] || return 1
   grep -Fq 'CAPE-INetSim-AutoDeploy managed rules' "$FIREWALL_RULES" &&
+    grep -Fq 'type filter hook forward priority 100; policy accept;' "$FIREWALL_RULES" &&
     grep -Fq 'Per-task route separation' "$FIREWALL_RULES" &&
     grep -Fq "iifname \"$ISOLATED_BRIDGE_NAME\"" "$FIREWALL_RULES" &&
     grep -Fq "oifname \"$ISOLATED_BRIDGE_NAME\"" "$FIREWALL_RULES"

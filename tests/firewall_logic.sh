@@ -15,6 +15,8 @@ CAPE_TARGETS_JSON='[
 
 full="$(firewall_render_rules "$ISOLATED_BRIDGE_NAME")"
 grep -Fq 'table inet cape_inetsim_autodeploy' <<<"$full"
+grep -Fq 'type filter hook forward priority 100; policy accept;' <<<"$full"
+! grep -Fq 'type filter hook forward priority -50; policy accept;' <<<"$full"
 grep -Fq 'iifname "virbr0" ip saddr 192.168.122.100 oifname "capeisim7" ip daddr 192.168.200.2 accept' <<<"$full"
 grep -Fq 'iifname "virbr0" ip saddr 192.168.122.101 oifname "capeisim7" ip daddr 192.168.200.2 accept' <<<"$full"
 grep -Fq 'iifname "capeisim7" drop' <<<"$full"
