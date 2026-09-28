@@ -183,7 +183,7 @@ if k.get(section,"interface",fallback="") != mgmt_iface:
     raise SystemExit("CAPE machine interface is not the management bridge")
 if a.get("sniffer",f"inetsim_capture_interface_{label}",fallback="") != inetsim_iface:
     raise SystemExit("INetSim capture interface mismatch")
-if a.get("sniffer",f"inetsim_capture_host_{label}",fallback="") != machine_ip:
+if a.get("sniffer",f"inetsim_capture_host_{label}",fallback="") != inetsim_ip:
     raise SystemExit("INetSim capture host mismatch")
 if p.get("network","dnswhitelist",fallback="").lower() != "no":
     raise SystemExit("dnswhitelist not disabled")
