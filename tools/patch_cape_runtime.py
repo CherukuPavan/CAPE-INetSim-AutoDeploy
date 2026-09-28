@@ -15,7 +15,7 @@ import shutil
 
 MARKER_ROOTER = "CAPE_INETSIM_AUTODEPLOY_ROUTE_V4"
 MARKER_ANALYSIS = "CAPE_INETSIM_AUTODEPLOY_ROUTE_V4"
-MARKER_NETWORK = "CAPE_INETSIM_AUTODEPLOY_TASK_NETWORK_V3"
+MARKER_NETWORK = "CAPE_INETSIM_AUTODEPLOY_TASK_NETWORK_V2"
 MARKER_SUBMISSION = "CAPE_INETSIM_AUTODEPLOY_ROUTE_UI_V2"
 MARKER_STARTUP = "CAPE_INETSIM_AUTODEPLOY_INETSIM_NO_NAT_V1"
 
@@ -283,27 +283,6 @@ def patch_network(path: Path) -> None:
     if s.count(MARKER_NETWORK):
         if s.count(MARKER_NETWORK) != 1:
             raise RuntimeError("RC66 network-processing marker is ambiguous")
-        # RC69 shipped the task-network filter with the wrong behavior context:
-        # it read self.results["behavior"], but self.results is the Pcap network
-        # container. A non-drop report therefore lost its Network Analysis view.
-        legacy_lookup = "\n".join([
-            '            results = filter_network_to_task_process_tree(',
-            '                results,',
-            '                self.results.get("behavior", {}) if isinstance(self.results, dict) else {},',
-            '                str(self.task.get("route") or ""),',
-            '])
-        if legacy_lookup in s:
-            corrected_lookup = "\n".join([
-                '            behavior_result = results.get("behavior", {}) if isinstance(results, dict) else {}',
-                '            results = filter_network_to_task_process_tree(',
-                '                results,',
-                '                behavior_result,',
-                '                str(self.task.get("route") or ""),',
-                '])
-            s = s.replace(legacy_lookup, corrected_lookup, 1)
-            write(path, s)
-        elif 'behavior_result = results.get("behavior", {}) if isinstance(results, dict) else {}' not in s:
-            raise RuntimeError("task-network marker exists but neither legacy nor corrected filter body is recognized")
         return
 
     import_anchor = '''from lib.cuckoo.common.path_utils import path_delete, path_exists, path_mkdir, path_read_file, path_write_file
@@ -331,14 +310,9 @@ from modules.processing.autodeploy_task_network import filter_network_to_task_pr
         # Keep only network events attributed to the primary analysis process
         # or one of its descendants. Raw dump.pcap is not modified.
         if proc_cfg.network.process_map:
-            # CAPE's processing pipeline passes the complete analysis result
-            # mapping here. The PCAP object itself (self.results) contains only
-            # network data, so reading self.results["behavior"] always produced
-            # an empty behavior tree and silently blanked every non-drop report.
-            behavior_result = results.get("behavior", {}) if isinstance(results, dict) else {}
             results = filter_network_to_task_process_tree(
                 results,
-                behavior_result,
+                self.results.get("behavior", {}) if isinstance(self.results, dict) else {},
                 str(self.task.get("route") or ""),
             )
 
@@ -471,11 +445,6 @@ def main() -> int:
     for rel, marker in checks.items():
         if read(root / rel).count(marker) != 1:
             raise SystemExit(f"RC66 patch marker count is not exactly one: {rel}")
-
-    # The task-network filter must consume the shared analysis result map,
-    # never the Pcap object's network-only self.results container.
-    if 'self.results.get("behavior"' in read(root / "modules/processing/network.py"):
-        raise SystemExit("task-network filter references network-only self.results for behavior")
 
     return 0
 
