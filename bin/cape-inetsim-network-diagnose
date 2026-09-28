@@ -160,6 +160,8 @@ PY
   cd "$OUT"
   find . -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
 )
+if [[ -x "$ROOT/tools/redact_inventory.py" ]]; then python3 "$ROOT/tools/redact_inventory.py" "$OUT" >/dev/null; fi
+
 tar -czf "$OUT.tar.gz" -C "$(dirname "$OUT")" "$(basename "$OUT")"
 sha256sum "$OUT.tar.gz" | tee "$OUT.tar.gz.sha256"
 echo
