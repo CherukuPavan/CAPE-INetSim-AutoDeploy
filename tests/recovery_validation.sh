@@ -58,6 +58,7 @@ grep -Fq 'Roll it back with that exact release before installing this route-sepa
 # in-place RC44 conversion is the explicit, ownership-gated --repair path.
 grep -Fq 'Owned legacy route-global deployment detected' "$ROOT/bin/cape-inetsim-repair"
 grep -Fq 'source "$ROOT/lib/runtime-patches.sh"' "$ROOT/bin/cape-inetsim-repair"
+grep -Fq 'source "$ROOT/lib/release-provenance.sh"' "$ROOT/bin/cape-inetsim-repair"
 grep -Fq 'lib/cuckoo/core/startup.py' "$ROOT/lib/runtime-patches.sh"
 grep -Fq 'web/templates/analysis/network/index.html' "$ROOT/lib/runtime-patches.sh"
 grep -Fq 'CAPE_INETSIM_AUTODEPLOY_NETWORK_UI_V1' "$ROOT/tools/patch_cape_runtime.py"
