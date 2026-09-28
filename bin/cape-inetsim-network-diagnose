@@ -1,0 +1,371 @@
+#!/usr/bin/env python3
+"""Read-only CAPE/INetSim network diagnostics collector.
+
+The collector does not restart services, change firewall/routing state, alter VMs,
+modify CAPE files, or copy malware/packet payloads. It summarizes reports and
+captures enough metadata to distinguish:
+  1. no packets generated,
+  2. packets generated but not parsed,
+  3. packets parsed but filtered from Network Analysis,
+  4. route-specific isolation failure.
+"""
+from __future__ import annotations
+
+import argparse
+import gzip
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import struct
+import subprocess
+import tarfile
+import tempfile
+from datetime import datetime, timezone
+
+
+def run(cmd: str, timeout: int = 30) -> dict:
+    p = subprocess.run(
+        cmd,
+        shell=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=timeout,
+        check=False,
+    )
+    return {"command": cmd, "exit_code": p.returncode, "output": p.stdout}
+
+
+def write_result(root: Path, rel: str, result: dict) -> None:
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "COMMAND: " + result["command"] + "\n"
+        + "EXIT_CODE=" + str(result["exit_code"]) + "\n"
+        + "------------------------------------------------------------\n"
+        + result["output"],
+        encoding="utf-8",
+        errors="replace",
+    )
+
+
+def discover_cape_root(explicit: str | None) -> Path:
+    if explicit:
+        return Path(explicit).resolve()
+    for svc in ("cape", "cape-web", "cape-processor", "cape-rooter"):
+        r = run("systemctl show " + shlex.quote(svc) + " -p WorkingDirectory --value", 10)
+        wd = r["output"].strip()
+        if wd and Path(wd, "conf", "kvm.conf").is_file():
+            return Path(wd).resolve()
+    if Path("/opt/CAPEv2/conf/kvm.conf").is_file():
+        return Path("/opt/CAPEv2").resolve()
+    raise SystemExit("Could not discover CAPE root; use --cape-root.")
+
+
+def first_report(task_dir: Path) -> Path | None:
+    for p in (
+        task_dir / "reports" / "report.json",
+        task_dir / "reports" / "report.json.gz",
+        task_dir / "report.json",
+        task_dir / "report.json.gz",
+    ):
+        if p.is_file():
+            return p
+    return None
+
+
+def load_json(path: Path) -> dict:
+    try:
+        if path.suffix == ".gz":
+            with gzip.open(path, "rt", encoding="utf-8", errors="replace") as fh:
+                return json.load(fh)
+        return json.loads(path.read_text(encoding="utf-8", errors="replace"))
+    except Exception as exc:
+        return {"__load_error__": type(exc).__name__ + ": " + str(exc)}
+
+
+def count_list(value) -> int:
+    return len(value) if isinstance(value, list) else 0
+
+
+def pcap_metadata(path: Path) -> dict:
+    info = {
+        "path": str(path),
+        "size_bytes": path.stat().st_size,
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "packet_count": 0,
+        "pcap_header": "",
+        "error": "",
+    }
+    if path.stat().st_size < 24:
+        info["error"] = "file smaller than classic pcap global header"
+        return info
+
+    try:
+        with path.open("rb") as fh:
+            hdr = fh.read(24)
+            magic = struct.unpack("<I", hdr[:4])[0]
+            info["pcap_header"] = hdr.hex()
+            little = magic in (0xA1B2C3D4, 0xA1B23C4D)
+            big = magic in (0xD4C3B2A1, 0x4D3CB2A1)
+            endian = "<" if little else ">" if big else None
+            if endian is None:
+                info["error"] = "unrecognized pcap magic"
+                return info
+            while True:
+                rec = fh.read(16)
+                if not rec:
+                    break
+                if len(rec) != 16:
+                    info["error"] = "truncated pcap record header"
+                    break
+                _, _, incl, _ = struct.unpack(endian + "IIII", rec)
+                fh.seek(incl, os.SEEK_CUR)
+                info["packet_count"] += 1
+    except Exception as exc:
+        info["error"] = type(exc).__name__ + ": " + str(exc)
+    return info
+
+
+def process_tree_pids(tree) -> list[int]:
+    out: set[int] = set()
+    stack = list(tree) if isinstance(tree, list) else []
+    while stack:
+        node = stack.pop()
+        if not isinstance(node, dict):
+            continue
+        for key in ("pid", "process_id"):
+            try:
+                value = int(node.get(key))
+                if value > 0:
+                    out.add(value)
+            except (TypeError, ValueError):
+                pass
+        children = node.get("children")
+        if isinstance(children, list):
+            stack.extend(children)
+    return sorted(out)
+
+
+def summarize_task(cape_root: Path, task_id: str) -> dict:
+    task_dir = cape_root / "storage" / "analyses" / task_id
+    out = {"task_id": int(task_id), "analysis_dir": str(task_dir)}
+    if not task_dir.is_dir():
+        out["missing_analysis_dir"] = True
+        return out
+
+    report_path = first_report(task_dir)
+    report = load_json(report_path) if report_path else {}
+    if not isinstance(report, dict):
+        report = {}
+
+    info = report.get("info") if isinstance(report.get("info"), dict) else {}
+    net = report.get("network") if isinstance(report.get("network"), dict) else {}
+    behavior = report.get("behavior") if isinstance(report.get("behavior"), dict) else {}
+    suricata = report.get("suricata") if isinstance(report.get("suricata"), dict) else {}
+    task_meta = net.get("autodeploy_task_network")
+    if not isinstance(task_meta, dict):
+        task_meta = {}
+
+    fields = (
+        "hosts", "domains", "tcp", "udp", "icmp", "dns", "http", "http_ex",
+        "https_ex", "smtp", "smtp_ex", "ftp", "irc", "ssh", "tls", "dead_hosts",
+    )
+    network_counts = {key: count_list(net.get(key)) for key in fields}
+    network_counts["sorted_keys"] = (
+        sorted(net.get("sorted", {}).keys())
+        if isinstance(net.get("sorted"), dict)
+        else []
+    )
+
+    pcaps = []
+    for p in (task_dir / "dump.pcap", task_dir / "dump_sorted.pcap", task_dir / "dump_mixed.pcap"):
+        if p.is_file():
+            pcaps.append(pcap_metadata(p))
+
+    log_matches = []
+    rx = re.compile(
+        r"(?i)(sniffer|pcap|network|process[_ -]?map|network[_ -]?map|route|rooter|"
+        r"inetsim|suricata|exception|traceback)"
+    )
+    for name in ("analysis.log", "cuckoo.log"):
+        p = task_dir / name
+        if p.is_file():
+            for line in p.read_text(errors="replace").splitlines():
+                if rx.search(line):
+                    log_matches.append(line)
+    log_matches = log_matches[-300:]
+
+    out.update(
+        {
+            "report_path": str(report_path) if report_path else "",
+            "report_size_bytes": report_path.stat().st_size if report_path else 0,
+            "route": str(info.get("route") or "").strip().lower(),
+            "category": str(info.get("category") or ""),
+            "report_top_level_keys": sorted(report.keys()),
+            "behavior_keys": sorted(behavior.keys()),
+            "behavior_network_map": behavior.get("network_map") or {},
+            "processtree_pid_count": len(process_tree_pids(behavior.get("processtree"))),
+            "processtree_pids": process_tree_pids(behavior.get("processtree"))[:200],
+            "network_counts": network_counts,
+            "network_event_count": sum(v for k, v in network_counts.items() if isinstance(v, int)),
+            "network_autodeploy_task": task_meta,
+            "suricata_counts": {
+                k: count_list(suricata.get(k))
+                for k in ("alerts", "dns", "http", "tls", "ssh", "files")
+            },
+            "pcaps": pcaps,
+            "log_matches": log_matches,
+        }
+    )
+    return out
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--cape-root")
+    ap.add_argument("--tasks", help="comma-separated task IDs; defaults to newest 12")
+    ap.add_argument("--output-dir", default="/tmp")
+    args = ap.parse_args()
+
+    if os.geteuid() != 0:
+        raise SystemExit("Run with sudo.")
+
+    cape_root = discover_cape_root(args.cape_root)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    out_dir = Path(args.output_dir) / ("cape-inetsim-network-diagnostics-" + ts)
+    archive = Path(str(out_dir) + ".tar.gz")
+    out_dir.mkdir(parents=True, exist_ok=False)
+
+    (out_dir / "tasks").mkdir()
+    (out_dir / "cape").mkdir()
+    (out_dir / "network").mkdir()
+    (out_dir / "libvirt").mkdir()
+
+    (out_dir / "README.txt").write_text(
+        "collector=CAPE-INetSim-AutoDeploy network diagnostics\n"
+        "time=" + datetime.now(timezone.utc).isoformat() + "\n"
+        "cape_root=" + str(cape_root) + "\n",
+        encoding="utf-8",
+    )
+
+    for rel, cmd, timeout in (
+        ("network/ip_addr.txt", "ip -details -br addr", 20),
+        ("network/ip_route.txt", "ip -4 route show table all", 20),
+        ("network/ip_rule.txt", "ip -4 rule show", 20),
+        ("network/links.txt", "ip -details link show; bridge -details link show", 20),
+        ("network/nft.txt", "nft -a list ruleset", 20),
+        ("network/iptables.txt", "iptables-save; echo '--- legacy ---'; iptables-legacy-save", 20),
+        ("network/listeners.txt", "ss -lntup", 20),
+        ("network/capeisim_stats.txt", "ip -s link show capeisim0", 20),
+        ("network/virbr0_stats.txt", "ip -s link show virbr0", 20),
+        ("libvirt/domains.txt", "virsh -c qemu:///system list --all", 20),
+        ("libvirt/networks.txt", "virsh -c qemu:///system net-list --all", 20),
+        ("libvirt/inetsim.xml.txt", "virsh -c qemu:///system net-dumpxml cape-inetsim-isolated", 20),
+        ("libvirt/default.xml.txt", "virsh -c qemu:///system net-dumpxml default", 20),
+    ):
+        write_result(out_dir, rel, run(cmd, timeout))
+
+    for svc in ("cape", "cape-web", "cape-processor", "cape-rooter", "suricata"):
+        write_result(
+            out_dir,
+            "cape/service-" + svc + ".txt",
+            run("systemctl show " + svc + " -p MainPID -p User -p Group -p WorkingDirectory -p ExecStart -p ActiveState -p SubState"),
+        )
+        write_result(
+            out_dir,
+            "cape/journal-" + svc + ".txt",
+            run("journalctl -u " + svc + " -n 350 --no-pager"),
+        )
+
+    relevant = [
+        "modules/processing/network.py",
+        "modules/processing/autodeploy_task_network.py",
+        "lib/cuckoo/core/analysis_manager.py",
+        "lib/cuckoo/core/startup.py",
+        "modules/auxiliary/sniffer.py",
+        "utils/rooter.py",
+    ]
+    with (out_dir / "cape/patches.txt").open("w", encoding="utf-8") as fh:
+        for rel in relevant:
+            p = cape_root / rel
+            if not p.is_file():
+                continue
+            fh.write("===== " + rel + " =====\n")
+            fh.write("SHA256 " + hashlib.sha256(p.read_bytes()).hexdigest() + "\n")
+            text = p.read_text(errors="replace")
+            for line_no, line in enumerate(text.splitlines(), 1):
+                if re.search(
+                    r"CAPE_INETSIM_AUTODEPLOY|process_map|network_map|enable_nat|disable_nat|"
+                    r"self\\.results|behavior_result|autodeploy_route_policy",
+                    line,
+                ):
+                    fh.write(str(line_no) + ": " + line + "\n")
+            fh.write("\n")
+
+    for rel in ("conf/routing.conf", "conf/processing.conf", "conf/auxiliary.conf", "conf/kvm.conf"):
+        p = cape_root / rel
+        if not p.is_file():
+            continue
+        (out_dir / "cape" / (Path(rel).name + ".txt")).write_text(
+            p.read_text(errors="replace"),
+            encoding="utf-8",
+            errors="replace",
+        )
+
+    task_ids = []
+    if args.tasks:
+        task_ids = [x.strip() for x in args.tasks.split(",") if x.strip().isdigit()]
+    else:
+        task_ids = sorted(
+            [p.name for p in (cape_root / "storage" / "analyses").iterdir() if p.is_dir() and p.name.isdigit()],
+            key=int,
+        )[-12:]
+
+    task_summary = {
+        "schema": 1,
+        "task_ids": [int(x) for x in task_ids],
+        "tasks": [summarize_task(cape_root, x) for x in task_ids],
+        "note": "Only metadata/counts/hashes/log excerpts are collected; report bodies, binaries, and packet payloads are not copied.",
+    }
+    (out_dir / "tasks/summary.json").write_text(json.dumps(task_summary, indent=2) + "\n", encoding="utf-8")
+
+    # Include AutoDeploy status and verification.
+    for name in ("cape-inetsim-status", "cape-inetsim-verify"):
+        p = Path("/usr/local/bin") / name
+        candidates = [p, Path("/var/lib/cape-inetsim-autodeploy") / name, Path(".") / "bin" / name]
+        for candidate in candidates:
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                write_result(out_dir, "cape/" + name + ".txt", run(str(candidate)))
+                break
+
+    for root_path, dirs, files in os.walk(out_dir):
+        dirs[:] = [d for d in dirs if d not in {".git"}]
+        for file_name in files:
+            path = Path(root_path) / file_name
+            if path.name.endswith(".tar.gz") or path == archive:
+                continue
+
+    checksums = []
+    for p in sorted(out_dir.rglob("*")):
+        if p.is_file():
+            checksums.append(hashlib.sha256(p.read_bytes()).hexdigest() + "  " + str(p.relative_to(out_dir)))
+    (out_dir / "SHA256SUMS").write_text("\n".join(checksums) + "\n", encoding="utf-8")
+
+    with tarfile.open(archive, "w:gz") as tf:
+        tf.add(out_dir, arcname=out_dir.name)
+
+    print("READ-ONLY NETWORK DIAGNOSTICS COMPLETE")
+    print("CAPE_ROOT=" + str(cape_root))
+    print("TASKS=" + ",".join(task_ids))
+    print("ARCHIVE=" + str(archive))
+    print("SHA256=" + hashlib.sha256(archive.read_bytes()).hexdigest())
+    print("No CAPE/libvirt/Windows/network configuration was changed.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
