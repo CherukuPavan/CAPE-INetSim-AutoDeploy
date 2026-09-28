@@ -73,8 +73,12 @@ EOF
     local bridge ip domain
     while IFS='|' read -r bridge ip domain; do
       [[ -n "$bridge" && -n "$ip" ]] || continue
-      printf '    iifname "%s" ip saddr %s oifname "%s" ip daddr %s accept\n' \
-        "$bridge" "$ip" "$isolated_bridge" "$INETSIM_IP"
+      # Do not require the bridge itself as the FORWARD input device.
+      # Linux libvirt may expose the guest ingress as vnetX at this hook;
+      # the deployed clean-traffic nwfilter and source-IP match provide the
+      # anti-spoof boundary independently.
+      printf '    ip saddr %s oifname "%s" ip daddr %s accept\n' \
+        "$ip" "$isolated_bridge" "$INETSIM_IP"
       printf '    iifname "%s" ip saddr %s oifname "%s" ip daddr %s ct state established,related accept\n' \
         "$isolated_bridge" "$INETSIM_IP" "$bridge" "$ip"
     done <<<"$clients"
