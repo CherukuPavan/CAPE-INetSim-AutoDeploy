@@ -34,6 +34,50 @@ def patch_rooter(path: Path) -> None:
     if s.count(MARKER_ROOTER):
         if s.count(MARKER_ROOTER) != 1:
             raise RuntimeError("RC66 rooter route marker is ambiguous")
+
+        # Migrate only the known earlier V4 route-policy shape. Unknown V4
+        # implementations fail closed rather than being silently overwritten.
+        legacy_reset = (
+            '    while True:\n'
+            '        _, err = run_iptables("-D", "CAPE_REJECTED_SEGMENTS", "-j", chain)\n'
+            '        if err:\n'
+            '            break\n'
+        )
+        canonical_reset = (
+            '    # Remove a jump left by any RC66 route-policy revision from both possible\n'
+            '    # parent chains before recreating the task policy.\n'
+            '    for parent in ("FORWARD", "CAPE_REJECTED_SEGMENTS"):\n'
+            '        while True:\n'
+            '            _, err = run_iptables("-D", parent, "-j", chain)\n'
+            '            if err:\n'
+            '                break\n'
+        )
+        if legacy_reset in s:
+            s = s.replace(legacy_reset, canonical_reset, 1)
+
+        legacy_insert = (
+            '    # CAPE_REJECTED_SEGMENTS is traversed before CAPE_ACCEPTED_SEGMENTS, so the\n'
+            '    # per-task policy is enforced before any broad forwarding allow rule.\n'
+            '    _autodeploy_checked_rule(\n'
+            '        "-I", "CAPE_REJECTED_SEGMENTS", "1",\n'
+            '        "-j", chain,\n'
+            '    )\n'
+        )
+        canonical_insert = (
+            '    # Enforce the per-task decision at the top of FORWARD. CAPE native\'s\n'
+            '    # ESTABLISHED/RELATED acceptance must not bypass the task policy.\n'
+            '    _autodeploy_checked_rule(\n'
+            '        "-I", "FORWARD", "1",\n'
+            '        "-j", chain,\n'
+            '    )\n'
+        )
+        if legacy_insert in s:
+            s = s.replace(legacy_insert, canonical_insert, 1)
+
+        if ("for parent in (\"FORWARD\", \"CAPE_REJECTED_SEGMENTS\")" not in s or
+                '        "-I", "FORWARD", "1",' not in s):
+            raise RuntimeError("existing V4 rooter route policy has an unknown shape; refusing upgrade")
+        write(path, s)
         return
 
     anchor = "def drop_enable(ipaddr, resultserver_port):\n"
@@ -50,13 +94,13 @@ def autodeploy_route_policy_reset(ipaddr):
     """Remove only the RC66 per-source policy chain and its jump."""
     chain = _autodeploy_policy_chain(ipaddr)
 
-    # CAPE's cleanup_rooter() reconstructs the two native CAPE forwarding chains
-    # on restart, which removes this per-task jump; the private CAPEAD chain itself
-    # is then safely recreated/reset by the next task.
-    while True:
-        _, err = run_iptables("-D", "CAPE_REJECTED_SEGMENTS", "-j", chain)
-        if err:
-            break
+    # Remove a jump left by any RC66 route-policy revision from both possible
+    # parent chains before recreating the task policy.
+    for parent in ("FORWARD", "CAPE_REJECTED_SEGMENTS"):
+        while True:
+            _, err = run_iptables("-D", parent, "-j", chain)
+            if err:
+                break
 
     # Chain-management operations must not receive rule-match/comment arguments.
     run(ServicePaths.iptables, "-F", chain)
@@ -108,10 +152,10 @@ def autodeploy_route_policy_set(ipaddr, ingress_interface="", allowed_interface=
     rule_pos += ["-j", "DROP"]
     _autodeploy_checked_rule(*rule_pos)
 
-    # CAPE_REJECTED_SEGMENTS is traversed before CAPE_ACCEPTED_SEGMENTS, so the
-    # per-task policy is enforced before any broad forwarding allow rule.
+    # Enforce the per-task decision at the top of FORWARD. CAPE native's
+    # ESTABLISHED/RELATED acceptance must not bypass the task policy.
     _autodeploy_checked_rule(
-        "-I", "CAPE_REJECTED_SEGMENTS", "1",
+        "-I", "FORWARD", "1",
         "-j", chain,
     )
 
