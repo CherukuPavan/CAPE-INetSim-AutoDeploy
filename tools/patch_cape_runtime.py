@@ -42,7 +42,7 @@ def patch_rooter(path: Path) -> None:
         # FORWARD hook, so retain the source/effective-egress policy but migrate
         # the known old function body to the tap-safe form.
         policy_start = s.find("def autodeploy_route_policy_set(")
-        policy_marker = "\\n\\n# CAPE_INETSIM_AUTODEPLOY_ROUTE_V4"
+        policy_marker = "\n\n# CAPE_INETSIM_AUTODEPLOY_ROUTE_V4"
         policy_end = s.find(policy_marker, policy_start) if policy_start >= 0 else -1
         if policy_start < 0 or policy_end < 0:
             raise RuntimeError("existing V4 rooter route policy function is missing")
