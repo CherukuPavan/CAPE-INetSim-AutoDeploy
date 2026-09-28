@@ -34,7 +34,7 @@ validate_release_provenance() {
 validate_recovery_assets() {
   local rel backup failures=0
   if state_has_owned_kind cape-file; then
-    for rel in modules/auxiliary/sniffer.py conf/auxiliary.conf conf/kvm.conf conf/processing.conf conf/routing.conf utils/rooter.py lib/cuckoo/core/analysis_manager.py modules/processing/network.py modules/processing/autodeploy_task_network.py web/templates/submission/index.html; do
+    for rel in modules/auxiliary/sniffer.py conf/auxiliary.conf conf/kvm.conf conf/processing.conf conf/routing.conf utils/rooter.py lib/cuckoo/core/analysis_manager.py modules/processing/network.py modules/processing/autodeploy_task_network.py web/templates/submission/index.html web/templates/analysis/network/index.html; do
       # These long-standing CAPE integration files remain mandatory for any
     # deployment that owns CAPE-file mutations, including older releases.
     for rel in modules/auxiliary/sniffer.py conf/auxiliary.conf conf/kvm.conf conf/processing.conf conf/routing.conf; do
@@ -261,6 +261,7 @@ PY
   grep -Fq 'CAPE_INETSIM_AUTODEPLOY_ROUTE_V3' "$CAPE_ROOT/lib/cuckoo/core/analysis_manager.py"
   grep -Fq 'CAPE_INETSIM_AUTODEPLOY_TASK_NETWORK_V2' "$CAPE_ROOT/modules/processing/network.py"
   grep -Fq 'CAPE_INETSIM_AUTODEPLOY_ROUTE_UI_V2' "$CAPE_ROOT/web/templates/submission/index.html"
+  grep -Fq 'CAPE_INETSIM_AUTODEPLOY_NETWORK_UI_V1' "$CAPE_ROOT/web/templates/analysis/network/index.html"
 
   if virsh domiflist "$DOMAIN" 2>/dev/null | grep -Fq "$ISOLATED_NETWORK_NAME"; then
     fail "Windows analysis VM has a persistent AutoDeploy isolated NIC; RC66 requires host-side per-task routing"

@@ -25,7 +25,7 @@ check_cape_layout() {
   COMPAT_STATUS="blocked"; COMPAT_NOTES=()
   [[ -n "${CAPE_ROOT:-}" ]] || return 0
   local f missing=()
-  for f in conf/kvm.conf conf/auxiliary.conf conf/processing.conf modules/auxiliary/sniffer.py web/analysis/views.py lib/cuckoo/core/startup.py; do [[ -e "$CAPE_ROOT/$f" ]] || missing+=("$f"); done
+  for f in conf/kvm.conf conf/auxiliary.conf conf/processing.conf modules/auxiliary/sniffer.py web/analysis/views.py web/templates/analysis/network/index.html lib/cuckoo/core/startup.py; do [[ -e "$CAPE_ROOT/$f" ]] || missing+=("$f"); done
   if ((${#missing[@]})); then add_note "missing:${missing[*]}"; return 0; fi
 
   local config_layout

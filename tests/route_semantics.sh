@@ -13,7 +13,7 @@ grep -Fq 'CAPE_INETSIM_AUTODEPLOY_TASK_NETWORK_V2' "$ROOT/tools/patch_cape_runti
 # Build a minimal CAPEv2-compatible fixture from the exact patch anchors and
 # exercise the same patcher twice. The second pass proves marker/idempotency
 # protection without modifying a real CAPE tree.
-mkdir -p "$TMP/cape/lib/cuckoo/core" "$TMP/cape/utils" "$TMP/cape/modules/processing" "$TMP/cape/web/templates/submission"
+mkdir -p "$TMP/cape/lib/cuckoo/core" "$TMP/cape/utils" "$TMP/cape/modules/processing" "$TMP/cape/web/templates/submission" "$TMP/cape/web/templates/analysis/network"
 cat >"$TMP/cape/lib/cuckoo/core/startup.py" <<'PY'
 def init_routing():
     if routing.inetsim.enabled and routing.inetsim.interface and not _skip_rooter:
@@ -107,6 +107,11 @@ class NetworkAnalysis:
         return results
 PY
 
+cat >"$TMP/cape/web/templates/analysis/network/index.html" <<'EOF'
+    <ul class="nav nav-pills nav-fill bg-dark rounded shadow-sm p-1 mb-3" id="networkTabs" role="tablist">
+    </ul>
+EOF
+
 cat >"$TMP/cape/web/templates/submission/index.html" <<'EOF'
                                         {% if inetsim %}
                                         <option value="inetsim">inetsim/fakenet-ng</option>
@@ -129,6 +134,7 @@ checks={
     "utils/rooter.py":"CAPE_INETSIM_AUTODEPLOY_ROUTE_V4",
     "lib/cuckoo/core/analysis_manager.py":"CAPE_INETSIM_AUTODEPLOY_ROUTE_V4",
     "modules/processing/network.py":"CAPE_INETSIM_AUTODEPLOY_TASK_NETWORK_V2",
+    "web/templates/analysis/network/index.html":"CAPE_INETSIM_AUTODEPLOY_NETWORK_UI_V1",
     "web/templates/submission/index.html":"CAPE_INETSIM_AUTODEPLOY_ROUTE_UI_V2",
     "lib/cuckoo/core/startup.py":"CAPE_INETSIM_AUTODEPLOY_INETSIM_NO_NAT_V1",
 }

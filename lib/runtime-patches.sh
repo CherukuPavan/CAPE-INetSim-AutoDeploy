@@ -7,6 +7,7 @@ cape_runtime_patch_files() {
     modules/processing/network.py \
     modules/processing/autodeploy_task_network.py \
     web/templates/submission/index.html \
+    web/templates/analysis/network/index.html \
     lib/cuckoo/core/startup.py
 }
 
@@ -47,6 +48,7 @@ cape_runtime_patch_apply() {
   grep -Fq 'CAPE_INETSIM_AUTODEPLOY_ROUTE_V4' "$CAPE_ROOT/utils/rooter.py"
   grep -Fq 'CAPE_INETSIM_AUTODEPLOY_TASK_NETWORK_V2' "$CAPE_ROOT/modules/processing/network.py"
   grep -Fq 'CAPE_INETSIM_AUTODEPLOY_ROUTE_UI_V2' "$CAPE_ROOT/web/templates/submission/index.html"
+  grep -Fq 'CAPE_INETSIM_AUTODEPLOY_NETWORK_UI_V1' "$CAPE_ROOT/web/templates/analysis/network/index.html"
   grep -Fq 'CAPE_INETSIM_AUTODEPLOY_INETSIM_NO_NAT_V1' "$CAPE_ROOT/lib/cuckoo/core/startup.py"
 
   state_record_resource cape-file "$CAPE_ROOT/utils/rooter.py" modified yes "per-task-route-policy"
@@ -54,6 +56,7 @@ cape_runtime_patch_apply() {
   state_record_resource cape-file "$CAPE_ROOT/modules/processing/network.py" modified yes "task-attributed-network-view"
   state_record_resource cape-file "$CAPE_ROOT/modules/processing/autodeploy_task_network.py" modified yes "task-network-filter"
   state_record_resource cape-file "$CAPE_ROOT/web/templates/submission/index.html" modified yes "route-semantics-ui"
+  state_record_resource cape-file "$CAPE_ROOT/web/templates/analysis/network/index.html" modified yes "network-analysis-evidence-ui"
   state_record_resource cape-file "$CAPE_ROOT/lib/cuckoo/core/startup.py" modified yes "inetsim-no-nat"
 }
 

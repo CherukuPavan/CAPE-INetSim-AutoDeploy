@@ -68,8 +68,17 @@ def _event_count(network: Dict[str, Any]) -> int:
     return total
 
 
+def _event_breakdown(network: Dict[str, Any]) -> Dict[str, int]:
+    return {
+        key: len(network.get(key) or [])
+        for key in sorted(NETWORK_EVENT_LISTS)
+        if isinstance(network.get(key), list)
+    }
+
+
 def _empty_network_view(network: Dict[str, Any], mode: str) -> Dict[str, Any]:
     before = _event_count(network)
+    source_counts = _event_breakdown(network)
 
     for key in NETWORK_EVENT_LISTS:
         if isinstance(network.get(key), list):
@@ -87,8 +96,11 @@ def _empty_network_view(network: Dict[str, Any], mode: str) -> Dict[str, Any]:
         "raw_pcap_preserved": True,
         "root_pid": None,
         "tracked_pids": 0,
+        "source_event_count": before,
+        "source_event_counts": source_counts,
         "suppressed_events": before,
         "kept_events": 0,
+        "attribution_status": "suppressed-by-route" if mode == "strict-no-network" else "no-process-tree",
     }
     return network
 
@@ -187,14 +199,18 @@ def filter_network_to_task_process_tree(
     root = roots[0] if roots and isinstance(roots[0], dict) else None
 
     before = _event_count(network)
+    source_counts = _event_breakdown(network)
     metadata = {
         "enabled": True,
         "mode": "primary-process-tree",
         "raw_pcap_preserved": True,
         "root_pid": _as_pid(root.get("pid")) if root else None,
         "tracked_pids": 0,
+        "source_event_count": before,
+        "source_event_counts": source_counts,
         "suppressed_events": 0,
         "kept_events": 0,
+        "attribution_status": "process-attributed",
     }
 
     if root is None:
@@ -233,6 +249,12 @@ def filter_network_to_task_process_tree(
     after = _event_count(network)
     metadata["kept_events"] = after
     metadata["suppressed_events"] = max(metadata["suppressed_events"], before - after)
+    if after == 0 and before > 0:
+        metadata["attribution_status"] = "no-network-events-attributed"
+    elif after > 0:
+        metadata["attribution_status"] = "process-attributed"
+    else:
+        metadata["attribution_status"] = "no-network-events"
 
     network["autodeploy_task_network"] = metadata
     return network

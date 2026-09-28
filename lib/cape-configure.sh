@@ -14,6 +14,7 @@ cape_post_sha_for_rel() {
     modules/processing/network.py) printf '%s\n' "${CAPE_POST_SHA_NETWORK_PROCESSING:-}" ;;
     modules/processing/autodeploy_task_network.py) printf '%s\n' "${CAPE_POST_SHA_TASK_NETWORK_HELPER:-}" ;;
     web/templates/submission/index.html) printf '%s\n' "${CAPE_POST_SHA_SUBMISSION_TEMPLATE:-}" ;;
+    web/templates/analysis/network/index.html) printf '%s\n' "${CAPE_POST_SHA_NETWORK_TEMPLATE:-}" ;;
     *) return 1 ;;
   esac
 }
@@ -29,6 +30,7 @@ cape_capture_post_hashes() {
   CAPE_POST_SHA_NETWORK_PROCESSING="$(sha256sum "$CAPE_ROOT/modules/processing/network.py" | awk '{print $1}')"
   CAPE_POST_SHA_TASK_NETWORK_HELPER="$(sha256sum "$CAPE_ROOT/modules/processing/autodeploy_task_network.py" | awk '{print $1}')"
   CAPE_POST_SHA_SUBMISSION_TEMPLATE="$(sha256sum "$CAPE_ROOT/web/templates/submission/index.html" | awk '{print $1}')"
+  CAPE_POST_SHA_NETWORK_TEMPLATE="$(sha256sum "$CAPE_ROOT/web/templates/analysis/network/index.html" | awk '{print $1}')"
   state_write_atomic
 }
 
@@ -36,7 +38,7 @@ cape_assert_owned_files_unchanged() {
   local rel expected current failures=0
   for rel in modules/auxiliary/sniffer.py conf/auxiliary.conf conf/kvm.conf conf/processing.conf conf/routing.conf \
 utils/rooter.py lib/cuckoo/core/analysis_manager.py modules/processing/network.py \
-modules/processing/autodeploy_task_network.py web/templates/submission/index.html; do
+modules/processing/autodeploy_task_network.py web/templates/submission/index.html web/templates/analysis/network/index.html; do
     expected="$(cape_post_sha_for_rel "$rel" 2>/dev/null || true)"
     [[ -n "$expected" ]] || continue
     current="$(sha256sum "$CAPE_ROOT/$rel" 2>/dev/null | awk '{print $1}' || true)"
