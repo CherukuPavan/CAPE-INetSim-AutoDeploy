@@ -250,6 +250,23 @@ PY
   fi
   grep -Fq '"autodeploy_route_policy_set": autodeploy_route_policy_set' "$CAPE_ROOT/utils/rooter.py"
   grep -Fq '"autodeploy_route_policy_reset": autodeploy_route_policy_reset' "$CAPE_ROOT/utils/rooter.py"
+  # The per-task allowlist must not depend on the bridge name appearing as
+  # the L3 FORWARD input device; libvirt can present the tap port instead.
+  local route_policy_block
+  route_policy_block="$(python3 - "$CAPE_ROOT/utils/rooter.py" <<'PY'
+from pathlib import Path
+import sys
+s=Path(sys.argv[1]).read_text(encoding="utf-8")
+a=s.index("def autodeploy_route_policy_set(")
+b=s.index("\n\n# CAPE_INETSIM_AUTODEPLOY_ROUTE_V4", a)
+print(s[a:b])
+PY
+)"
+  if grep -Fq 'if ingress_interface:' <<<"$route_policy_block"; then
+    fail "Installed RC66 route policy still pins FORWARD ingress to the libvirt bridge"
+    return 1
+  fi
+  grep -Fq '"--destination", "0.0.0.0/0"' <<<"$route_policy_block"
   grep -Fq 'CAPE_INETSIM_AUTODEPLOY_ROUTE_V4' "$CAPE_ROOT/lib/cuckoo/core/analysis_manager.py"
   grep -Fq 'CAPE_INETSIM_AUTODEPLOY_TASK_NETWORK_V2' "$CAPE_ROOT/modules/processing/network.py"
   grep -Fq 'CAPE_INETSIM_AUTODEPLOY_ROUTE_UI_V2' "$CAPE_ROOT/web/templates/submission/index.html"
