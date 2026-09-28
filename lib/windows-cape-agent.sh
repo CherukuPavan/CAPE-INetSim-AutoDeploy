@@ -8,7 +8,7 @@ cape_agent_url() { printf 'http://%s:%s' "$1" "$CAPE_AGENT_PORT"; }
 cape_agent_probe() {
   local ip="$1" body
   body="$(curl -fsS --max-time "$CAPE_AGENT_TIMEOUT" "$(cape_agent_url "$ip")/" 2>/dev/null)" || return 1
-  python3 - "$body" <<'PY'
+  ad_python - "$body" <<'PY'
 import json,sys
 try: d=json.loads(sys.argv[1])
 except Exception: raise SystemExit(1)
@@ -68,7 +68,7 @@ windows_configure_via_cape_agent() {
   cape_agent_execute "$guest_ip" "$command" >"$AD_LOG_ROOT/${DEPLOYMENT_ID}-cape-agent-execute.json"
   cape_agent_retrieve "$guest_ip" "$remote_result" "$local_result"
 
-  python3 - "$local_result" <<'PY'
+  ad_python - "$local_result" <<'PY'
 import json,sys
 with open(sys.argv[1]) as f: d=json.load(f)
 if not d.get('ok'):
@@ -96,7 +96,7 @@ windows_verify_via_cape_agent() {
   printf -v command 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%s" -ManagementIP "%s" -IsolatedMac "%s" -FakeIP "%s" -DnsIP "%s" -ResultServerIP "%s" -ResultServerPort %s -ResultPath "%s"'     "$remote_ps" "$guest_ip" "$isolated_mac" "$fake_ip" "$dns_ip" "$result_ip" "$result_port" "$remote_result"
   cape_agent_execute "$guest_ip" "$command" >"$AD_LOG_ROOT/${DEPLOYMENT_ID}-cape-agent-verify-execute.json"
   cape_agent_retrieve "$guest_ip" "$remote_result" "$local_result"
-  python3 - "$local_result" <<'PY'
+  ad_python - "$local_result" <<'PY'
 import json,sys
 with open(sys.argv[1],encoding="utf-8-sig") as f: d=json.load(f)
 if not d.get("ok"):

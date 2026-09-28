@@ -5,7 +5,7 @@ DEPLOY_WAIT_SECONDS="${DEPLOY_WAIT_SECONDS:-3600}"
 deploy_required_commands() {
   local -a missing=()
   local cmd
-  for cmd in python3 virsh qemu-img virt-install curl flock ip systemctl tar sha256sum base64 timeout; do
+  for cmd in virsh qemu-img virt-install curl flock ip systemctl tar sha256sum base64 timeout; do
     have "$cmd" || missing+=("$cmd")
   done
   if ((${#missing[@]})); then
@@ -37,8 +37,16 @@ deploy_assert_supported_environment() {
     fail "CAPE ResultServer path could not be derived"
     return 1
   }
-  systemctl is-active --quiet cape.service || {
-    fail "cape.service must be active before deployment so ResultServer/guest-control safety can be validated"
+  [[ -n "${CAPE_SCHEDULER_SERVICE:-}" ]] || {
+    fail "CAPE scheduler service could not be discovered"
+    return 1
+  }
+  systemctl is-active --quiet "$CAPE_SCHEDULER_SERVICE" || {
+    fail "CAPE scheduler service must be active before deployment: $CAPE_SCHEDULER_SERVICE"
+    return 1
+  }
+  [[ -n "${CAPE_PYTHON:-}" && -x "$CAPE_PYTHON" ]] || {
+    fail "Validated CAPE Python interpreter was not discovered"
     return 1
   }
   deploy_required_commands
@@ -153,6 +161,7 @@ deploy_windows_cutover() {
 }
 
 deploy_cape_cutover() {
+  validate_rooter_ready
   cape_configure_inetsim
   extension_install
   validate_deployment_structural
@@ -186,7 +195,28 @@ deploy_handle_signal() {
 deploy_run() {
   require_root
   transaction_lock_acquire
+  export CAPE_INETSIM_LOCK_HELD=1
   run_discovery
+  inventory_write
+  deployment_decision_engine
+
+  case "${DEPLOYMENT_DECISION:-fresh}" in
+    existing-valid)
+      pass "Existing AutoDeploy installation is healthy; no changes required"
+      return 0
+      ;;
+    existing-repaired)
+      pass "Existing AutoDeploy installation was repaired/upgraded successfully"
+      return 0
+      ;;
+    recovered-for-redeploy)
+      # Rollback can restore CAPE/libvirt state, so rediscover everything before
+      # choosing fresh resource names, routes, snapshots or interpreters.
+      run_discovery
+      inventory_write
+      ;;
+  esac
+
   deploy_assert_supported_environment
   deploy_initialize_or_resume_state
 

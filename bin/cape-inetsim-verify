@@ -7,6 +7,10 @@ export AUTODEPLOY_ROOT
 
 source "$ROOT/lib/common.sh"
 source "$ROOT/lib/state.sh"
+source "$ROOT/lib/runtime.sh"
+source "$ROOT/lib/cape.sh"
+source "$ROOT/lib/rooter.sh"
+source "$ROOT/lib/qga.sh"
 source "$ROOT/lib/isolated-network.sh"
 source "$ROOT/lib/inetsim-vm.sh"
 source "$ROOT/lib/services.sh"
@@ -14,6 +18,11 @@ source "$ROOT/lib/validate.sh"
 
 require_root
 state_load || { fail "No deployment state exists"; exit 1; }
+discover_host_python
+discover_cape_service_roles
+discover_cape_python
+discover_rooter_socket
+validate_rooter_ready
 validate_deployment_structural
 validate_deployment_services
 pass "Deployment verification passed"

@@ -1,21 +1,19 @@
 #!/usr/bin/env bash
 
 cape_runtime_python() {
-  local svc pid exe
-  for svc in cape cape-processor cape-web; do
-    pid="$(systemctl show "$svc" -p MainPID --value 2>/dev/null || true)"
-    if [[ "$pid" =~ ^[0-9]+$ && "$pid" -gt 0 ]]; then
-      exe="$(readlink -f "/proc/$pid/exe" 2>/dev/null || true)"
-      if [[ -x "$exe" ]]; then printf '%s\n' "$exe"; return 0; fi
-    fi
-  done
-  command -v python3
+  if [[ -n "${CAPE_PYTHON:-}" && -x "$CAPE_PYTHON" ]]; then
+    printf '%s\n' "$CAPE_PYTHON"
+    return 0
+  fi
+  discover_cape_python
+  [[ -n "${CAPE_PYTHON:-}" ]] || return 1
+  printf '%s\n' "$CAPE_PYTHON"
 }
 
 patch_sniffer_capture_override() {
   local file="$1"
   if grep -q 'CAPE_INETSIM_AUTODEPLOY_CAPTURE_V1' "$file"; then return 0; fi
-  python3 - "$file" <<'PY'
+  ad_python - "$file" <<'PY'
 import sys
 p=sys.argv[1]
 s=open(p).read()
@@ -47,12 +45,12 @@ cape_configure_inetsim() {
   cape_backup_integration_files
   patch_sniffer_capture_override "$CAPE_ROOT/modules/auxiliary/sniffer.py"
 
-  python3 "$edit" "$CAPE_ROOT/conf/auxiliary.conf" sniffer "capture_host_${CAPE_MACHINE_LABEL}" "$WINDOWS_FAKE_IP"
-  python3 "$edit" "$CAPE_ROOT/conf/kvm.conf" "$CAPE_MACHINE_SECTION" snapshot "$FINAL_SNAPSHOT"
-  python3 "$edit" "$CAPE_ROOT/conf/kvm.conf" "$CAPE_MACHINE_SECTION" interface "$ISOLATED_BRIDGE_NAME"
-  python3 "$edit" "$CAPE_ROOT/conf/processing.conf" network dnswhitelist no
-  python3 "$edit" "$CAPE_ROOT/conf/processing.conf" network ipwhitelist no
-  python3 "$edit" "$CAPE_ROOT/conf/routing.conf" routing route none
+  ad_python "$edit" "$CAPE_ROOT/conf/auxiliary.conf" sniffer "capture_host_${CAPE_MACHINE_LABEL}" "$WINDOWS_FAKE_IP"
+  ad_python "$edit" "$CAPE_ROOT/conf/kvm.conf" "$CAPE_MACHINE_SECTION" snapshot "$FINAL_SNAPSHOT"
+  ad_python "$edit" "$CAPE_ROOT/conf/kvm.conf" "$CAPE_MACHINE_SECTION" interface "$ISOLATED_BRIDGE_NAME"
+  ad_python "$edit" "$CAPE_ROOT/conf/processing.conf" network dnswhitelist no
+  ad_python "$edit" "$CAPE_ROOT/conf/processing.conf" network ipwhitelist no
+  ad_python "$edit" "$CAPE_ROOT/conf/routing.conf" routing route none
 
   local py
   py="$(cape_runtime_python)"

@@ -43,3 +43,5 @@ jobs:
         run: bash tests/maintenance_tool.sh
       - name: Frozen extension constants
         run: bash tests/extension_logic.sh
+      - name: Release/runtime integrity
+        run: bash tests/release_integrity.sh

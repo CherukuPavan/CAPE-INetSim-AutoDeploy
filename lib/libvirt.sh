@@ -56,7 +56,7 @@ discover_domain_details() {
   [[ -n "${DOMAIN:-}" ]] || return 0
   DOMAIN_STATE="$(virsh domstate "$DOMAIN" 2>/dev/null | head -1 | xargs || true)"
   DOMAIN_XML="$(virsh dumpxml "$DOMAIN" 2>/dev/null || true)"
-  read -r DOMAIN_NIC_COUNT DOMAIN_NIC_MODELS < <(python3 -c '
+  read -r DOMAIN_NIC_COUNT DOMAIN_NIC_MODELS < <(ad_python -c '
 import sys,xml.etree.ElementTree as ET
 xml=sys.stdin.read()
 try: root=ET.fromstring(xml)
@@ -78,7 +78,7 @@ discover_management_network() {
   [[ -n "${DOMAIN_XML:-}" && -n "${CAPE_MACHINE_IP:-}" ]] || return 0
 
   local candidates
-  candidates="$(python3 -c '
+  candidates="$(ad_python -c '
 import sys,xml.etree.ElementTree as ET
 root=ET.fromstring(sys.stdin.read())
 for i in root.findall("./devices/interface"):
@@ -94,7 +94,7 @@ for i in root.findall("./devices/interface"):
   local n netxml match
   for n in "${_mgmt_candidates[@]}"; do
     netxml="$(virsh net-dumpxml "$n" 2>/dev/null || true)"
-    match="$(python3 -c '
+    match="$(ad_python -c '
 import ipaddress,sys,xml.etree.ElementTree as ET
 target=ipaddress.ip_address(sys.argv[1])
 try: root=ET.fromstring(sys.stdin.read())

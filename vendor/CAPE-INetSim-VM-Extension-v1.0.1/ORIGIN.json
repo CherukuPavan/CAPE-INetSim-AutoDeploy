@@ -1,0 +1,6 @@
+{
+  "repository": "CherukuPavan/CAPE-INetSim-VM-Extension",
+  "version": "1.0.1",
+  "source_commit": "83183ad43c6f37e11bd7e8782abc5882de029ad1",
+  "purpose": "Exact runtime vendored into CAPE-INetSim-AutoDeploy production releases"
+}

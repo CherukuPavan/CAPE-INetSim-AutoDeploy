@@ -5,13 +5,36 @@ EXTENSION_ARCHIVE="CAPE-INetSim-VM-Extension-v${EXTENSION_VERSION}.tar.gz"
 EXTENSION_SHA256="f3be934f08ad364d5964842d3db9bfea0f11cd40a44b76980855d692d3a34d87"
 EXTENSION_URL="https://github.com/CherukuPavan/CAPE-INetSim-VM-Extension/releases/download/v${EXTENSION_VERSION}/${EXTENSION_ARCHIVE}"
 EXTENSION_ROOT="${EXTENSION_ROOT:-$AD_STATE_ROOT/extension-v${EXTENSION_VERSION}}"
+EXTENSION_VENDOR_ROOT="${EXTENSION_VENDOR_ROOT:-$AUTODEPLOY_ROOT/vendor/CAPE-INetSim-VM-Extension-v${EXTENSION_VERSION}}"
 
 extension_fetch_extract() {
+  if [[ -d "$EXTENSION_VENDOR_ROOT" ]]; then
+    [[ "$(cat "$EXTENSION_VENDOR_ROOT/VERSION" 2>/dev/null || true)" == "$EXTENSION_VERSION" ]] || {
+      fail "Vendored extension VERSION does not match requested $EXTENSION_VERSION"
+      return 1
+    }
+    ad_python - "$EXTENSION_VENDOR_ROOT/ORIGIN.json" "$EXTENSION_VERSION" <<'PY'
+import json,sys
+p,version=sys.argv[1:]
+d=json.load(open(p))
+assert d["repository"]=="CherukuPavan/CAPE-INetSim-VM-Extension"
+assert d["version"]==version
+assert len(d["source_commit"])==40
+PY
+    rm -rf "$EXTENSION_ROOT.new"
+    install -d -m 0700 "$EXTENSION_ROOT.new"
+    cp -a "$EXTENSION_VENDOR_ROOT/." "$EXTENSION_ROOT.new/"
+    rm -f "$EXTENSION_ROOT.new/ORIGIN.json"
+    rm -rf "$EXTENSION_ROOT"
+    mv "$EXTENSION_ROOT.new" "$EXTENSION_ROOT"
+    pass "Using source-pinned vendored INetSim extension v$EXTENSION_VERSION"
+    return 0
+  fi
+
   local cache="$APPLIANCE_CACHE_ROOT/$EXTENSION_ARCHIVE"
   install -d -m 0755 "$APPLIANCE_CACHE_ROOT"
   if [[ ! -f "$cache" || "$(sha256sum "$cache" | awk '{print $1}')" != "$EXTENSION_SHA256" ]]; then
-    rm -f "$cache.part"
-    curl --fail --location --proto '=https' --tlsv1.2 --retry 3 -o "$cache.part" "$EXTENSION_URL"
+    curl --fail --location --proto '=https' --tlsv1.2 --retry 5 --retry-all-errors -o "$cache.part" "$EXTENSION_URL"
     [[ "$(sha256sum "$cache.part" | awk '{print $1}')" == "$EXTENSION_SHA256" ]] || { rm -f "$cache.part"; fail "Extension checksum mismatch"; return 1; }
     mv -f "$cache.part" "$cache"
   fi

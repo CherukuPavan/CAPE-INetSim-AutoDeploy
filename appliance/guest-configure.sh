@@ -70,7 +70,17 @@ systemctl restart inetsim.service
 sleep 2
 
 ip -4 addr show dev "$IFACE" | grep -Fq "$CIDR"
-ss -lntup | grep -Fq "$IP:53"
-ss -lntup | grep -Fq "$IP:80"
+for port in 53 80 443 25 21; do
+  ss -lntupH | grep -Eq "($IP|0\\.0\\.0\\.0|\\[::\\]|\\*):$port([[:space:]]|$)" || {
+    echo "expected INetSim listener missing on port $port" >&2
+    exit 32
+  }
+done
+systemctl is-active --quiet inetsim.service
+systemctl is-active --quiet qemu-guest-agent.service
+systemctl is-active --quiet lightdm.service
+id capeinetsim >/dev/null
+test -f /usr/share/xsessions/xfce.desktop
+command -v spice-vdagent >/dev/null
 
-echo "INETSIM_GUEST_CONFIG_OK iface=$IFACE ip=$CIDR"
+echo "INETSIM_GUEST_CONFIG_OK iface=$IFACE ip=$CIDR services=dns,http,https,smtp,ftp gui=xfce"

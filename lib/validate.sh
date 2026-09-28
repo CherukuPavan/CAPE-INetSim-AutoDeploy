@@ -3,7 +3,7 @@
 validate_windows_result_file() {
   local f="$AD_LOG_ROOT/${DEPLOYMENT_ID}-windows-verify.json"
   [[ -f "$f" ]] || { fail "Windows verification record missing: $f"; return 1; }
-  python3 - "$f" <<'PY'
+  ad_python - "$f" <<'PY'
 import json,sys
 with open(sys.argv[1],encoding="utf-8-sig") as h: d=json.load(h)
 assert d.get("ok") is True
@@ -16,7 +16,7 @@ PY
 validate_final_snapshot_hardware() {
   local xml
   xml="$(virsh snapshot-dumpxml "$DOMAIN" "$FINAL_SNAPSHOT")" || return 1
-  python3 -c '
+  ad_python -c '
 import sys,xml.etree.ElementTree as ET
 net,mac=sys.argv[1],sys.argv[2].lower()
 r=ET.fromstring(sys.stdin.read())
@@ -35,7 +35,7 @@ if not found: raise SystemExit("snapshot does not contain the isolated NIC")
 }
 
 validate_cape_configuration() {
-  python3 - "$CAPE_ROOT" "$CAPE_MACHINE_SECTION" "$CAPE_MACHINE_LABEL" "$FINAL_SNAPSHOT" "$ISOLATED_BRIDGE_NAME" "$WINDOWS_FAKE_IP" <<'PY'
+  ad_python - "$CAPE_ROOT" "$CAPE_MACHINE_SECTION" "$CAPE_MACHINE_LABEL" "$FINAL_SNAPSHOT" "$ISOLATED_BRIDGE_NAME" "$WINDOWS_FAKE_IP" <<'PY'
 import configparser,sys
 root,section,label,snapshot,iface,fake=sys.argv[1:]
 def load(name):

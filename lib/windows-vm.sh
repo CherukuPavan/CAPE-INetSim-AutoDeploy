@@ -2,7 +2,7 @@
 
 windows_existing_network_interfaces() {
   local dom="$1"
-  virsh dumpxml "$dom" | python3 -c '
+  virsh dumpxml "$dom" | ad_python -c '
 import sys,xml.etree.ElementTree as ET
 root=ET.fromstring(sys.stdin.read())
 for i in root.findall("./devices/interface"):
@@ -85,7 +85,7 @@ windows_create_safety_snapshot() {
 
 snapshot_state_memory() {
   local snap="$1"
-  virsh snapshot-dumpxml "$DOMAIN" "$snap" | python3 -c '
+  virsh snapshot-dumpxml "$DOMAIN" "$snap" | ad_python -c '
 import sys,xml.etree.ElementTree as ET
 r=ET.fromstring(sys.stdin.read())
 state=r.findtext("state") or ""

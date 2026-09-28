@@ -2,9 +2,13 @@
 
 run_discovery() {
   DISCOVERY_ERRORS=(); COMPAT_NOTES=(); REQUESTED_MACHINE="${REQUESTED_MACHINE:-}"
+  discover_runtime_environment
   discover_cape_root
+  discover_cape_service_roles
   discover_cape_git
   discover_cape_services
+  discover_cape_python
+  discover_rooter_socket
   discover_cape_machine_records
   discover_libvirt
   auto_select_cape_machine
@@ -35,6 +39,12 @@ print_plan() {
   kv "CAPE root:" "${CAPE_ROOT:-NOT FOUND}"
   kv "CAPE commit:" "${CAPE_COMMIT:-unknown}"
   kv "CAPE branch:" "${CAPE_BRANCH:-unknown}"
+  kv "CAPE Python:" "${CAPE_PYTHON:-unknown}"
+  kv "scheduler service:" "${CAPE_SCHEDULER_SERVICE:-unknown}"
+  kv "processor service:" "${CAPE_PROCESSOR_SERVICE:-unknown}"
+  kv "web service:" "${CAPE_WEB_SERVICE:-unknown}"
+  kv "rooter service:" "${CAPE_ROOTER_SERVICE:-unknown}"
+  kv "rooter socket:" "${CAPE_ROOTER_SOCKET:-unknown}"
   kv "CAPE working tree dirty:" "${CAPE_DIRTY:-unknown}"
   kv "libvirt URI:" "${LIBVIRT_URI:-unknown}"
   kv "CAPE machine section:" "${CAPE_MACHINE_SECTION:-ambiguous}"

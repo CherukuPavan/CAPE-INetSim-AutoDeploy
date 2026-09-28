@@ -17,12 +17,37 @@ resolve_cape_root_from_path() {
 }
 
 cape_service_roots() {
-  local unit wd root
-  for unit in cape.service cape-web.service cape-processor.service cape-rooter.service; do
-    systemctl cat "$unit" >/dev/null 2>&1 || continue
-    wd="$(systemctl show "$unit" -p WorkingDirectory --value 2>/dev/null || true)"
+  local unit wd root exec token
+  while IFS= read -r unit; do
+    [[ -n "$unit" ]] || continue
+    wd="$(service_workdir_text "$unit")"
     root="$(resolve_cape_root_from_path "$wd" 2>/dev/null || true)"
+    if [[ -z "$root" ]]; then
+      exec="$(service_execstart_text "$unit")"
+      for token in $exec; do
+        token="${token#\{}"; token="${token%\}}"; token="${token#\"}"; token="${token%\"}"
+        root="$(resolve_cape_root_from_path "$token" 2>/dev/null || true)"
+        [[ -n "$root" ]] && break
+      done
+    fi
     [[ -n "$root" ]] && printf '%s\n' "$root"
+  done < <(systemd_service_inventory)
+}
+
+cape_process_roots() {
+  local proc cmd token root
+  for proc in /proc/[0-9]*; do
+    [[ -r "$proc/cmdline" ]] || continue
+    cmd="$(tr '\\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
+    [[ "$cmd" =~ (cuckoo\.py|process\.py|rooter\.py|manage\.py|CAPEv2) ]] || continue
+    for token in $cmd; do
+      root="$(resolve_cape_root_from_path "$token" 2>/dev/null || true)"
+      [[ -n "$root" ]] && { printf '%s\n' "$root"; break; }
+    done
+    if [[ -L "$proc/cwd" ]]; then
+      root="$(resolve_cape_root_from_path "$(readlink -f "$proc/cwd" 2>/dev/null || true)" 2>/dev/null || true)"
+      [[ -n "$root" ]] && printf '%s\n' "$root"
+    fi
   done | sort -u
 }
 
@@ -39,7 +64,7 @@ cape_fallback_roots() {
 }
 
 discover_cape_root() {
-  local -a service_roots=() fallback_roots=()
+  local -a service_roots=() process_roots=() fallback_roots=()
   mapfile -t service_roots < <(cape_service_roots)
 
   # The CAPE instance referenced by CAPE systemd units is authoritative.
@@ -54,6 +79,19 @@ discover_cape_root() {
     CAPE_ROOT=""
     CAPE_ROOT_SOURCE="ambiguous-systemd"
     add_error "CAPE services resolve to multiple roots: ${service_roots[*]}"
+    return 0
+  fi
+
+  mapfile -t process_roots < <(cape_process_roots | sed '/^$/d' | sort -u)
+  if ((${#process_roots[@]} == 1)); then
+    CAPE_ROOT="${process_roots[0]}"
+    CAPE_ROOT_SOURCE="running-process"
+    pass "Live CAPE installation discovered from running processes"
+    return 0
+  elif ((${#process_roots[@]} > 1)); then
+    CAPE_ROOT=""
+    CAPE_ROOT_SOURCE="ambiguous-processes"
+    add_error "Running CAPE processes resolve to multiple roots: ${process_roots[*]}"
     return 0
   fi
 
@@ -87,7 +125,8 @@ discover_cape_git() {
 discover_cape_services() {
   CAPE_SERVICES=()
   local s
-  for s in cape cape-web cape-processor cape-rooter; do
+  for s in "${CAPE_SCHEDULER_SERVICE:-}" "${CAPE_PROCESSOR_SERVICE:-}" "${CAPE_WEB_SERVICE:-}" "${CAPE_ROOTER_SERVICE:-}"; do
+    [[ -n "$s" ]] || continue
     if systemctl cat "$s" >/dev/null 2>&1; then
       CAPE_SERVICES+=("$s:$(systemctl is-active "$s" 2>/dev/null || true)")
     fi
@@ -97,7 +136,7 @@ discover_cape_services() {
 discover_cape_machine_records() {
   CAPE_MACHINE_RECORDS=()
   [[ -n "${CAPE_ROOT:-}" ]] || return 0
-  mapfile -t CAPE_MACHINE_RECORDS < <(python3 - "$CAPE_ROOT/conf/kvm.conf" <<'PY'
+  mapfile -t CAPE_MACHINE_RECORDS < <(ad_python - "$CAPE_ROOT/conf/kvm.conf" <<'PY'
 import configparser,json,sys
 p=sys.argv[1]
 cfg=configparser.ConfigParser(interpolation=None, strict=False)
@@ -124,7 +163,7 @@ PY
   if ((${#CAPE_MACHINE_RECORDS[@]} == 0)); then add_error "No enabled CAPE analysis-machine sections were discovered"; fi
 }
 
-record_field(){ python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get(sys.argv[2],""))' "$1" "$2"; }
+record_field(){ ad_python -c 'import json,sys; print(json.loads(sys.argv[1]).get(sys.argv[2],""))' "$1" "$2"; }
 
 select_machine_by_request() {
   local req="$1" rec section label
@@ -155,7 +194,7 @@ discover_resultserver() {
   [[ -n "${CAPE_ROOT:-}" && -n "${CAPE_MACHINE_IP:-}" ]] || return 0
 
   local global_ip global_port route_line
-  read -r global_ip global_port < <(python3 - "$CAPE_ROOT/conf/cuckoo.conf" <<'PY'
+  read -r global_ip global_port < <(ad_python - "$CAPE_ROOT/conf/cuckoo.conf" <<'PY'
 import configparser,sys
 c=configparser.ConfigParser(interpolation=None,strict=False)
 c.read(sys.argv[1])
