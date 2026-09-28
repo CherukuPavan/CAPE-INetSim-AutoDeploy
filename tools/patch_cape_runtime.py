@@ -15,7 +15,7 @@ import shutil
 
 MARKER_ROOTER = "CAPE_INETSIM_AUTODEPLOY_ROUTE_V4"
 MARKER_ANALYSIS = "CAPE_INETSIM_AUTODEPLOY_ROUTE_V4"
-MARKER_NETWORK = "CAPE_INETSIM_AUTODEPLOY_TASK_NETWORK_V2"
+MARKER_NETWORK = "CAPE_INETSIM_AUTODEPLOY_TASK_NETWORK_V3"
 MARKER_SUBMISSION = "CAPE_INETSIM_AUTODEPLOY_ROUTE_UI_V2"
 MARKER_STARTUP = "CAPE_INETSIM_AUTODEPLOY_INETSIM_NO_NAT_V1"
 
@@ -310,9 +310,14 @@ from modules.processing.autodeploy_task_network import filter_network_to_task_pr
         # Keep only network events attributed to the primary analysis process
         # or one of its descendants. Raw dump.pcap is not modified.
         if proc_cfg.network.process_map:
+            # CAPE's processing pipeline passes the complete analysis result
+            # mapping here. The PCAP object itself (self.results) contains only
+            # network data, so reading self.results["behavior"] always produced
+            # an empty behavior tree and silently blanked every non-drop report.
+            behavior_result = results.get("behavior", {}) if isinstance(results, dict) else {}
             results = filter_network_to_task_process_tree(
                 results,
-                self.results.get("behavior", {}) if isinstance(self.results, dict) else {},
+                behavior_result,
                 str(self.task.get("route") or ""),
             )
 
@@ -445,6 +450,11 @@ def main() -> int:
     for rel, marker in checks.items():
         if read(root / rel).count(marker) != 1:
             raise SystemExit(f"RC66 patch marker count is not exactly one: {rel}")
+
+    # The task-network filter must consume the shared analysis result map,
+    # never the Pcap object's network-only self.results container.
+    if 'self.results.get("behavior"' in read(root / "modules/processing/network.py"):
+        raise SystemExit("task-network filter references network-only self.results for behavior")
 
     return 0
 
