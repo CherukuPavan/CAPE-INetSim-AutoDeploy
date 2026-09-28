@@ -283,6 +283,27 @@ def patch_network(path: Path) -> None:
     if s.count(MARKER_NETWORK):
         if s.count(MARKER_NETWORK) != 1:
             raise RuntimeError("RC66 network-processing marker is ambiguous")
+        # RC69 shipped the task-network filter with the wrong behavior context:
+        # it read self.results["behavior"], but self.results is the Pcap network
+        # container. A non-drop report therefore lost its Network Analysis view.
+        legacy_lookup = "\n".join([
+            '            results = filter_network_to_task_process_tree(',
+            '                results,',
+            '                self.results.get("behavior", {}) if isinstance(self.results, dict) else {},',
+            '                str(self.task.get("route") or ""),',
+            '])
+        if legacy_lookup in s:
+            corrected_lookup = "\n".join([
+                '            behavior_result = results.get("behavior", {}) if isinstance(results, dict) else {}',
+                '            results = filter_network_to_task_process_tree(',
+                '                results,',
+                '                behavior_result,',
+                '                str(self.task.get("route") or ""),',
+                '])
+            s = s.replace(legacy_lookup, corrected_lookup, 1)
+            write(path, s)
+        elif 'behavior_result = results.get("behavior", {}) if isinstance(results, dict) else {}' not in s:
+            raise RuntimeError("task-network marker exists but neither legacy nor corrected filter body is recognized")
         return
 
     import_anchor = '''from lib.cuckoo.common.path_utils import path_delete, path_exists, path_mkdir, path_read_file, path_write_file
