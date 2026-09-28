@@ -124,10 +124,12 @@ def autodeploy_route_policy_set(ipaddr, ingress_interface="", allowed_interface=
     run(ServicePaths.iptables, "-F", chain)
 
     if resultserver_ip and resultserver_port:
-        rule_pos = ["-I", chain, "1", "--source", ipaddr]
-        if ingress_interface:
-            rule_pos += ["-i", ingress_interface]
-        rule_pos += [
+        # Match the management source and ResultServer destination, but do not
+        # pin the Linux FORWARD input device. On libvirt bridge networking the
+        # packet may appear as the tap device rather than the bridge name.
+        rule_pos = [
+            "-I", chain, "1",
+            "--source", ipaddr,
             "--destination", resultserver_ip,
             "-p", "tcp",
             "--dport", resultserver_port,
@@ -137,19 +139,24 @@ def autodeploy_route_policy_set(ipaddr, ingress_interface="", allowed_interface=
 
     if allowed_interface:
         pos = "2" if resultserver_ip and resultserver_port else "1"
-        rule_pos = ["-I", chain, pos, "--source", ipaddr]
-        if ingress_interface:
-            rule_pos += ["-i", ingress_interface]
-        rule_pos += ["-o", allowed_interface, "-j", "ACCEPT"]
+        # Match only the source and selected egress device. The ingress
+        # device is intentionally not constrained because libvirt bridge/tap
+        # plumbing can expose the guest frame under vnetX at FORWARD.
+        rule_pos = [
+            "-I", chain, pos,
+            "--source", ipaddr,
+            "--destination", "0.0.0.0/0",
+            "-o", allowed_interface,
+            "-j", "ACCEPT",
+        ]
         _autodeploy_checked_rule(*rule_pos)
         drop_pos = "3" if resultserver_ip and resultserver_port else "2"
     else:
         drop_pos = "2" if resultserver_ip and resultserver_port else "1"
 
-    rule_pos = ["-I", chain, drop_pos, "--source", ipaddr]
-    if ingress_interface:
-        rule_pos += ["-i", ingress_interface]
-    rule_pos += ["-j", "DROP"]
+    # Final source-scoped deny preserves the selected-route allowlist while
+    # avoiding a dependency on the bridge's L3 input-device representation.
+    rule_pos = ["-I", chain, drop_pos, "--source", ipaddr, "-j", "DROP"]
     _autodeploy_checked_rule(*rule_pos)
 
     # Enforce the per-task decision at the top of FORWARD. CAPE native's
