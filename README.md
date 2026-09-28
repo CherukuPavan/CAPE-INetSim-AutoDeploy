@@ -80,7 +80,7 @@ install/bootstrap
 - No SSL43/SSL44/SSL45-specific values belong in product logic.
 - `192.168.200.0/24` is only a preferred candidate; AutoDeploy selects another unused private subnet if it conflicts.
 - The generalized appliance is a separately versioned, checksum-pinned artifact and contains no deployment-specific fake-Internet subnet.
-- CAPE-INetSim-VM-Extension v1.0.1 runtime files are vendored with exact file hashes inside the AutoDeploy source bundle, so a random target host never needs credentials for the separate private extension development repository.
+- CAPE-INetSim-VM-Extension v1.0.2 runtime files are vendored with exact file hashes inside the AutoDeploy source bundle, so a random target host never needs credentials for the separate private extension development repository.
 
 ## Appliance build
 

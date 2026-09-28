@@ -207,6 +207,32 @@ assert any("-i virbr0" in r and "-j DROP" in r for r in rules)
 print("RC66 route-policy allowlist/drop semantics passed")
 PY
 
+
+# Existing RC66 V4 deployments used the same marker but inserted the task chain
+# only into CAPE_REJECTED_SEGMENTS. Verify the patcher migrates that known shape
+# to the canonical top-of-FORWARD policy without accepting an unknown shape.
+LEGACY="$TMP/legacy-cape"
+rm -rf "$LEGACY"
+cp -a "$TMP/cape" "$LEGACY"
+python3 - "$LEGACY/utils/rooter.py" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1])
+s=p.read_text()
+canonical_reset='''    # Remove a jump left by any RC66 route-policy revision from both possible\n    # parent chains before recreating the task policy.\n    for parent in ("FORWARD", "CAPE_REJECTED_SEGMENTS"):\n        while True:\n            _, err = run_iptables("-D", parent, "-j", chain)\n            if err:\n                break\n'''
+legacy_reset='''    while True:\n        _, err = run_iptables("-D", "CAPE_REJECTED_SEGMENTS", "-j", chain)\n        if err:\n            break\n'''
+canonical_insert='''    # Enforce the per-task decision at the top of FORWARD. CAPE native's\n    # ESTABLISHED/RELATED acceptance must not bypass the task policy.\n    _autodeploy_checked_rule(\n        "-I", "FORWARD", "1",\n        "-j", chain,\n    )\n'''
+legacy_insert='''    # CAPE_REJECTED_SEGMENTS is traversed before CAPE_ACCEPTED_SEGMENTS, so the\n    # per-task policy is enforced before any broad forwarding allow rule.\n    _autodeploy_checked_rule(\n        "-I", "CAPE_REJECTED_SEGMENTS", "1",\n        "-j", chain,\n    )\n'''
+assert canonical_reset in s
+assert canonical_insert in s
+s=s.replace(canonical_reset,legacy_reset,1).replace(canonical_insert,legacy_insert,1)
+p.write_text(s)
+PY
+python3 "$ROOT/tools/patch_cape_runtime.py" --root "$LEGACY" --helper-source "$ROOT/tools/task_network_filter.py"
+grep -Fq 'for parent in ("FORWARD", "CAPE_REJECTED_SEGMENTS")' "$LEGACY/utils/rooter.py"
+grep -Fq '"-I", "FORWARD", "1"' "$LEGACY/utils/rooter.py"
+! grep -Fq '"-I", "CAPE_REJECTED_SEGMENTS", "1"' "$LEGACY/utils/rooter.py"
+echo "RC66 legacy V4 route-policy migration test passed"
 echo "RC66 routing/network semantics test suite passed"
 
 # Route=drop/none must suppress all analyst-facing Network Analysis events.

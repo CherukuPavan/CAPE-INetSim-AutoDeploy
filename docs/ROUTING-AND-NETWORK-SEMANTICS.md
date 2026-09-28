@@ -15,9 +15,10 @@ bridge has no libvirt NAT/forwarding and no physical uplink.
 
 ## No network
 
-The No network route is CAPE route=drop. AutoDeploy adds a source-specific
-DROP to CAPE's rejected forwarding chain before the accepted chain. Required
-CAPE ResultServer traffic is excepted only when it is actually forwarded
+The No network route is CAPE route=drop. AutoDeploy installs a source-specific
+policy at the top of the host FORWARD chain so CAPE's broader forwarding accepts
+cannot bypass it. The task policy drops all guest egress except the required
+CAPE ResultServer control path.
 through the host. This is strict analysis-plane egress blocking; the CAPE
 control plane remains available.
 
