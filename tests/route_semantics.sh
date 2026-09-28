@@ -226,6 +226,56 @@ legacy_insert='''    # CAPE_REJECTED_SEGMENTS is traversed before CAPE_ACCEPTED_
 assert canonical_reset in s
 assert canonical_insert in s
 s=s.replace(canonical_reset,legacy_reset,1).replace(canonical_insert,legacy_insert,1)
+
+# Also emulate the earlier V4 route-policy body, which constrained FORWARD
+# ingress to the libvirt bridge name and could drop packets arriving as vnetX.
+start=s.index("def autodeploy_route_policy_set(")
+end=s.index("\n\n# CAPE_INETSIM_AUTODEPLOY_ROUTE_V4",start)
+legacy_policy='''def autodeploy_route_policy_set(ipaddr, ingress_interface="", allowed_interface="", resultserver_ip="", resultserver_port=""):
+    """Allow only the selected analysis egress plus CAPE ResultServer traffic."""
+    chain = _autodeploy_policy_chain(ipaddr)
+    autodeploy_route_policy_reset(ipaddr)
+
+    out, err = run(ServicePaths.iptables, "-N", chain)
+    if err and "Chain already exists" not in err:
+        raise RuntimeError("RC66 could not create policy chain %s: %s" % (chain, err.strip()))
+    run(ServicePaths.iptables, "-F", chain)
+
+    if resultserver_ip and resultserver_port:
+        rule_pos = ["-I", chain, "1", "--source", ipaddr]
+        if ingress_interface:
+            rule_pos += ["-i", ingress_interface]
+        rule_pos += [
+            "--destination", resultserver_ip,
+            "-p", "tcp",
+            "--dport", resultserver_port,
+            "-j", "ACCEPT",
+        ]
+        _autodeploy_checked_rule(*rule_pos)
+
+    if allowed_interface:
+        pos = "2" if resultserver_ip and resultserver_port else "1"
+        rule_pos = ["-I", chain, pos, "--source", ipaddr]
+        if ingress_interface:
+            rule_pos += ["-i", ingress_interface]
+        rule_pos += ["-o", allowed_interface, "-j", "ACCEPT"]
+        _autodeploy_checked_rule(*rule_pos)
+        drop_pos = "3" if resultserver_ip and resultserver_port else "2"
+    else:
+        drop_pos = "2" if resultserver_ip and resultserver_port else "1"
+
+    rule_pos = ["-I", chain, drop_pos, "--source", ipaddr]
+    if ingress_interface:
+        rule_pos += ["-i", ingress_interface]
+    rule_pos += ["-j", "DROP"]
+    _autodeploy_checked_rule(*rule_pos)
+
+    _autodeploy_checked_rule(
+        "-I", "FORWARD", "1",
+        "-j", chain,
+    )
+'''
+s=s[:start]+legacy_policy+s[end:]
 p.write_text(s)
 PY
 python3 "$ROOT/tools/patch_cape_runtime.py" --root "$LEGACY" --helper-source "$ROOT/tools/task_network_filter.py"
