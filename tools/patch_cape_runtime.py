@@ -37,6 +37,73 @@ def patch_rooter(path: Path) -> None:
 
         # Migrate only the known earlier V4 route-policy shape. Unknown V4
         # implementations fail closed rather than being silently overwritten.
+        # Existing deployed V4 installations also used an ingress-interface
+        # match in the per-task chain. On libvirt/KVM that can be vnetX at the
+        # FORWARD hook, so retain the source/effective-egress policy but migrate
+        # the known old function body to the tap-safe form.
+        policy_start = s.find("def autodeploy_route_policy_set(")
+        policy_marker = "\\n\\n# CAPE_INETSIM_AUTODEPLOY_ROUTE_V4"
+        policy_end = s.find(policy_marker, policy_start) if policy_start >= 0 else -1
+        if policy_start < 0 or policy_end < 0:
+            raise RuntimeError("existing V4 rooter route policy function is missing")
+        policy_block = s[policy_start:policy_end]
+        if "if ingress_interface:" in policy_block:
+            if policy_block.count("if ingress_interface:") != 3:
+                raise RuntimeError("existing V4 rooter route policy has an unknown ingress-match shape")
+            canonical_policy = '''def autodeploy_route_policy_set(ipaddr, ingress_interface="", allowed_interface="", resultserver_ip="", resultserver_port=""):
+    """Allow only the selected analysis egress plus CAPE ResultServer traffic."""
+    chain = _autodeploy_policy_chain(ipaddr)
+    autodeploy_route_policy_reset(ipaddr)
+
+    out, err = run(ServicePaths.iptables, "-N", chain)
+    if err and "Chain already exists" not in err:
+        raise RuntimeError("RC66 could not create policy chain %s: %s" % (chain, err.strip()))
+    run(ServicePaths.iptables, "-F", chain)
+
+    if resultserver_ip and resultserver_port:
+        # Match the management source and ResultServer destination, but do not
+        # pin the Linux FORWARD input device. On libvirt bridge networking the
+        # packet may appear as the tap device rather than the bridge name.
+        rule_pos = [
+            "-I", chain, "1",
+            "--source", ipaddr,
+            "--destination", resultserver_ip,
+            "-p", "tcp",
+            "--dport", resultserver_port,
+            "-j", "ACCEPT",
+        ]
+        _autodeploy_checked_rule(*rule_pos)
+
+    if allowed_interface:
+        pos = "2" if resultserver_ip and resultserver_port else "1"
+        # Match only the source and selected egress device. The ingress
+        # device is intentionally not constrained because libvirt bridge/tap
+        # plumbing can expose the guest frame under vnetX at FORWARD.
+        rule_pos = [
+            "-I", chain, pos,
+            "--source", ipaddr,
+            "--destination", "0.0.0.0/0",
+            "-o", allowed_interface,
+            "-j", "ACCEPT",
+        ]
+        _autodeploy_checked_rule(*rule_pos)
+        drop_pos = "3" if resultserver_ip and resultserver_port else "2"
+    else:
+        drop_pos = "2" if resultserver_ip and resultserver_port else "1"
+
+    # Final source-scoped deny preserves the selected-route allowlist while
+    # avoiding a dependency on the bridge's L3 input-device representation.
+    rule_pos = ["-I", chain, drop_pos, "--source", ipaddr, "-j", "DROP"]
+    _autodeploy_checked_rule(*rule_pos)
+
+    # Enforce the per-task decision at the top of FORWARD. CAPE native's
+    # ESTABLISHED/RELATED acceptance must not bypass the task policy.
+    _autodeploy_checked_rule(
+        "-I", "FORWARD", "1",
+        "-j", chain,
+    )
+'''
+            s = s[:policy_start] + canonical_policy + s[policy_end:]
         legacy_reset = (
             '    while True:\n'
             '        _, err = run_iptables("-D", "CAPE_REJECTED_SEGMENTS", "-j", chain)\n'
