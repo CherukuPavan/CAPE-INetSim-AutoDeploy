@@ -195,7 +195,7 @@ mod["ServicePaths"].iptables="/sbin/iptables"
 mod["autodeploy_route_policy_set"]("192.168.122.204","virbr0","ens33","192.168.122.1","2040")
 rules=[" ".join(a) for kind,a in calls if kind=="iptables"]
 assert any("-i virbr0" in r and "-o ens33" in r and "-j ACCEPT" in r for r in rules), rules
-assert any(a[:4] == ("-I","FORWARD","1","-j") and a[4] == chain for kind,a in calls if kind=="iptables"), calls
+assert any(a[:4] == ("-I","FORWARD","1","-j") and a[4] == "CAPEAD_192_168_122_204" for kind,a in calls if kind=="iptables"), calls
 assert any("-i virbr0" in r and "--destination 192.168.122.1" in r and "--dport 2040" in r and "-j ACCEPT" in r for r in rules), rules
 assert any("-i virbr0" in r and "-j DROP" in r and "-o" not in r for r in rules), rules
 
