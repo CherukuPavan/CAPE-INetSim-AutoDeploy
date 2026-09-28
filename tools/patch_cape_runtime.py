@@ -452,8 +452,7 @@ def patch_all(root: Path, helper: Path) -> None:
             # The helper is transaction-owned after RC66. Permit only a known
             # AutoDeploy helper migration; never overwrite arbitrary operator
             # modifications.
-            legacy_signature = '"suppressed_events": before,\n        "kept_events": 0,
-'
+            legacy_signature = '"suppressed_events": before,\n        "kept_events": 0,\n'
             if legacy_signature not in current or "source_event_count" not in expected:
                 raise RuntimeError("existing task-network helper differs from approved helper; refusing overwrite")
             shutil.copyfile(helper, target)
