@@ -134,12 +134,12 @@ cape_configure_inetsim() {
     # Capture by the actual isolated INetSim endpoint, not the guest management
     # address. This keeps route=inetsim PCAP evidence tied to the isolated path
     # even when DNAT/conntrack rewrites the guest packet on the host.
-    python3 "$edit" "$CAPE_ROOT/conf/auxiliary.conf" sniffer "inetsim_capture_host_${CAPE_MACHINE_LABEL}" "$INETSIM_IP"
+    python3 "$edit" "$CAPE_ROOT/conf/auxiliary.conf" sniffer "inetsim_capture_host_${CAPE_MACHINE_LABEL}" "$CAPE_MACHINE_IP"
     python3 "$edit" "$CAPE_ROOT/conf/kvm.conf" "$CAPE_MACHINE_SECTION" snapshot "$NORMAL_SNAPSHOT"
     python3 "$edit" "$CAPE_ROOT/conf/kvm.conf" "$CAPE_MACHINE_SECTION" interface "$MANAGEMENT_BRIDGE_NAME"
 
     grep -Fq "inetsim_capture_interface_${CAPE_MACHINE_LABEL} = $ISOLATED_BRIDGE_NAME" "$CAPE_ROOT/conf/auxiliary.conf"
-    grep -Fq "inetsim_capture_host_${CAPE_MACHINE_LABEL} = $INETSIM_IP" "$CAPE_ROOT/conf/auxiliary.conf"
+    grep -Fq "inetsim_capture_host_${CAPE_MACHINE_LABEL} = $CAPE_MACHINE_IP" "$CAPE_ROOT/conf/auxiliary.conf"
     local machine_block
     machine_block="$(grep -A160 -F "[$CAPE_MACHINE_SECTION]" "$CAPE_ROOT/conf/kvm.conf" || true)"
     grep -m1 -Fq "snapshot = $NORMAL_SNAPSHOT" <<<"$machine_block"
