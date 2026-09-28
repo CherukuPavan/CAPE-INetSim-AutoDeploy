@@ -5,53 +5,8 @@ ROOT="${AUTODEPLOY_ROOT:-/usr/local/lib/cape-inetsim-autodeploy}"
 AUTODEPLOY_ROOT="$ROOT"
 export AUTODEPLOY_ROOT
 
-# Release provenance should be automatic when repair is launched directly from
-# an extracted public release bundle. Older releases required callers to
-# export four CAPE_INETSIM_RELEASE_* variables manually, which left an
-# otherwise successful in-place repair stamped with the older release.
-#
-# The release package now carries release/source-provenance.json with the
-# immutable tag/source-commit identity. When the sibling source tarball is
-# present (the normal curl/tar/repair workflow), its SHA-256 is calculated
-# locally. We still refuse to commit provenance when the bundle bytes cannot
-# be identified; no guessed provenance is accepted.
-cape_autodiscover_release_provenance() {
-  local manifest="$AUTODEPLOY_ROOT/release/source-provenance.json"
-  local parent bundle_path bundle_name bundle_sha
-  if [[ ! -f "$manifest" ]]; then
-    return 0
-  fi
-
-  if [[ -z "${CAPE_INETSIM_RELEASE_TAG:-}" || -z "${CAPE_INETSIM_RELEASE_SOURCE_COMMIT:-}" || -z "${CAPE_INETSIM_RELEASE_SOURCE_BUNDLE:-}" ]]; then
-    read -r auto_tag auto_commit auto_bundle < <(
-      python3 - "$manifest" <<'PY'
-import json,sys
-d=json.load(open(sys.argv[1],encoding="utf-8"))
-print(str(d.get("release_tag","")).strip(),
-      str(d.get("source_commit","")).strip(),
-      str(d.get("source_bundle","")).strip())
-PY
-    )
-    [[ -z "${CAPE_INETSIM_RELEASE_TAG:-}" && -n "${auto_tag:-}" ]] && CAPE_INETSIM_RELEASE_TAG="$auto_tag"
-    [[ -z "${CAPE_INETSIM_RELEASE_SOURCE_COMMIT:-}" && -n "${auto_commit:-}" ]] && CAPE_INETSIM_RELEASE_SOURCE_COMMIT="$auto_commit"
-    [[ -z "${CAPE_INETSIM_RELEASE_SOURCE_BUNDLE:-}" && -n "${auto_bundle:-}" ]] && CAPE_INETSIM_RELEASE_SOURCE_BUNDLE="$auto_bundle"
-    export CAPE_INETSIM_RELEASE_TAG CAPE_INETSIM_RELEASE_SOURCE_COMMIT CAPE_INETSIM_RELEASE_SOURCE_BUNDLE
-  fi
-
-  if [[ -z "${CAPE_INETSIM_RELEASE_SOURCE_SHA256:-}" && -n "${CAPE_INETSIM_RELEASE_SOURCE_BUNDLE:-}" ]]; then
-    parent="$(dirname "$AUTODEPLOY_ROOT")"
-    bundle_path="$parent/${CAPE_INETSIM_RELEASE_SOURCE_BUNDLE}"
-    if [[ -f "$bundle_path" ]]; then
-      bundle_name="$(basename "$bundle_path")"
-      bundle_sha="$(sha256sum "$bundle_path" | awk '{print $1}')"
-      CAPE_INETSIM_RELEASE_SOURCE_SHA256="$bundle_sha"
-      export CAPE_INETSIM_RELEASE_SOURCE_SHA256
-      info "Auto-discovered release provenance from $bundle_name"
-    fi
-  fi
-}
-
 source "$ROOT/lib/common.sh"
+source "$ROOT/lib/release-provenance.sh"
 source "$ROOT/lib/targets.sh"
 source "$ROOT/lib/state.sh"
 source "$ROOT/lib/transaction.sh"
