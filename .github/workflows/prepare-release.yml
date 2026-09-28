@@ -255,6 +255,24 @@ jobs:
           grep -Fq 'sha256sum -c' "$RUNNER_TEMP/release/install"
           python3 -m json.tool "$RUNNER_TEMP/release/appliance-manifest.json" >/dev/null
 
+          python3 - "$RUNNER_TEMP/release/release-provenance.json" "$RUNNER_TEMP/release/$SOURCE_NAME" "$RELEASE_TAG" "$SOURCE_SHA" <<'PY'
+          import json, pathlib, sys, tarfile
+          provenance, bundle, tag, source = sys.argv[1:]
+          p=json.load(open(provenance,encoding="utf-8"))
+          assert p["release_tag"] == tag
+          assert p["source_commit"] == source
+          assert p["source_bundle"] == pathlib.Path(bundle).name
+          top=pathlib.Path(bundle).name[:-7]
+          member=f"{top}/release/source-provenance.json"
+          with tarfile.open(bundle,"r:gz") as tf:
+              assert member in tf.getnames(), "source provenance file missing from source bundle"
+              embedded=json.load(tf.extractfile(member))
+          assert embedded["release_tag"] == tag
+          assert embedded["source_commit"] == source
+          assert embedded["source_bundle"] == pathlib.Path(bundle).name
+          print("embedded source provenance PASS")
+          PY
+
       - name: Upload release package preview
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
