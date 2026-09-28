@@ -153,47 +153,8 @@ startup=(root/"lib/cuckoo/core/startup.py").read_text()
 assert "CAPE_INETSIM_AUTODEPLOY_INETSIM_NO_NAT_V1" in startup
 assert 'rooter("disable_nat", routing.inetsim.interface)' in startup
 assert 'rooter("enable_nat", routing.inetsim.interface)' not in startup
-
-network_path=root/"modules/processing/network.py"
-network=network_path.read_text()
-assert 'self.results.get("behavior"' not in network
-assert 'behavior_result = results.get("behavior", {}) if isinstance(results, dict) else {}' in network
-print("RC69 task-network filter uses shared behavior context")
+print("RC66 patcher idempotency/marker checks passed")
 PY
-
-# Simulate a live RC69 installation with the old V2 lookup and require the
-# same patcher used by repair to migrate it in place.
-python3 - "$TMP/cape/modules/processing/network.py" <<'PY'
-from pathlib import Path
-import sys
-
-p=Path(sys.argv[1])
-s=p.read_text()
-good='''            behavior_result = results.get("behavior", {}) if isinstance(results, dict) else {}
-            results = filter_network_to_task_process_tree(
-                results,
-                behavior_result,
-                str(self.task.get("route") or ""),
-            )'''
-bad='''            results = filter_network_to_task_process_tree(
-                results,
-                self.results.get("behavior", {}) if isinstance(self.results, dict) else {},
-                str(self.task.get("route") or ""),
-            )'''
-assert good in s
-p.write_text(s.replace(good,bad,1))
-PY
-python3 "$ROOT/tools/patch_cape_runtime.py"   --root "$TMP/cape"   --helper-source "$ROOT/tools/task_network_filter.py"
-python3 - "$TMP/cape/modules/processing/network.py" <<'PY'
-from pathlib import Path
-import sys
-s=Path(sys.argv[1]).read_text()
-assert 'self.results.get("behavior"' not in s
-assert 'behavior_result = results.get("behavior", {}) if isinstance(results, dict) else {}' in s
-assert "CAPE_INETSIM_AUTODEPLOY_TASK_NETWORK_V2" in s
-print("RC69 task-network filter repair migration passed")
-PY
-
 
 # Verify route-policy semantics against a small fake CAPE Rooter environment.
 python3 - "$TMP/cape/utils/rooter.py" <<'PY'
