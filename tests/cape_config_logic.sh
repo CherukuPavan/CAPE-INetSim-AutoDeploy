@@ -90,6 +90,9 @@ interface = virbr1
 ports =
 EOF
 touch "$CAPE_ROOT/web/analysis/views.py"
+cat >"$CAPE_ROOT/web/templates/analysis/network/index.html" <<'EOF'
+<ul id="networkTabs"></ul>
+EOF
 cp "$TMP/sniffer.py" "$CAPE_ROOT/modules/auxiliary/sniffer.py"
 CAPE_TARGETS_JSON='[{"section":"win10","label":"win10","ip":"192.0.2.10","domain":"win10"}]'
 CAPE_TARGETS_COUNT=1
