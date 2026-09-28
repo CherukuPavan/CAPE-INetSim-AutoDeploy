@@ -27,7 +27,7 @@ source "$ROOT/lib/services.sh"
 source "$ROOT/lib/maintenance.sh"
 source "$ROOT/lib/validate.sh"
 
-cape_autodiscover_release_provenance
+cape_autodiscover_release_provenance "$AUTODEPLOY_ROOT"
 
 require_root
 transaction_lock_acquire
