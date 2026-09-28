@@ -177,6 +177,23 @@ jobs:
           cp "$MANIFEST" "$ROOT/appliance/manifest.json"
 
           SOURCE_NAME="CAPE-INetSim-AutoDeploy-$VERSION.tar.gz"
+
+          # Embed immutable release identity inside the source bundle so a
+          # direct in-place repair can recover tag/source commit automatically.
+          # The bundle SHA is intentionally calculated after tar creation to
+          # avoid a circular self-hash.
+          python3 - "$ROOT/release/source-provenance.json" "$SOURCE_SHA" "$CANDIDATE_RUN_ID" "$RELEASE_TAG" "$SOURCE_NAME" <<'PY'
+          import json, pathlib, sys
+          out, source, run, tag, source_name = sys.argv[1:]
+          pathlib.Path(out).write_text(json.dumps({
+              "schema": 1,
+              "release_tag": tag,
+              "source_commit": source,
+              "candidate_run_id": int(run),
+              "source_bundle": source_name
+          }, indent=2) + "\n")
+          PY
+
           SOURCE_EPOCH="$(git -C source show -s --format=%ct "$SOURCE_SHA")"
           tar --sort=name --mtime="@$SOURCE_EPOCH" --owner=0 --group=0 --numeric-owner \
             -C "$RUNNER_TEMP/dist-root" -cf - "CAPE-INetSim-AutoDeploy-$VERSION" \
