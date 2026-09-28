@@ -4,6 +4,7 @@ import gzip
 import importlib.util
 import json
 from pathlib import Path
+import struct
 import sys
 from urllib.parse import urlsplit
 
@@ -56,6 +57,33 @@ def capture_path(task_id):
         if path.is_file() and path.stat().st_size > 0:
             return path
     return None
+
+def pcap_packet_count(path):
+    if not path or not path.is_file():
+        return 0
+    if path.stat().st_size < 24:
+        return 0
+    try:
+        with path.open("rb") as f:
+            header=f.read(24)
+            magic=header[:4]
+            little=magic in (b"\xd4\xc3\xb2\xa1",b"\x4d\x3c\xb2\xa1")
+            big=magic in (b"\xa1\xb2\xc3\xd4",b"\xa1\xb2\x3c\x4d")
+            endian="<" if little else ">" if big else None
+            if not endian:
+                return 0
+            count=0
+            while True:
+                record=f.read(16)
+                if not record:
+                    return count
+                if len(record)!=16:
+                    return count
+                _,_,incl,_=struct.unpack(endian+"IIII",record)
+                f.seek(incl,1)
+                count+=1
+    except (OSError, struct.error):
+        return 0
 
 def norm_host(value):
     return str(value or "").strip().lower().rstrip(".")
@@ -158,10 +186,12 @@ def evaluate(task_id):
         "context_enabled":bool(uses),
         "summary":summary,
         "capture_path":str(capture) if capture else "",
+        "raw_pcap_packet_count":pcap_packet_count(capture),
         "marker_present":bool(evidence),
         "marker_evidence":evidence,
         "marker_reached_inetsim":bool(inetsim_evidence),
         "network_event_count":summary["total_network_events"],
+        "network_meta":network.get("autodeploy_task_network") if isinstance(network.get("autodeploy_task_network"),dict) else {},
     }
 
 positive=evaluate(a.positive_task)
@@ -197,7 +227,16 @@ drop_ok=bool(
 )
 
 if not positive_ok:
-    errors.append("positive task is not a route=inetsim report containing the required marker with task-local INetSim evidence")
+    if positive and positive.get("route") == "inetsim" and positive.get("raw_pcap_packet_count", 0) == 0:
+        errors.append("positive route=inetsim task produced an empty raw PCAP; the marker acceptance probe did not generate observable traffic")
+    elif positive and positive.get("route") == "inetsim" and positive.get("network_event_count", 0) == 0:
+        meta = positive.get("network_meta") or {}
+        errors.append(
+            "positive route=inetsim task has captured/probed traffic but zero analyst-facing Network Analysis events; "
+            "check process attribution metadata: " + json.dumps(meta, sort_keys=True)
+        )
+    else:
+        errors.append("positive task is not a route=inetsim report containing the required marker with task-local INetSim evidence")
 if not negative_ok:
     errors.append("negative task is not a clean route=internet report with no INetSim evidence and no marker")
 if not drop_ok:
