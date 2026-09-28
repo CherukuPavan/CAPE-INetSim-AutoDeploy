@@ -90,6 +90,8 @@ jobs:
         run: bash tests/acceptance_logic.sh
       - name: Recovery validation
         run: bash tests/recovery_validation.sh
+      - name: Release provenance logic
+        run: bash tests/release_provenance.sh
       - name: Release packaging policy
         run: bash tests/release_logic.sh
       - name: Workflow notification policy
