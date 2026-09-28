@@ -16,6 +16,7 @@ import shutil
 MARKER_ROOTER = "CAPE_INETSIM_AUTODEPLOY_ROUTE_V4"
 MARKER_ANALYSIS = "CAPE_INETSIM_AUTODEPLOY_ROUTE_V4"
 MARKER_NETWORK = "CAPE_INETSIM_AUTODEPLOY_TASK_NETWORK_V2"
+MARKER_NETWORK_UI = "CAPE_INETSIM_AUTODEPLOY_NETWORK_UI_V1"
 MARKER_SUBMISSION = "CAPE_INETSIM_AUTODEPLOY_ROUTE_UI_V2"
 MARKER_STARTUP = "CAPE_INETSIM_AUTODEPLOY_INETSIM_NO_NAT_V1"
 
@@ -324,6 +325,43 @@ from modules.processing.autodeploy_task_network import filter_network_to_task_pr
     write(path, s)
 
 
+def patch_network_template(path: Path) -> None:
+    s = read(path)
+    if s.count(MARKER_NETWORK_UI):
+        if s.count(MARKER_NETWORK_UI) != 1:
+            raise RuntimeError("Network Analysis UI marker is ambiguous")
+        return
+
+    anchor = '    <ul class="nav nav-pills nav-fill bg-dark rounded shadow-sm p-1 mb-3" id="networkTabs" role="tablist">\n'
+    notice = '''    {% if network.autodeploy_task_network.enabled %}
+    <div class="alert alert-warning small" role="status">
+        <strong>AutoDeploy Network Analysis:</strong>
+        {% if network.autodeploy_task_network.mode == "strict-no-network" %}
+            No-network mode intentionally hides analyst-facing network events. The raw PCAP remains preserved.
+        {% elif network.autodeploy_task_network.attribution_status == "no-process-tree" %}
+            CAPE parsed {{ network.autodeploy_task_network.source_event_count }} network event{{ network.autodeploy_task_network.source_event_count|pluralize }},
+            but no task ProcessTree was available. The events are hidden to prevent background traffic from being attributed to the submitted task.
+            The raw PCAP remains preserved.
+        {% elif network.autodeploy_task_network.attribution_status == "no-network-events-attributed" %}
+            CAPE parsed {{ network.autodeploy_task_network.source_event_count }} network event{{ network.autodeploy_task_network.source_event_count|pluralize }},
+            but none could be safely attributed to the task ProcessTree. They are hidden to prevent background traffic leakage.
+            The raw PCAP remains preserved.
+        {% elif network.autodeploy_task_network.source_event_count == 0 %}
+            No network events were produced by CAPE's network parser for this analysis.
+        {% endif %}
+        <span class="d-block mt-1 text-muted">
+            Process-attributed events shown: {{ network.autodeploy_task_network.kept_events }}.
+            Suppressed from analyst view: {{ network.autodeploy_task_network.suppressed_events }}.
+        </span>
+        <!-- CAPE_INETSIM_AUTODEPLOY_NETWORK_UI_V1 -->
+    </div>
+    {% endif %}
+'''
+    if anchor not in s:
+        raise RuntimeError("Network Analysis tab anchor not found")
+    s = s.replace(anchor, notice + anchor, 1)
+    write(path, s)
+
 def patch_submission(path: Path) -> None:
     s = read(path)
     if s.count(MARKER_SUBMISSION):
@@ -401,6 +439,7 @@ def patch_all(root: Path, helper: Path) -> None:
     patch_rooter(root / "utils/rooter.py")
     patch_analysis_manager(root / "lib/cuckoo/core/analysis_manager.py")
     patch_network(root / "modules/processing/network.py")
+    patch_network_template(root / "web/templates/analysis/network/index.html")
     patch_submission(root / "web/templates/submission/index.html")
     patch_startup(root / "lib/cuckoo/core/startup.py")
 
@@ -408,8 +447,15 @@ def patch_all(root: Path, helper: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     expected = read(helper)
     if target.exists():
-        if read(target) != expected:
-            raise RuntimeError("existing task-network helper differs from approved helper; refusing overwrite")
+        current = read(target)
+        if current != expected:
+            # The helper is transaction-owned after RC66. Permit only a known
+            # AutoDeploy helper migration; never overwrite arbitrary operator
+            # modifications.
+            legacy = "CAPE_INETSIM_AUTODEPLOY_TASK_NETWORK_V2"
+            if legacy not in current or legacy not in expected or "source_event_count" not in expected:
+                raise RuntimeError("existing task-network helper differs from approved helper; refusing overwrite")
+            shutil.copyfile(helper, target)
     else:
         shutil.copyfile(helper, target)
 
@@ -427,6 +473,7 @@ def main() -> int:
         "utils/rooter.py",
         "lib/cuckoo/core/analysis_manager.py",
         "modules/processing/network.py",
+        "web/templates/analysis/network/index.html",
         "web/templates/submission/index.html",
         "lib/cuckoo/core/startup.py",
     ):
@@ -439,6 +486,7 @@ def main() -> int:
         "utils/rooter.py": MARKER_ROOTER,
         "lib/cuckoo/core/analysis_manager.py": MARKER_ANALYSIS,
         "modules/processing/network.py": MARKER_NETWORK,
+        "web/templates/analysis/network/index.html": MARKER_NETWORK_UI,
         "web/templates/submission/index.html": MARKER_SUBMISSION,
         "lib/cuckoo/core/startup.py": MARKER_STARTUP,
     }
