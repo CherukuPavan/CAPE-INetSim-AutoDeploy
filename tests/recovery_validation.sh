@@ -60,6 +60,7 @@ grep -Fq 'Owned legacy route-global deployment detected' "$ROOT/bin/cape-inetsim
 grep -Fq 'source "$ROOT/lib/runtime-patches.sh"' "$ROOT/bin/cape-inetsim-repair"
 grep -Fq 'source "$ROOT/lib/release-provenance.sh"' "$ROOT/bin/cape-inetsim-repair"
 grep -Fq 'lib/cuckoo/core/startup.py' "$ROOT/lib/runtime-patches.sh"
+grep -Fq 'CAPE_POST_SHA_STARTUP' "$ROOT/lib/cape-configure.sh"
 grep -Fq 'web/templates/analysis/network/index.html' "$ROOT/lib/runtime-patches.sh"
 grep -Fq 'CAPE_INETSIM_AUTODEPLOY_NETWORK_UI_V1' "$ROOT/tools/patch_cape_runtime.py"
 grep -Fq 'CAPE_INETSIM_AUTODEPLOY_INETSIM_NO_NAT_V1' "$ROOT/tools/patch_cape_runtime.py"

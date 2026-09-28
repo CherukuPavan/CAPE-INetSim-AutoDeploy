@@ -8,6 +8,10 @@ trap 'rm -rf "$TMP"' EXIT
 grep -Fq 'Fake Internet — dedicated Ubuntu INetSim appliance' "$ROOT/tools/patch_cape_runtime.py"
 grep -Fq 'No network — strictly blocked (analysis egress)' "$ROOT/tools/patch_cape_runtime.py"
 grep -Fq 'autodeploy_route_policy_set' "$ROOT/tools/patch_cape_runtime.py"
+grep -Fq '"-I", "FORWARD", "1"' "$ROOT/tools/patch_cape_runtime.py"
+grep -Fq 'for parent in ("FORWARD", "CAPE_REJECTED_SEGMENTS")' "$ROOT/tools/patch_cape_runtime.py"
+grep -Fq 'CAPE_INETSIM_AUTODEPLOY_ROUTE_V4' "$ROOT/lib/validate.sh"
+! grep -Fq 'CAPE_INETSIM_AUTODEPLOY_ROUTE_V3' "$ROOT/lib/validate.sh"
 grep -Fq 'CAPE_INETSIM_AUTODEPLOY_TASK_NETWORK_V2' "$ROOT/tools/patch_cape_runtime.py"
 
 # Build a minimal CAPEv2-compatible fixture from the exact patch anchors and
@@ -179,7 +183,7 @@ def run(*args):
 
 def run_iptables(*args, **kwargs):
     calls.append(("iptables",args))
-    if args[:2] == ("-D","CAPE_REJECTED_SEGMENTS"):
+    if args[:2] in (("-D","FORWARD"),("-D","CAPE_REJECTED_SEGMENTS")):
         return "", "rule absent"
     return "", ""
 
@@ -191,6 +195,7 @@ mod["ServicePaths"].iptables="/sbin/iptables"
 mod["autodeploy_route_policy_set"]("192.168.122.204","virbr0","ens33","192.168.122.1","2040")
 rules=[" ".join(a) for kind,a in calls if kind=="iptables"]
 assert any("-i virbr0" in r and "-o ens33" in r and "-j ACCEPT" in r for r in rules), rules
+assert any(a[:4] == ("-I","FORWARD","1","-j") and a[4] == chain for kind,a in calls if kind=="iptables"), calls
 assert any("-i virbr0" in r and "--destination 192.168.122.1" in r and "--dport 2040" in r and "-j ACCEPT" in r for r in rules), rules
 assert any("-i virbr0" in r and "-j DROP" in r and "-o" not in r for r in rules), rules
 
